@@ -29,6 +29,17 @@ Lê as fontes reais e grava `assets/data/*.js` (embutidos, p/ funcionar em `file
   Geral). Filtros do PBIX: Modelo (Caixa/Competência), Centro de Custo (FPG/HPG),
   Acumulado, Natureza Ordenada. Orçado × Realizado por ano + série mensal.
 
+**Inadimplência** (dashboard com PII, à parte):
+
+```bash
+python tools/build_inadimplencia.py
+```
+
+Pega o `dashboard_conferencia.html` (gerado pelo `ControleInadimplencia.py`) e
+aplica a identidade Luxor sem mexer na lógica (re-skin via `:root` + Chart.js
+vendorizado) → `assets/inadimplencia/dashboard.html`, embutido no hub por iframe.
+**Contém PII** — pasta no `.gitignore`, nunca versionar.
+
 Arquivos: `index.html`, `assets/theme.css`, `assets/fonts.css`, `assets/app.js`,
 `assets/vendor/echarts.min.js`, `assets/luxor-logo.png`, `tools/build_data.py`.
 

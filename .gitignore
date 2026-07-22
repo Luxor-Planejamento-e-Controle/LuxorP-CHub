@@ -1,6 +1,7 @@
 # dados reais gerados pelo tools/build_data.py — NÃO versionar (financeiro/PII).
 # Regenerar localmente: python tools/build_data.py
 assets/data/
+assets/inadimplencia/
 
 # ambientes
 .venv/

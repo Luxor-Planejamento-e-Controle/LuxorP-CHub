@@ -219,22 +219,12 @@ function renderDRE(el){
   draw();
 }
 
-/* ---- Inadimplência (migração) ---- */
+/* ---- Inadimplência (dashboard real re-skin Luxor, via iframe) ---- */
 function renderInad(el){
   el.innerHTML=`
-    <div class="banner">🔒 Dado pessoal — acesso restrito no hub real (liberação por admin + auditoria).</div>
-    <div class="card">
-      <div class="card-title"><h2>Migração do dashboard de inadimplência</h2></div>
-      <p style="color:var(--ink-2);max-width:720px;margin:0 0 14px">
-        O dashboard de inadimplência já existe: um HTML gerado pelo
-        <code>ControleInadimplencia.py</code> (KPIs, faixas de atraso, títulos por cliente,
-        sugestões de desconto), a partir de <code>output_pbi/*.xlsx</code>.</p>
-      <p style="color:var(--ink-2);max-width:720px;margin:0 0 14px">
-        A migração = <b>replicar exatamente esse dashboard</b> aqui, trocando a identidade
-        visual (tema claro/Inter) pela identidade Luxor, e colocando-o atrás do controle de
-        acesso do hub. Como contém PII de devedores, os dados <b>não</b> ficam no repositório.</p>
-      <div class="pill pii">PII · não versionar</div>
-    </div>`;
+    <div class="banner" style="margin:0 0 12px">🔒 Dado pessoal (LGPD) — no hub real: acesso liberado por admin + auditoria. Dados locais, fora do git.</div>
+    <iframe class="embed" src="assets/inadimplencia/dashboard.html" title="Dashboard de Inadimplência"></iframe>
+    <div class="hint" style="margin-top:8px">Não carregou? Gere com <code>python tools/build_inadimplencia.py</code>.</div>`;
 }
 
 function soon(el){
