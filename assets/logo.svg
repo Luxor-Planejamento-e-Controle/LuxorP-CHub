@@ -1,0 +1,9 @@
+<svg width="34" height="34" viewBox="0 0 40 40" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Luxor">
+  <g fill="#FFA400">
+    <!-- 4 arrows pointing to center, forming the Luxor X -->
+    <path d="M2 6 L14 20 L2 34 L2 24 L7 20 L2 16 Z"/>
+    <path d="M38 6 L26 20 L38 34 L38 24 L33 20 L38 16 Z"/>
+    <path d="M6 2 L20 14 L34 2 L24 2 L20 7 L16 2 Z"/>
+    <path d="M6 38 L20 26 L34 38 L24 38 L20 33 L16 38 Z"/>
+  </g>
+</svg>

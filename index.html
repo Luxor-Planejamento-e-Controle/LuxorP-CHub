@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Luxor · Planejamento &amp; Controle</title>
+<link rel="icon" href="assets/logo.svg">
+<link rel="stylesheet" href="assets/fonts.css">
+<link rel="stylesheet" href="assets/theme.css">
+</head>
+<body>
+<div class="app">
+  <aside class="sidebar">
+    <div class="brand">
+      <img class="mark" src="assets/logo.svg" width="34" height="34" alt="Luxor">
+      <div class="txt"><b>LUXOR</b><span>P&amp;C HUB</span></div>
+    </div>
+    <nav class="nav" id="nav"></nav>
+    <div class="foot">
+      Versão offline · dados de exemplo<br>© Luxor · Planejamento &amp; Controle
+    </div>
+  </aside>
+  <main class="main">
+    <header class="topbar">
+      <div>
+        <h1 id="pageTitle">Início</h1>
+        <div class="sub" id="pageSub"></div>
+      </div>
+      <div class="spacer"></div>
+      <span class="chip"><span class="dot"></span>Offline</span>
+      <span class="chip">Arthur Martins <span class="avatar">AM</span></span>
+    </header>
+    <div class="content" id="content"></div>
+  </main>
+</div>
+<script src="assets/vendor/echarts.min.js"></script>
+<script src="assets/app.js"></script>
+</body>
+</html>
