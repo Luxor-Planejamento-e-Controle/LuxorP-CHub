@@ -33,11 +33,10 @@ a{color:inherit;text-decoration:none}
   border-right:1px solid var(--line);padding:22px 14px;display:flex;flex-direction:column;gap:6px;
   position:sticky;top:0;height:100vh;overflow-y:auto;
 }
-.brand{display:flex;align-items:center;gap:11px;padding:4px 8px 20px;margin-bottom:6px;border-bottom:1px solid var(--line)}
-.brand .mark{flex:0 0 auto}
-.brand .txt{display:flex;flex-direction:column;line-height:1.05}
-.brand .txt b{font-weight:700;letter-spacing:.14em;font-size:15px}
-.brand .txt span{font-size:10px;letter-spacing:.28em;color:var(--ink-3)}
+.brand{display:flex;align-items:center;gap:12px;padding:2px 8px 20px;margin-bottom:6px;border-bottom:1px solid var(--line)}
+.brand .mark{flex:0 0 auto;width:auto}
+.brand .txt{display:flex;flex-direction:column;line-height:1;border-left:1px solid var(--line);padding-left:12px}
+.brand .txt span{font-size:11px;letter-spacing:.26em;color:var(--ink-2);font-weight:600}
 .nav-label{font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--ink-3);padding:14px 10px 6px}
 .nav a{
   display:flex;align-items:center;gap:11px;padding:9px 11px;border-radius:var(--r-sm);
@@ -55,7 +54,7 @@ a{color:inherit;text-decoration:none}
 .main{display:flex;flex-direction:column;min-width:0}
 .topbar{
   display:flex;align-items:center;gap:16px;padding:16px 26px;border-bottom:1px solid var(--line);
-  background:rgba(13,33,38,.72);backdrop-filter:blur(6px);position:sticky;top:0;z-index:5;
+  background:rgba(13,33,38,.72);-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);position:sticky;top:0;z-index:5;
 }
 .topbar h1{font-family:var(--font-serif);font-size:19px;margin:0;font-weight:600}
 .topbar .sub{color:var(--ink-3);font-size:12px}
@@ -121,6 +120,9 @@ table.data tbody tr:hover td,table.data tr:hover td{background:rgba(255,255,255,
 .hero p{color:var(--ink-2);margin:0;max-width:640px}
 .section-label{font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);margin:26px 0 12px}
 
+.hint,.muted{color:var(--ink-3);font-size:12px}
+.seg button{white-space:nowrap}
+code{background:var(--surface-2);padding:1px 6px;border-radius:5px;font-size:12px;color:var(--orange)}
 .pill{display:inline-flex;align-items:center;gap:6px;font-size:11px;padding:3px 9px;border-radius:20px}
 .pill.soon{background:var(--surface-2);color:var(--ink-3)}
 .pill.pii{background:rgba(229,103,78,.16);color:var(--neg)}
