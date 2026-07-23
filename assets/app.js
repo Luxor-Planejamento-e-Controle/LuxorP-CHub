@@ -195,7 +195,7 @@ function renderDRE(el){
   if(!D){el.innerHTML='<div class="empty">Dados não carregados. Rode <code>python tools/build_data.py</code>.</div>';return;}
   const leafSet=new Set(D.naturezas.filter(n=>!n[1]).map(n=>n[0]));
   // linha de resultado (nome muda por ano: 2023 "RESULTADO APÓS...", 2024+ "FLUXO DE CAIXA APÓS...")
-  const resultRe=/(RESULTADO|FLUXO DE CAIXA) AP[ÓO]S OS INVESTIMENTOS/i;
+  const resultRe=/(RESULTADO|FLUXO DE CAIXA).*AP[ÓO]S (OS )?INVESTIMENTOS/i;
   const comboHasResult=(m,cc)=>D.ytd.rows.some(r=>r[0]===m&&r[1]===cc&&resultRe.test(r[3]));
   const NAT_ALL='Resultado após investimentos';  // rótulo do modo default
   const accOpts=[...D.acumulados];  // faixa única (sem "Todos" — somar faixas = duplo-contagem)
