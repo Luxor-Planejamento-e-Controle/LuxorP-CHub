@@ -22,31 +22,61 @@ def azure_conn():
 
 
 def build_indicadores():
+    import numpy as np
     from azure.storage.blob import BlobServiceClient
     b = BlobServiceClient.from_connection_string(azure_conn())
     bc = b.get_blob_client("luxor-planejamento-e-controle",
                            "LuxorControlDatabase/Indicadores_financeiros.parquet")
     df = pd.read_parquet(io.BytesIO(bc.download_blob().readall()))
     df = df.sort_values("Data")
-    pct = ["Variação Diária", "Mensal", "QTR", "YTD", "36 Meses"]
-    out = {}
+
+    def _prev_period(px, per):
+        """px / (fechamento do período anterior) - 1, por linha."""
+        per_last = px.groupby(per).last()          # último px de cada período
+        base = per.map(per_last.shift(1))           # fechamento do período anterior
+        return px / base.values - 1
+
+    out, fantasy = {}, []
     for idx, g in df.groupby("Índice"):
+        g = g.sort_values("Data").reset_index(drop=True)
+        d = g["Data"]
+        cota = g["Cotação"].astype(float)
+        # tem cotação real (preço/NAV) se preenchida e variando bastante; senão índice sintético
+        real = cota.notna().all() and (cota.nunique() / len(g) > 0.5)
+        if real:
+            px = cota.copy()
+        else:
+            vd = g["Variação Diária"].fillna(0).astype(float)
+            px = 100 * (1 + vd).cumprod()
+            fantasy.append(idx)
+        # métricas recomputadas da série de preço (consistentes, sem furos de fonte)
+        dia = px.pct_change()
+        mtd = _prev_period(px, d.dt.to_period("M"))
+        qtr = _prev_period(px, d.dt.to_period("Q"))
+        ytd = _prev_period(px, d.dt.to_period("Y"))
+        # 36M: px / px(~36 meses atrás), nulo só se histórico < 36 meses
+        tgt = d - pd.DateOffset(months=36)
+        base = pd.DataFrame({"baseDate": d, "basePx": px}).sort_values("baseDate")
+        tmp = pd.DataFrame({"i": range(len(g)), "target": tgt}).sort_values("target")
+        mg = pd.merge_asof(tmp, base, left_on="target", right_on="baseDate", direction="backward")
+        mg = mg.sort_values("i")
+        m36 = px.values / mg["basePx"].values - 1
+        m36 = np.where(tgt.values < d.min().to_datetime64(), np.nan, m36)
+
+        def pc(v):
+            return None if (v is None or pd.isna(v)) else round(float(v) * 100, 2)
         rows = []
-        for _, r in g.iterrows():
-            def p(c):
-                v = r[c]
-                return None if pd.isna(v) else round(float(v) * 100, 2)
-            cota = None if pd.isna(r["Cotação"]) else round(float(r["Cotação"]), 4)
-            rows.append([r["Data"].strftime("%Y-%m-%d"), cota,
-                         p("Variação Diária"), p("Mensal"), p("QTR"), p("YTD"), p("36 Meses")])
+        for i in range(len(g)):
+            rows.append([d.iloc[i].strftime("%Y-%m-%d"), round(float(px.iloc[i]), 4),
+                         pc(dia.iloc[i]), pc(mtd[i]), pc(qtr[i]), pc(ytd[i]), pc(m36[i])])
         out[idx] = rows
+
     indices = sorted(out.keys())
-    payload = {"indices": indices, "rows": out,
-               "cols": ["data", "cota", "dia", "mtd", "qtr", "ytd", "m36"]}
+    payload = {"indices": indices, "rows": out, "fantasy": sorted(fantasy),
+               "cols": ["data", "px", "dia", "mtd", "qtr", "ytd", "m36"]}
     (OUT / "indicadores.js").write_text(
-        "window.IND_DATA=" + json.dumps(payload, ensure_ascii=False) + ";",
-        encoding="utf-8")
-    print(f"[indicadores] {len(indices)} índices, {len(df)} linhas -> indicadores.js")
+        "window.IND_DATA=" + json.dumps(payload, ensure_ascii=False) + ";", encoding="utf-8")
+    print(f"[indicadores] {len(indices)} índices ({len(fantasy)} fantasia), {len(df)} linhas -> indicadores.js")
 
 
 def _nat_order(df):

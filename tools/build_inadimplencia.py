@@ -97,20 +97,14 @@ if(window.Chart){
     return c;
   }
   function remap(v){return Array.isArray(v)?v.map(lux):lux(v);}
+  // Grade/eixos herdam de Chart.defaults.color/borderColor (v4) — não mexer em options.scales.
   Chart.register({id:'luxorSkin',beforeUpdate:function(ch){
     var t=ch.config.type;
     (ch.data.datasets||[]).forEach(function(ds){
       if(ds.backgroundColor!=null)ds.backgroundColor=remap(ds.backgroundColor);
-      if(t==='doughnut'||t==='pie'){ds.borderColor=BG;ds.borderWidth=2;}      // sem borda branca
+      if(t==='doughnut'||t==='pie'){ds.borderColor=BG;ds.borderWidth=2;}   // sem borda branca
       else if(t==='bar'){ds.borderWidth=0;if(ds.borderColor!=null)ds.borderColor=remap(ds.borderColor);}
       else if(ds.borderColor!=null)ds.borderColor=remap(ds.borderColor);
-    });
-    // grade suave + eixos legíveis
-    var sc=ch.options.scales||{};
-    Object.keys(sc).forEach(function(k){var s=sc[k];if(!s)return;
-      s.grid=Object.assign(s.grid||{},{color:GRID,drawBorder:false,lineWidth:1});
-      s.border=Object.assign(s.border||{},{color:AXIS});
-      s.ticks=Object.assign(s.ticks||{},{color:TXT});
     });
   }});
 }

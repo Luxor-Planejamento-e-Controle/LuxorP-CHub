@@ -50,7 +50,7 @@ const ROUTES = [
   {id:'', title:'Início', sub:'Hub de Planejamento & Controle', icon:'home', render:renderHome},
   {id:'indicadores', title:'Indicadores Financeiros', sub:'Cotações e variações por índice', icon:'ind', render:renderIndicadores},
   {id:'dre', title:'DRE — Orçado × Realizado', sub:'Comparativo orçado vs realizado', icon:'dre', render:renderDRE},
-  {id:'inadimplencia', title:'Inadimplência', sub:'Dashboard de inadimplência (PII)', icon:'inad', pii:true, render:renderInad},
+  {id:'inadimplencia', title:'Controle de Inadimplência', sub:'', icon:'inad', render:renderInad},
   {id:'projetos', title:'Projetos', sub:'Controle de projetos de automação/BI', icon:'proj', render:renderProjetos},
 ];
 const byId = id => ROUTES.find(r=>r.id===id) || ROUTES[0];
@@ -59,8 +59,7 @@ function buildNav(){
   const nav=document.getElementById('nav'); nav.innerHTML='';
   for(const r of ROUTES){
     const a=document.createElement('a'); a.href='#/'+r.id; a.className=r.soon?'locked':'';
-    a.innerHTML=`<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="${ICON[r.icon]}"/></svg><span>${r.title}</span>`
-      +(r.pii?'<span class="badge">PII</span>':r.soon?'<span class="badge">soon</span>':'');
+    a.innerHTML=`<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="${ICON[r.icon]}"/></svg><span>${r.title}</span>`;
     nav.appendChild(a);
   }
 }
@@ -98,43 +97,78 @@ function renderIndicadores(el){
   const D=window.IND_DATA;
   if(!D){el.innerHTML='<div class="empty">Dados não carregados. Rode <code>python tools/build_data.py</code>.</div>';return;}
   const inds=D.indices, def=inds.includes('Dólar')?'Dólar':inds[0];
+  const fantasy=new Set(D.fantasy||[]);
+  let zoomState=null;         // {start,end} preservado entre trocas de ticker
   el.innerHTML=`
     <div class="toolbar">
       <div class="field"><label>Índice / Fundo</label>
         <select id="ind">${inds.map(f=>`<option ${f===def?'selected':''}>${f}</option>`).join('')}</select></div>
-      <div class="field" style="justify-content:flex-end"><label>&nbsp;</label>
-        <span class="hint">Arraste a barra abaixo do gráfico para ajustar o período</span></div>
     </div>
     <div class="grid g-4" id="kpis" style="margin-bottom:16px"></div>
-    <div class="card"><div class="card-title"><h2 id="chTitle">Cotação</h2></div><div id="chart" class="chart tall"></div></div>
+    <div class="card">
+      <div class="card-title"><h2 id="chTitle">Cotação</h2><span class="muted" id="fant"></span></div>
+      <div id="measure" class="measure"></div>
+      <div id="chart" class="chart tall"></div>
+    </div>
     <div class="card" style="margin-top:16px"><div class="card-title"><h2>Histórico</h2><span class="muted" id="rowCount"></span></div>
       <div class="tbl-wrap" style="max-height:520px"><table class="data"><thead><tr>
-        <th>Data</th><th>Cotação</th><th>% Dia</th><th>% MTD</th><th>% QTD</th><th>% YTD</th><th>% 36M</th>
+        <th>Data</th><th id="thCota">Cotação</th><th>% Dia</th><th>% MTD</th><th>% QTD</th><th>% YTD</th><th>% 36M</th>
       </tr></thead><tbody id="rows"></tbody></table></div></div>`;
+
+  const measureBox=()=>document.getElementById('measure');
+  function clearMeasure(chart){
+    measureBox().innerHTML='<span class="hint">Clique e arraste sobre o gráfico para medir a variação do período.</span>';
+    if(chart)chart.setOption({series:[{markArea:{data:[]}}]});
+  }
+  function showMeasure(chart,rows,a,b){
+    const lo=Math.min(a,b),hi=Math.max(a,b),p0=rows[lo][1],p1=rows[hi][1],pct=(p1/p0-1)*100;
+    measureBox().innerHTML=`<b>${fmt.br(rows[lo][0])} → ${fmt.br(rows[hi][0])}</b>`
+      +` · Variação <b class="${cls(pct)}">${fmt.pct(pct)}</b>`
+      +` · ${fmt.num(p0)} → ${fmt.num(p1)}`;
+    chart.setOption({series:[{markArea:{silent:true,itemStyle:{color:'rgba(255,164,0,.14)'},
+      data:[[{xAxis:rows[lo][0]},{xAxis:rows[hi][0]}]]}}]});
+  }
+
   const draw=()=>{
     clearCharts();
     const f=document.getElementById('ind').value;
-    const rows=D.rows[f]; // [data,cota,dia,mtd,qtr,ytd,m36] asc
-    document.getElementById('chTitle').textContent='Cotação — '+f;
-    document.getElementById('rowCount').textContent=rows.length+' pregões · '+fmt.br(rows[0][0])+' a '+fmt.br(rows[rows.length-1][0]);
+    const rows=D.rows[f]; // [data,px,dia,mtd,qtr,ytd,m36] asc
+    const fant=fantasy.has(f);
+    document.getElementById('chTitle').textContent=(fant?'Índice (base 100) — ':'Cotação — ')+f;
+    document.getElementById('fant').textContent=fant?'cotação sintética (sem preço de mercado)':'';
+    document.getElementById('thCota').textContent=fant?'Índice':'Cotação';
+    document.getElementById('rowCount').textContent=rows.length+' pontos · '+fmt.br(rows[0][0])+' a '+fmt.br(rows[rows.length-1][0]);
     const last=rows[rows.length-1];
     document.getElementById('kpis').innerHTML=[
-      ['Última cotação',fmt.num(last[1]),fmt.br(last[0]),''],
+      [fant?'Último índice':'Última cotação',fmt.num(last[1]),fmt.br(last[0]),''],
       ['% Dia',fmt.pct(last[2]),'',cls(last[2])],
       ['% MTD',fmt.pct(last[3]),'',cls(last[3])],
       ['% YTD',fmt.pct(last[5]),'',cls(last[5])],
     ].map(([l,v,s,c])=>`<div class="card kpi"><div class="label">${l}</div><div class="val ${c}">${v}</div><div class="delta">${s||'&nbsp;'}</div></div>`).join('');
-    // início do zoom: últimos ~120 pregões
-    const start=Math.max(0,100-12000/rows.length*100), s0=rows.length>180?(1-180/rows.length)*100:0;
-    mkChart(document.getElementById('chart'),Object.assign(baseOpt(),{
+    const s0 = zoomState? zoomState.start : (rows.length>180?(1-180/rows.length)*100:0);
+    const e0 = zoomState? zoomState.end : 100;
+    const chart=mkChart(document.getElementById('chart'),Object.assign(baseOpt(),{
       legend:{show:false},grid:{left:64,right:24,top:18,bottom:64},
-      dataZoom:zoom().map(z=>Object.assign(z,{start:s0,end:100})),
+      dataZoom:zoom().map(z=>Object.assign(z,{start:s0,end:e0})),
       xAxis:axis({type:'category',data:rows.map(r=>r[0]),boundaryGap:false,axisLabel:{color:C.ink3,formatter:v=>fmt.br(v)}}),
       yAxis:axis({type:'value',scale:true,axisLabel:{color:C.ink3,formatter:v=>v.toFixed(2)}}),
       series:[{name:f,type:'line',smooth:true,symbol:'none',data:rows.map(r=>r[1]),
         lineStyle:{color:C.orange,width:2.2},
         areaStyle:{color:new echarts.graphic.LinearGradient(0,0,0,1,[{offset:0,color:'rgba(255,164,0,.26)'},{offset:1,color:'rgba(255,164,0,0)'}])}}]
     }));
+    chart.on('dataZoom',()=>{const dz=chart.getOption().dataZoom[0];zoomState={start:dz.start,end:dz.end};});
+    // medir variação arrastando (estilo Google Finance)
+    const zr=chart.getZr(); let measuring=false,startIdx=null;
+    const idxAt=e=>{const x=e.offsetX,y=e.offsetY;
+      if(!chart.containPixel({gridIndex:0},[x,y]))return null;
+      let i=Math.round(chart.convertFromPixel({xAxisIndex:0},x));
+      return Math.max(0,Math.min(rows.length-1,i));};
+    zr.on('mousedown',e=>{const i=idxAt(e);if(i==null)return;measuring=true;startIdx=i;});
+    zr.on('mousemove',e=>{if(!measuring)return;const j=idxAt(e);if(j!=null)showMeasure(chart,rows,startIdx,j);});
+    zr.on('mouseup',e=>{if(!measuring)return;measuring=false;const j=idxAt(e);
+      if(j!=null&&j!==startIdx)showMeasure(chart,rows,startIdx,j);else clearMeasure(chart);});
+    clearMeasure(chart);
+
     document.getElementById('rows').innerHTML=[...rows].reverse().map(r=>`<tr>
       <td>${fmt.br(r[0])}</td><td>${fmt.num(r[1])}</td>
       <td class="${cls(r[2])}">${fmt.pct(r[2])}</td><td class="${cls(r[3])}">${fmt.pct(r[3])}</td>
