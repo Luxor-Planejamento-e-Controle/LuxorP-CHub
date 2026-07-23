@@ -230,16 +230,32 @@ function renderDRE(el){
   const natList=document.getElementById('natList'), natBtn=document.getElementById('natBtn');
   const natPanel=document.getElementById('natPanel'), natAll=document.getElementById('natAll');
   const natChips=document.getElementById('natChips'), natTxt=natBtn.querySelector('.ms-txt');
+  // naturezas que existem por (Modelo|Centro de Custo) — lista dinâmica
+  const natByCombo={};
+  for(const r of D.ytd.rows){const k=r[0]+'|'+r[1];(natByCombo[k]||(natByCombo[k]=new Set())).add(r[3]);}
+  const validNats=()=>natByCombo[segVal('modelo')+'|'+segVal('cc')]||new Set();
   const cbByName={};
-  D.naturezas.forEach(n=>{
-    const lab=document.createElement('label');
-    const cb=document.createElement('input'); cb.type='checkbox'; cb.value=n[0]; cbByName[n[0]]=cb;
-    const txt=document.createElement('span'); txt.className='ms-name'; txt.textContent=n[0];
-    lab.appendChild(cb); lab.appendChild(txt);
-    if(n[1]){const s=document.createElement('span');s.className='ms-sub';s.textContent='subtotal';lab.appendChild(s);}
-    cb.addEventListener('change',()=>{ if(cb.checked)natSel.add(cb.value); else natSel.delete(cb.value); refreshNat(); });
-    natList.appendChild(lab);
-  });
+  function buildNatList(){
+    const valid=validNats();
+    natList.innerHTML=''; Object.keys(cbByName).forEach(k=>delete cbByName[k]);
+    D.naturezas.forEach(n=>{
+      if(!valid.has(n[0]))return;
+      const lab=document.createElement('label');
+      const cb=document.createElement('input'); cb.type='checkbox'; cb.value=n[0]; cb.checked=natSel.has(n[0]); cbByName[n[0]]=cb;
+      const txt=document.createElement('span'); txt.className='ms-name'; txt.textContent=n[0];
+      lab.appendChild(cb); lab.appendChild(txt);
+      if(n[1]){const s=document.createElement('span');s.className='ms-sub';s.textContent='subtotal';lab.appendChild(s);}
+      cb.addEventListener('change',()=>{ if(cb.checked)natSel.add(cb.value); else natSel.delete(cb.value); refreshNat(); });
+      natList.appendChild(lab);
+    });
+  }
+  buildNatList();
+  function onComboChange(){
+    const valid=validNats();
+    [...natSel].forEach(n=>{ if(!valid.has(n))natSel.delete(n); });   // some naturezas some p/ novo combo
+    document.getElementById('natSearch').value='';
+    buildNatList(); refreshNat();
+  }
   function refreshNat(){
     natMode = natSel.size ? 'set' : 'leaf';
     natAll.checked = natSel.size===0;
@@ -340,7 +356,7 @@ function renderDRE(el){
     zr.on('mousemove',e=>{if(!meas)return;const j=idxAt(e);if(j==null||j===si)return;drg=true;dmeasure(Math.min(si,j),Math.max(si,j),'Recorte');dArea(si,j);});
     zr.on('mouseup',()=>{if(!meas)return;meas=false;if(!drg){dmeasure(dwLo,dwHi,'Janela');dClear();}});
   };
-  bindSeg('modelo',draw); bindSeg('cc',draw);
+  bindSeg('modelo',onComboChange); bindSeg('cc',onComboChange);
   document.getElementById('acc').onchange=draw;
   draw();
 }
