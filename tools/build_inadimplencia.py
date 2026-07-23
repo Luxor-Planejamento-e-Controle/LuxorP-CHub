@@ -37,9 +37,15 @@ header{display:none !important}
 .kpi-card:hover,section:hover{border-color:var(--border-2) !important}
 .kpi-label,.kpi-sub{color:var(--text-2) !important}
 .kpi-value{color:var(--text) !important}
-.kpi-card.red .kpi-value{color:var(--danger) !important}
-.kpi-card.green .kpi-value{color:var(--ok) !important}
-.kpi-card.orange .kpi-value{color:var(--accent) !important}
+/* cor por natureza: amarelo=vencido/atenção · vermelho=ação judicial · branco=total/a vencer */
+.kpi-card.yellow .kpi-value{color:#f6c000 !important}
+.kpi-card.red .kpi-value{color:#FF0000 !important}
+/* scrollbars discretas (mata o quadrado branco no canto) */
+::-webkit-scrollbar{height:9px;width:9px}
+::-webkit-scrollbar-track{background:transparent !important}
+::-webkit-scrollbar-thumb{background:rgba(255,255,255,.18) !important;border-radius:5px}
+::-webkit-scrollbar-thumb:hover{background:rgba(255,255,255,.30) !important}
+::-webkit-scrollbar-corner{background:transparent !important}
 section h2,.chart-box h2{color:var(--text) !important;border-bottom-color:var(--border) !important}
 /* status / avisos */
 .status-bar{background:var(--accent-soft) !important;color:var(--accent) !important;
@@ -94,6 +100,13 @@ COLOR_FIXES = [
     ('"#525252"', '"#D9D9D9"'),
 ]
 
+# Cor do KPI por rótulo (sobrescreve a classe original do gerador).
+# '' = neutro (branco). yellow = atenção/vencido. red = ação judicial.
+KPI_COLOR = [
+    ("Total em Aberto", ""), ("Vencido", "yellow"), ("A Vencer", ""),
+    ("Inadimplentes", "yellow"), ("Judicial", "red"), ("Entregues", "yellow"),
+]
+
 
 def run():
     h = SRC.read_text(encoding="utf-8", errors="ignore")
@@ -111,6 +124,12 @@ def run():
     # 2b) cores dos gráficos -> paleta Luxor (cirúrgico, na ordem definida)
     for a, b in COLOR_FIXES:
         h = h.replace(a, b)
+
+    # 2c) cor dos KPIs por rótulo (troca a classe do card conforme o label)
+    for label, cls in KPI_COLOR:
+        newc = "kpi-card " + cls if cls else "kpi-card"
+        pat = r'class="kpi-card[^"]*"((?:(?!kpi-card).)*?kpi-label">[^<]*?' + re.escape(label) + r')'
+        h = re.sub(pat, lambda m, nc=newc: f'class="{nc}"' + m.group(1), h, count=1, flags=re.S)
 
     # 3) injeta override Luxor antes de </head>
     h = h.replace("</head>", LUXOR_OVERRIDE + "</head>", 1)
