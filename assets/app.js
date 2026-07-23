@@ -162,47 +162,55 @@ function renderDRE(el){
       <div class="field"><label>Centro de Custo</label>${seg('cc',D.centros,defCC)}</div>
       <div class="field"><label>Acumulado</label>
         <select id="acc">${accOpts.map(a=>`<option ${a==='Todos'?'selected':''}>${a}</option>`).join('')}</select></div>
-      <div class="field"><label>Natureza (múltipla)</label>
+      <div class="field" style="flex:1;min-width:260px"><label>Natureza (múltipla)</label>
         <div class="ms" id="natMs">
-          <button type="button" class="ms-btn" id="natBtn">${NAT_ALL}</button>
+          <button type="button" class="ms-btn" id="natBtn"><span class="ms-txt">${NAT_ALL}</span></button>
           <div class="ms-panel" id="natPanel" hidden>
-            <input type="search" class="ms-search" id="natSearch" placeholder="buscar natureza…">
+            <div class="ms-head">
+              <input type="search" class="ms-search" id="natSearch" placeholder="buscar natureza…">
+              <button type="button" class="ms-clear" id="natClear">Limpar</button>
+            </div>
             <label class="ms-all"><input type="checkbox" id="natAll" checked> ${NAT_ALL}</label>
             <div class="ms-list" id="natList"></div>
           </div>
         </div></div>
     </div>
+    <div class="ms-chips" id="natChips"></div>
     <div class="grid g-3" id="kpis" style="margin-bottom:16px"></div>
     <div class="card"><div class="card-title"><h2>Orçado × Realizado por ano</h2><span class="muted" id="barSub"></span></div><div id="bar" class="chart"></div></div>
     <div class="card" style="margin-top:16px"><div class="card-title"><h2>Comparativo Orçado × Realizado (mensal)</h2><span class="muted">arraste para ajustar período</span></div><div id="line" class="chart tall"></div></div>`;
 
-  // ---- multi-select natureza ----
+  // ---- multi-select natureza (chips + limpar) ----
   const natList=document.getElementById('natList'), natBtn=document.getElementById('natBtn');
   const natPanel=document.getElementById('natPanel'), natAll=document.getElementById('natAll');
+  const natChips=document.getElementById('natChips'), natTxt=natBtn.querySelector('.ms-txt');
+  const cbByName={};
   D.naturezas.forEach(n=>{
     const lab=document.createElement('label');
-    const cb=document.createElement('input'); cb.type='checkbox'; cb.value=n[0];
-    const txt=document.createElement('span'); txt.textContent=n[0];
+    const cb=document.createElement('input'); cb.type='checkbox'; cb.value=n[0]; cbByName[n[0]]=cb;
+    const txt=document.createElement('span'); txt.className='ms-name'; txt.textContent=n[0];
     lab.appendChild(cb); lab.appendChild(txt);
     if(n[1]){const s=document.createElement('span');s.className='ms-sub';s.textContent='subtotal';lab.appendChild(s);}
-    cb.addEventListener('change',()=>{
-      if(cb.checked)natSel.add(cb.value); else natSel.delete(cb.value);
-      natMode = natSel.size? 'set':'leaf';
-      natAll.checked = natSel.size===0;
-      updateNatBtn(); draw();
-    });
+    cb.addEventListener('change',()=>{ if(cb.checked)natSel.add(cb.value); else natSel.delete(cb.value); refreshNat(); });
     natList.appendChild(lab);
   });
-  function updateNatBtn(){
-    natBtn.textContent = natMode==='leaf'? NAT_ALL
-      : natSel.size===1? [...natSel][0] : `${natSel.size} selecionadas`;
+  function refreshNat(){
+    natMode = natSel.size ? 'set' : 'leaf';
+    natAll.checked = natSel.size===0;
+    natTxt.textContent = natMode==='leaf' ? NAT_ALL : `${natSel.size} selecionada${natSel.size>1?'s':''}`;
+    natChips.innerHTML='';
+    [...natSel].forEach(name=>{
+      const chip=document.createElement('span'); chip.className='chip-sel';
+      const s=document.createElement('span'); s.textContent=name; s.title=name; chip.appendChild(s);
+      const x=document.createElement('button'); x.type='button'; x.className='chip-x'; x.textContent='×'; x.title='remover';
+      x.onclick=()=>{ natSel.delete(name); if(cbByName[name])cbByName[name].checked=false; refreshNat(); };
+      chip.appendChild(x); natChips.appendChild(chip);
+    });
+    draw();
   }
-  natAll.addEventListener('change',()=>{
-    if(natAll.checked){natSel.clear();natMode='leaf';
-      natList.querySelectorAll('input').forEach(c=>c.checked=false);}
-    else if(natSel.size===0){natAll.checked=true;} // não desmarca sozinho
-    updateNatBtn(); draw();
-  });
+  function clearNat(){ natSel.clear(); natList.querySelectorAll('input').forEach(c=>c.checked=false); refreshNat(); }
+  natAll.addEventListener('change',()=>{ if(natAll.checked)clearNat(); else if(natSel.size===0)natAll.checked=true; });
+  document.getElementById('natClear').onclick=clearNat;
   natBtn.onclick=()=>{natPanel.hidden=!natPanel.hidden;};
   document.getElementById('natSearch').addEventListener('input',e=>{
     const q=e.target.value.toLowerCase();
