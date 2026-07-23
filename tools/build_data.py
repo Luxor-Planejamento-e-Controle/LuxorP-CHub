@@ -31,10 +31,13 @@ def build_indicadores():
     df = df.sort_values("Data")
 
     def _prev_period(px, per):
-        """px / (fechamento do período anterior) - 1, por linha."""
-        per_last = px.groupby(per).last()          # último px de cada período
-        base = per.map(per_last.shift(1))           # fechamento do período anterior
-        return px / base.values - 1
+        """px / base - 1. base = fechamento do período anterior; se não houver
+        (período de início da série), usa a 1ª cotação do próprio período."""
+        per_last = px.groupby(per).last()
+        base = per.map(per_last.shift(1))
+        first_in = px.groupby(per).transform("first")
+        base = base.reset_index(drop=True).fillna(pd.Series(first_in.values))
+        return px.values / base.values - 1
 
     out, fantasy = {}, []
     for idx, g in df.groupby("Índice"):

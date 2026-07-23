@@ -212,7 +212,9 @@ function renderDRE(el){
     <div class="ms-chips" id="natChips"></div>
     <div class="grid g-3" id="kpis" style="margin-bottom:16px"></div>
     <div class="card"><div class="card-title"><h2>Orçado × Realizado por ano</h2><span class="muted" id="barSub"></span></div><div id="bar" class="chart"></div></div>
-    <div class="card" style="margin-top:16px"><div class="card-title"><h2>Comparativo Orçado × Realizado (mensal)</h2><span class="muted">arraste para ajustar período</span></div><div id="line" class="chart tall"></div></div>`;
+    <div class="card" style="margin-top:16px"><div class="card-title"><h2>Comparativo Orçado × Realizado (mensal)</h2></div>
+      <div id="dreMeasure" class="measure"></div>
+      <div id="line" class="chart tall"></div></div>`;
 
   // ---- multi-select natureza (chips + limpar) ----
   const natList=document.getElementById('natList'), natBtn=document.getElementById('natBtn');
@@ -287,15 +289,31 @@ function renderDRE(el){
       const k=r[3]; const o=map.get(k)||[0,0]; o[0]+=r[4]; o[1]+=r[5]; map.set(k,o);
     }
     const datas=[...map.keys()].sort();
-    mkChart(document.getElementById('line'),Object.assign(baseOpt(),{
+    const gO=datas.map(d=>map.get(d)[0]), gR=datas.map(d=>map.get(d)[1]);
+    const lineChart=mkChart(document.getElementById('line'),Object.assign(baseOpt(),{
       dataZoom:zoom(),
       xAxis:axis({type:'category',data:datas,boundaryGap:false,axisLabel:{color:C.ink3,formatter:fmt.mesano}}),
       yAxis:axis({type:'value',axisLabel:{color:C.ink3,formatter:v=>(v/1e6).toFixed(1)+' Mi'}}),
       series:[
-        {name:'Orçado',type:'line',smooth:true,symbol:'none',data:datas.map(d=>map.get(d)[0]),lineStyle:{color:C.teal,width:2},itemStyle:{color:C.teal}},
-        {name:'Realizado',type:'line',smooth:true,symbol:'none',data:datas.map(d=>map.get(d)[1]),lineStyle:{color:C.orange,width:2.2},itemStyle:{color:C.orange}},
+        {name:'Orçado',type:'line',smooth:true,symbol:'none',data:gO,lineStyle:{color:C.teal,width:2},itemStyle:{color:C.teal}},
+        {name:'Realizado',type:'line',smooth:true,symbol:'none',data:gR,lineStyle:{color:C.orange,width:2.2},itemStyle:{color:C.orange}},
       ]
     }));
+    // medir intervalo arrastando (Google Finance)
+    const dm=document.getElementById('dreMeasure');
+    const clrM=()=>{dm.innerHTML='<span class="hint">Clique e arraste sobre o gráfico para medir o intervalo.</span>';lineChart.setOption({series:[{markArea:{data:[]}},{}]});};
+    const showM=(a,b)=>{const lo=Math.min(a,b),hi=Math.max(a,b);
+      dm.innerHTML=`<b>${fmt.mesano(datas[lo])} → ${fmt.mesano(datas[hi])}</b>`
+        +` · Orçado ${fmt.mi(gO[lo])} → ${fmt.mi(gO[hi])} <b class="${cls(gO[hi]-gO[lo])}">(${fmt.mi(gO[hi]-gO[lo])})</b>`
+        +` · Realizado ${fmt.mi(gR[lo])} → ${fmt.mi(gR[hi])} <b class="${cls(gR[hi]-gR[lo])}">(${fmt.mi(gR[hi]-gR[lo])})</b>`;
+      lineChart.setOption({series:[{markArea:{silent:true,itemStyle:{color:'rgba(255,164,0,.14)'},data:[[{xAxis:datas[lo]},{xAxis:datas[hi]}]]}},{}]});};
+    const zr=lineChart.getZr(); let meas=false,si=null;
+    const idxAt=e=>{const x=e.offsetX,y=e.offsetY;if(!lineChart.containPixel({gridIndex:0},[x,y]))return null;
+      return Math.max(0,Math.min(datas.length-1,Math.round(lineChart.convertFromPixel({xAxisIndex:0},x))));};
+    zr.on('mousedown',e=>{const i=idxAt(e);if(i==null)return;meas=true;si=i;});
+    zr.on('mousemove',e=>{if(!meas)return;const j=idxAt(e);if(j!=null)showM(si,j);});
+    zr.on('mouseup',e=>{if(!meas)return;meas=false;const j=idxAt(e);if(j!=null&&j!==si)showM(si,j);else clrM();});
+    clrM();
   };
   bindSeg('modelo',draw); bindSeg('cc',draw);
   document.getElementById('acc').onchange=draw;

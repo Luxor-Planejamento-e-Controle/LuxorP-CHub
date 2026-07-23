@@ -67,15 +67,15 @@ option{background:#0A1B20;color:var(--text)}
 CHART_DARK = r"""
 <script>
 if(window.Chart){
-  var BG='#12303A', GRID='rgba(255,255,255,.07)', AXIS='rgba(255,255,255,.14)', TXT='#DCEAEA', TXT_HI='#F3F9F9';
+  var BG='#12303A', GRID='rgba(255,255,255,.05)', AXIS='rgba(255,255,255,.12)', TXT='#EAF4F4', TXT_HI='#F3F9F9';
   Chart.defaults.color=TXT;
-  Chart.defaults.borderColor=AXIS;
+  Chart.defaults.borderColor=GRID;
   Chart.defaults.font.family="Fakt Pro, system-ui, sans-serif";
   if(Chart.defaults.plugins&&Chart.defaults.plugins.legend)
     Chart.defaults.plugins.legend.labels.color=TXT_HI;
 
-  // Paleta Luxor viva e distinta (mapeada por matiz a partir das cores originais).
-  var LUX={red:'#F0705A',orange:'#FFA400',yellow:'#F2C14E',green:'#4CC38A',teal:'#3FA7B8',gray:'#9BB0B4'};
+  // Paleta = mesmas cores do hub Luxor.
+  var LUX={red:'#E5674E',orange:'#FFA400',yellow:'#F2C14E',green:'#46B678',teal:'#2E97A6',gray:'#8A9BA0'};
   function parse(c){
     if(typeof c!=='string')return null;
     var m=c.match(/^#([0-9a-f]{3})$/i); if(m){var h=m[1];return[parseInt(h[0]+h[0],16),parseInt(h[1]+h[1],16),parseInt(h[2]+h[2],16)];}
@@ -97,16 +97,26 @@ if(window.Chart){
     return c;
   }
   function remap(v){return Array.isArray(v)?v.map(lux):lux(v);}
-  // Grade/eixos herdam de Chart.defaults.color/borderColor (v4) — não mexer em options.scales.
-  Chart.register({id:'luxorSkin',beforeUpdate:function(ch){
-    var t=ch.config.type;
-    (ch.data.datasets||[]).forEach(function(ds){
-      if(ds.backgroundColor!=null)ds.backgroundColor=remap(ds.backgroundColor);
-      if(t==='doughnut'||t==='pie'){ds.borderColor=BG;ds.borderWidth=2;}   // sem borda branca
-      else if(t==='bar'){ds.borderWidth=0;if(ds.borderColor!=null)ds.borderColor=remap(ds.borderColor);}
-      else if(ds.borderColor!=null)ds.borderColor=remap(ds.borderColor);
-    });
-  }});
+  Chart.register({id:'luxorSkin',
+    // grade suave + eixos legíveis: setado 1x no config, antes das escalas existirem (seguro).
+    beforeInit:function(ch){
+      var sc=ch.config.options&&ch.config.options.scales; if(!sc)return;
+      Object.keys(sc).forEach(function(k){var s=sc[k]; if(!s||typeof s!=='object')return;
+        s.grid=s.grid||{}; s.grid.color=GRID; s.grid.tickColor=GRID; s.grid.drawTicks=false;
+        s.ticks=s.ticks||{}; s.ticks.color=TXT;
+        s.border=s.border||{}; s.border.color=AXIS;
+      });
+    },
+    // recolore só os datasets (idempotente).
+    beforeUpdate:function(ch){
+      var t=ch.config.type;
+      (ch.data.datasets||[]).forEach(function(ds){
+        if(ds.backgroundColor!=null)ds.backgroundColor=remap(ds.backgroundColor);
+        if(t==='doughnut'||t==='pie'){ds.borderColor=BG;ds.borderWidth=2;}
+        else if(t==='bar'){ds.borderWidth=0;if(ds.borderColor!=null)ds.borderColor=remap(ds.borderColor);}
+        else if(ds.borderColor!=null)ds.borderColor=remap(ds.borderColor);
+      });
+    }});
 }
 </script>
 """
