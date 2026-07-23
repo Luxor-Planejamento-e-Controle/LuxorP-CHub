@@ -50,11 +50,8 @@ const ROUTES = [
   {id:'', title:'Início', sub:'Hub de Planejamento & Controle', icon:'home', render:renderHome},
   {id:'indicadores', title:'Indicadores Financeiros', sub:'Cotações e variações por índice', icon:'ind', render:renderIndicadores},
   {id:'dre', title:'DRE — Orçado × Realizado', sub:'Comparativo orçado vs realizado', icon:'dre', render:renderDRE},
-  {id:'fluxo-caixa', title:'Fluxo de Caixa', sub:'Em breve', icon:'fluxo', soon:true, render:soon},
-  {id:'participacoes', title:'Participações', sub:'Em breve', icon:'part', soon:true, render:soon},
-  {id:'plantel-vendas', title:'Plantel / Vendas HPG', sub:'Em breve', icon:'plantel', soon:true, render:soon},
-  {id:'inadimplencia', title:'Inadimplência', sub:'Migração do dashboard atual', icon:'inad', pii:true, render:renderInad},
-  {id:'projetos', title:'Projetos', sub:'Em breve · migrar do controle-de-projetos', icon:'proj', soon:true, render:soon},
+  {id:'inadimplencia', title:'Inadimplência', sub:'Dashboard de inadimplência (PII)', icon:'inad', pii:true, render:renderInad},
+  {id:'projetos', title:'Projetos', sub:'Controle de projetos de automação/BI', icon:'proj', render:renderProjetos},
 ];
 const byId = id => ROUTES.find(r=>r.id===id) || ROUTES[0];
 
@@ -74,7 +71,7 @@ function router(){
   document.getElementById('pageTitle').textContent=r.title;
   document.getElementById('pageSub').textContent=r.sub;
   document.querySelectorAll('#nav a').forEach(a=>a.classList.toggle('active',a.getAttribute('href')==='#/'+id));
-  const c=document.getElementById('content'); c.innerHTML=''; r.render(c); window.scrollTo(0,0);
+  const c=document.getElementById('content'); c.className='content'; c.innerHTML=''; r.render(c); window.scrollTo(0,0);
 }
 
 /* ---- helpers UI ---- */
@@ -87,10 +84,9 @@ const segVal=id=>document.querySelector('#'+id+' button.on').dataset.v;
 /* ---- Início ---- */
 function renderHome(el){
   const cards=ROUTES.filter(r=>r.id).map(r=>{
-    const tag=r.pii?'<span class="pill pii">PII · migração</span>':r.soon?'<span class="pill soon">em breve</span>':'<span class="pill live">dados reais</span>';
     return `<a class="card hover" href="#/${r.id}">
       <div class="card-title"><svg class="ico" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="${C.orange}" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="${ICON[r.icon]}"/></svg><h3 style="margin:0">${r.title}</h3></div>
-      <div class="desc">${r.sub}</div><div style="margin-top:12px">${tag}</div></a>`;
+      <div class="desc">${r.sub}</div></a>`;
   }).join('');
   el.innerHTML=`<div class="hero"><h1>Planejamento &amp; Controle</h1>
     <p>Hub central dos dashboards do P&amp;C da Luxor. Versão <b>offline</b> — Indicadores e DRE já com <b>dados reais</b>; demais em migração.</p></div>
@@ -158,22 +154,66 @@ function renderDRE(el){
   const accOpts=['Todos',...D.acumulados];
   const defModelo=D.modelos.includes('Caixa')?'Caixa':D.modelos[0];
   const defCC=D.centros.includes('HPG')?'HPG':D.centros[0];
+  let natMode='leaf';               // 'leaf' = todas (líquido) | 'set' = selecionadas
+  const natSel=new Set();
   el.innerHTML=`
     <div class="toolbar">
       <div class="field"><label>Modelo</label>${seg('modelo',D.modelos,defModelo)}</div>
       <div class="field"><label>Centro de Custo</label>${seg('cc',D.centros,defCC)}</div>
       <div class="field"><label>Acumulado</label>
         <select id="acc">${accOpts.map(a=>`<option ${a==='Todos'?'selected':''}>${a}</option>`).join('')}</select></div>
-      <div class="field"><label>Natureza</label>
-        <select id="nat"><option selected>${NAT_ALL}</option>${D.naturezas.map(n=>`<option>${n[0]}</option>`).join('')}</select></div>
+      <div class="field"><label>Natureza (múltipla)</label>
+        <div class="ms" id="natMs">
+          <button type="button" class="ms-btn" id="natBtn">${NAT_ALL}</button>
+          <div class="ms-panel" id="natPanel" hidden>
+            <input type="search" class="ms-search" id="natSearch" placeholder="buscar natureza…">
+            <label class="ms-all"><input type="checkbox" id="natAll" checked> ${NAT_ALL}</label>
+            <div class="ms-list" id="natList"></div>
+          </div>
+        </div></div>
     </div>
     <div class="grid g-3" id="kpis" style="margin-bottom:16px"></div>
     <div class="card"><div class="card-title"><h2>Orçado × Realizado por ano</h2><span class="muted" id="barSub"></span></div><div id="bar" class="chart"></div></div>
     <div class="card" style="margin-top:16px"><div class="card-title"><h2>Comparativo Orçado × Realizado (mensal)</h2><span class="muted">arraste para ajustar período</span></div><div id="line" class="chart tall"></div></div>`;
+
+  // ---- multi-select natureza ----
+  const natList=document.getElementById('natList'), natBtn=document.getElementById('natBtn');
+  const natPanel=document.getElementById('natPanel'), natAll=document.getElementById('natAll');
+  D.naturezas.forEach(n=>{
+    const lab=document.createElement('label');
+    const cb=document.createElement('input'); cb.type='checkbox'; cb.value=n[0];
+    const txt=document.createElement('span'); txt.textContent=n[0];
+    lab.appendChild(cb); lab.appendChild(txt);
+    if(n[1]){const s=document.createElement('span');s.className='ms-sub';s.textContent='subtotal';lab.appendChild(s);}
+    cb.addEventListener('change',()=>{
+      if(cb.checked)natSel.add(cb.value); else natSel.delete(cb.value);
+      natMode = natSel.size? 'set':'leaf';
+      natAll.checked = natSel.size===0;
+      updateNatBtn(); draw();
+    });
+    natList.appendChild(lab);
+  });
+  function updateNatBtn(){
+    natBtn.textContent = natMode==='leaf'? NAT_ALL
+      : natSel.size===1? [...natSel][0] : `${natSel.size} selecionadas`;
+  }
+  natAll.addEventListener('change',()=>{
+    if(natAll.checked){natSel.clear();natMode='leaf';
+      natList.querySelectorAll('input').forEach(c=>c.checked=false);}
+    else if(natSel.size===0){natAll.checked=true;} // não desmarca sozinho
+    updateNatBtn(); draw();
+  });
+  natBtn.onclick=()=>{natPanel.hidden=!natPanel.hidden;};
+  document.getElementById('natSearch').addEventListener('input',e=>{
+    const q=e.target.value.toLowerCase();
+    natList.querySelectorAll('label').forEach(l=>{l.style.display=l.textContent.toLowerCase().includes(q)?'':'none';});
+  });
+  document.addEventListener('click',e=>{if(!document.getElementById('natMs').contains(e.target))natPanel.hidden=true;});
+
   const draw=()=>{
     clearCharts();
-    const m=segVal('modelo'), cc=segVal('cc'), acc=document.getElementById('acc').value, nat=document.getElementById('nat').value;
-    const natOk = r => nat===NAT_ALL ? leafSet.has(r) : r===nat;
+    const m=segVal('modelo'), cc=segVal('cc'), acc=document.getElementById('acc').value;
+    const natOk = r => natMode==='leaf' ? leafSet.has(r) : natSel.has(r);
     // barras (ytd): [modelo,cc,acumulado,natureza,ano,cenario,valor]
     const anos=D.anos, byAno={}; anos.forEach(a=>byAno[a]={'Orçado':0,'Realizado':0});
     for(const r of D.ytd.rows){
@@ -184,7 +224,8 @@ function renderDRE(el){
     }
     const orc=anos.map(a=>byAno[a]['Orçado']), rea=anos.map(a=>byAno[a]['Realizado']);
     const totO=orc.reduce((a,b)=>a+b,0), totR=rea.reduce((a,b)=>a+b,0), dev=totR-totO;
-    document.getElementById('barSub').textContent=`${m} · ${cc} · ${acc} · ${nat===NAT_ALL?'líquido':nat}`;
+    const natDesc = natMode==='leaf'?'líquido':(natSel.size===1?[...natSel][0]:`${natSel.size} naturezas`);
+    document.getElementById('barSub').textContent=`${m} · ${cc} · ${acc} · ${natDesc}`;
     document.getElementById('kpis').innerHTML=[
       ['Orçado (acum.)',fmt.mi(totO),''],['Realizado (acum.)',fmt.mi(totR),''],['Desvio (Real − Orç)',fmt.mi(dev),cls(dev)],
     ].map(([l,v,c])=>`<div class="card kpi"><div class="label">${l}</div><div class="val ${c}" style="font-size:22px">${v}</div><div class="delta">&nbsp;</div></div>`).join('');
@@ -215,23 +256,30 @@ function renderDRE(el){
     }));
   };
   bindSeg('modelo',draw); bindSeg('cc',draw);
-  document.getElementById('acc').onchange=draw; document.getElementById('nat').onchange=draw;
+  document.getElementById('acc').onchange=draw;
   draw();
 }
 
 /* ---- Inadimplência (dashboard real re-skin Luxor, via iframe) ---- */
 function renderInad(el){
-  el.innerHTML=`
-    <div class="banner" style="margin:0 0 12px">🔒 Dado pessoal (LGPD) — no hub real: acesso liberado por admin + auditoria. Dados locais, fora do git.</div>
-    <iframe class="embed" src="assets/inadimplencia/dashboard.html" title="Dashboard de Inadimplência"></iframe>
-    <div class="hint" style="margin-top:8px">Não carregou? Gere com <code>python tools/build_inadimplencia.py</code>.</div>`;
+  el.classList.add('flush');
+  el.innerHTML=`<iframe class="embed" src="assets/inadimplencia/dashboard.html" title="Dashboard de Inadimplência"></iframe>`;
 }
 
-function soon(el){
-  el.innerHTML=`<div class="empty"><div class="big">🚧</div>
-    <div style="font-size:16px;color:var(--ink-2);margin-bottom:6px">Em construção</div>
-    <div>Este dashboard entra numa próxima fase do hub.</div></div>`;
+/* ---- Projetos (app real controle-de-projetos, via iframe) ---- */
+function renderProjetos(el){
+  el.classList.add('flush');
+  el.innerHTML=`<iframe class="embed" src="assets/projetos/index.html" title="Controle de Projetos"></iframe>`;
 }
+
+/* ---- sidebar recolhível ---- */
+(function collapse(){
+  const btn=document.getElementById('collapseBtn'), app=document.querySelector('.app');
+  if(localStorage.getItem('pc-collapsed')==='1')app.classList.add('collapsed');
+  btn.onclick=()=>{app.classList.toggle('collapsed');
+    localStorage.setItem('pc-collapsed',app.classList.contains('collapsed')?'1':'0');
+    charts.forEach(c=>c.resize());};
+})();
 
 buildNav();
 window.addEventListener('hashchange',router);

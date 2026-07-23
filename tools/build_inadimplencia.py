@@ -10,7 +10,8 @@ import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-SRC = Path(r"G:/Drives compartilhados/Luxor Controladoria/Ambiente de testes/Controle de inadimplência/output_pbi/dashboard_conferencia.html")
+# Fonte = repo local do controle-de-inadimplencia (fonte da verdade).
+SRC = Path(r"C:/Users/Arthur/repos/controle-de-inadimplencia/output_pbi/dashboard_conferencia.html")
 OUTDIR = ROOT / "assets" / "inadimplencia"
 OUTDIR.mkdir(parents=True, exist_ok=True)
 OUT = OUTDIR / "dashboard.html"
@@ -18,43 +19,100 @@ OUT = OUTDIR / "dashboard.html"
 LUXOR_OVERRIDE = """
 <link rel="stylesheet" href="../fonts.css">
 <style>
-/* ===== Identidade Luxor (override do tema claro original) ===== */
+/* ===== Identidade Luxor (override do tema claro original) — alto contraste ===== */
 :root{
-  --bg:#0D2126; --surface:#143840; --surface-2:#1B4650;
-  --text:#EAF4F4; --text-2:#A7C3C5; --muted:#6E8C90;
-  --border:rgba(255,255,255,.13); --border-2:rgba(255,255,255,.24);
-  --accent:#FFA400; --accent-soft:rgba(255,164,0,.14); --accent-hover:#E08E00;
-  --ok:#46B678; --warn:#F2C14E; --danger:#E5674E;
+  --bg:#0A1B20; --surface:#12303A; --surface-2:#1C4653;
+  --text:#F3F9F9; --text-2:#C4DBDD; --muted:#8AA6AB;
+  --border:rgba(255,255,255,.18); --border-2:rgba(255,255,255,.34);
+  --accent:#FFA400; --accent-soft:rgba(255,164,0,.16); --accent-hover:#FFB733;
+  --ok:#54C983; --warn:#F5C95B; --danger:#F0705A;
 }
 body{font-family:'Fakt Pro',system-ui,-apple-system,'Segoe UI',sans-serif !important;
-  background:var(--bg) !important;color:var(--text)}
-header{background:linear-gradient(180deg,#113036,#143840)}
-header .lx-logo{height:26px;width:auto;margin-right:14px}
-header h1{color:var(--text)}
+  background:var(--bg) !important;color:var(--text) !important}
+/* header interno escondido (o hub já tem topbar) + aproveita a largura toda */
+header{display:none !important}
+.container{max-width:none !important;padding:16px 22px 34px !important}
+/* superfícies (fundo explícito p/ contraste) */
+.kpi-card,section,.chart-box,.section-filters{background:var(--surface) !important;border-color:var(--border) !important}
+.kpi-card:hover,section:hover{border-color:var(--border-2) !important}
+.kpi-label,.kpi-sub{color:var(--text-2) !important}
+.kpi-value{color:var(--text) !important}
+.kpi-card.red .kpi-value{color:var(--danger) !important}
+.kpi-card.green .kpi-value{color:var(--ok) !important}
+.kpi-card.orange .kpi-value{color:var(--accent) !important}
+section h2,.chart-box h2{color:var(--text) !important;border-bottom-color:var(--border) !important}
 /* status / avisos */
 .status-bar{background:var(--accent-soft) !important;color:var(--accent) !important;
-  border:1px solid rgba(255,164,0,.35) !important}
+  border:1px solid rgba(255,164,0,.4) !important}
 /* controle de desconto */
-.desconto-control{background:var(--accent-soft) !important;border-color:rgba(255,164,0,.35) !important}
+.desconto-control{background:var(--accent-soft) !important;border-color:rgba(255,164,0,.4) !important;color:var(--text-2) !important}
+/* tabelas */
+th{background:#0A1B20 !important;color:var(--text-2) !important;border-bottom-color:var(--border) !important}
+td{color:var(--text) !important;border-bottom-color:var(--border) !important}
+td.num.neg,td.neg{color:var(--danger) !important}
+tbody tr:hover td{background:rgba(255,255,255,.05) !important}
+tr.row-total td{background:var(--surface-2) !important}
+/* inputs/botões */
+select,input,.btn{background:var(--surface-2) !important;color:var(--text) !important;border-color:var(--border) !important}
+.btn:hover{background:#24505d !important}
+option{background:#0A1B20;color:var(--text)}
 /* tags de categoria — tints escuros legíveis */
-.tag-LATINO{background:rgba(46,151,166,.18);color:#8fd3dd}
-.tag-CONDOMINIO{background:rgba(255,164,0,.16);color:#ffc766}
-.tag-DAMASCO{background:rgba(242,193,78,.16);color:#f2c14e}
-.tag-LOTUS{background:rgba(229,103,78,.16);color:#f0a091}
-/* inputs/botões herdam via var; garante contraste do foco */
-select,input,.btn{background:var(--surface) !important;color:var(--text) !important}
-option{background:#0b1f24;color:var(--text)}
-th{background:#0b1f24 !important}
-tbody tr:hover td{background:rgba(255,255,255,.04) !important}
+.tag-LATINO{background:rgba(46,151,166,.28) !important;color:#a9e4ec !important}
+.tag-CONDOMINIO{background:rgba(255,164,0,.24) !important;color:#ffca70 !important}
+.tag-DAMASCO{background:rgba(245,201,91,.22) !important;color:#f5d780 !important}
+.tag-LOTUS{background:rgba(240,112,90,.24) !important;color:#f5a596 !important}
 </style>
 """
 
-CHART_DARK = """
+CHART_DARK = r"""
 <script>
 if(window.Chart){
-  Chart.defaults.color='#A7C3C5';
-  Chart.defaults.borderColor='rgba(255,255,255,.10)';
+  var BG='#12303A', GRID='rgba(255,255,255,.07)', AXIS='rgba(255,255,255,.14)', TXT='#DCEAEA', TXT_HI='#F3F9F9';
+  Chart.defaults.color=TXT;
+  Chart.defaults.borderColor=AXIS;
   Chart.defaults.font.family="Fakt Pro, system-ui, sans-serif";
+  if(Chart.defaults.plugins&&Chart.defaults.plugins.legend)
+    Chart.defaults.plugins.legend.labels.color=TXT_HI;
+
+  // Paleta Luxor viva e distinta (mapeada por matiz a partir das cores originais).
+  var LUX={red:'#F0705A',orange:'#FFA400',yellow:'#F2C14E',green:'#4CC38A',teal:'#3FA7B8',gray:'#9BB0B4'};
+  function parse(c){
+    if(typeof c!=='string')return null;
+    var m=c.match(/^#([0-9a-f]{3})$/i); if(m){var h=m[1];return[parseInt(h[0]+h[0],16),parseInt(h[1]+h[1],16),parseInt(h[2]+h[2],16)];}
+    m=c.match(/^#([0-9a-f]{6})$/i); if(m)return[parseInt(m[1].slice(0,2),16),parseInt(m[1].slice(2,4),16),parseInt(m[1].slice(4,6),16)];
+    m=c.match(/rgba?\(([^)]+)\)/i); if(m){var p=m[1].split(',').map(Number);return[p[0],p[1],p[2]];}
+    return null;
+  }
+  function lux(c){
+    var rgb=parse(c); if(!rgb)return c;
+    var r=rgb[0],g=rgb[1],b=rgb[2],mx=Math.max(r,g,b),mn=Math.min(r,g,b),d=mx-mn;
+    if(d<38)return LUX.gray;
+    var h; if(mx===r)h=60*(((g-b)/d)%6); else if(mx===g)h=60*((b-r)/d+2); else h=60*((r-g)/d+4);
+    if(h<0)h+=360;
+    if(h<20||h>=345)return LUX.red;
+    if(h<45)return LUX.orange;
+    if(h<70)return LUX.yellow;
+    if(h<170)return LUX.green;
+    if(h<260)return LUX.teal;
+    return c;
+  }
+  function remap(v){return Array.isArray(v)?v.map(lux):lux(v);}
+  Chart.register({id:'luxorSkin',beforeUpdate:function(ch){
+    var t=ch.config.type;
+    (ch.data.datasets||[]).forEach(function(ds){
+      if(ds.backgroundColor!=null)ds.backgroundColor=remap(ds.backgroundColor);
+      if(t==='doughnut'||t==='pie'){ds.borderColor=BG;ds.borderWidth=2;}      // sem borda branca
+      else if(t==='bar'){ds.borderWidth=0;if(ds.borderColor!=null)ds.borderColor=remap(ds.borderColor);}
+      else if(ds.borderColor!=null)ds.borderColor=remap(ds.borderColor);
+    });
+    // grade suave + eixos legíveis
+    var sc=ch.options.scales||{};
+    Object.keys(sc).forEach(function(k){var s=sc[k];if(!s)return;
+      s.grid=Object.assign(s.grid||{},{color:GRID,drawBorder:false,lineWidth:1});
+      s.border=Object.assign(s.border||{},{color:AXIS});
+      s.ticks=Object.assign(s.ticks||{},{color:TXT});
+    });
+  }});
 }
 </script>
 """
