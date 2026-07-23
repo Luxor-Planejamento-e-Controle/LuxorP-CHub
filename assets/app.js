@@ -194,18 +194,25 @@ function renderDRE(el){
   const D=window.DRE_DATA;
   if(!D){el.innerHTML='<div class="empty">Dados não carregados. Rode <code>python tools/build_data.py</code>.</div>';return;}
   const leafSet=new Set(D.naturezas.filter(n=>!n[1]).map(n=>n[0]));
-  const NAT_ALL='Todas (líquido)';
-  const accOpts=['Todos',...D.acumulados];
+  // linha de resultado (nome muda por ano: 2023 "RESULTADO APÓS...", 2024+ "FLUXO DE CAIXA APÓS...")
+  const resultRe=/(RESULTADO|FLUXO DE CAIXA) AP[ÓO]S OS INVESTIMENTOS/i;
+  const comboHasResult=(m,cc)=>D.ytd.rows.some(r=>r[0]===m&&r[1]===cc&&resultRe.test(r[3]));
+  const NAT_ALL='Resultado após investimentos';  // rótulo do modo default
+  const accOpts=[...D.acumulados];  // faixa única (sem "Todos" — somar faixas = duplo-contagem)
+  // Acumulado padrão = última faixa YTD com dado no ano mais recente (até o mês atual)
+  const latestAno=Math.max(...D.anos);
+  const accData=[...new Set(D.ytd.rows.filter(r=>r[4]===latestAno).map(r=>r[2]))].sort();
+  const defAcc=accData[accData.length-1]||accOpts[accOpts.length-1];
   const defModelo=D.modelos.includes('Caixa')?'Caixa':D.modelos[0];
   const defCC=D.centros.includes('HPG')?'HPG':D.centros[0];
-  let natMode='leaf';               // 'leaf' = todas (líquido) | 'set' = selecionadas
+  let natMode='result';             // 'result' = linha de resultado (default) | 'set' = selecionadas
   const natSel=new Set();
   el.innerHTML=`
     <div class="toolbar">
       <div class="field"><label>Modelo</label>${seg('modelo',D.modelos,defModelo)}</div>
       <div class="field"><label>Centro de Custo</label>${seg('cc',D.centros,defCC)}</div>
       <div class="field"><label>Acumulado</label>
-        <select id="acc">${accOpts.map(a=>`<option ${a==='Todos'?'selected':''}>${a}</option>`).join('')}</select></div>
+        <select id="acc">${accOpts.map(a=>`<option ${a===defAcc?'selected':''}>${a}</option>`).join('')}</select></div>
       <div class="field" style="flex:1;min-width:260px"><label>Natureza (múltipla)</label>
         <div class="ms" id="natMs">
           <button type="button" class="ms-btn" id="natBtn"><span class="ms-txt">${NAT_ALL}</span></button>
@@ -254,12 +261,12 @@ function renderDRE(el){
     const valid=validNats();
     [...natSel].forEach(n=>{ if(!valid.has(n))natSel.delete(n); });   // some naturezas some p/ novo combo
     document.getElementById('natSearch').value='';
-    buildNatList(); refreshNat();
+    buildNatList(); refreshNat();   // natSel vazio => volta pro modo resultado (default)
   }
   function refreshNat(){
-    natMode = natSel.size ? 'set' : 'leaf';
+    natMode = natSel.size ? 'set' : 'result';
     natAll.checked = natSel.size===0;
-    natTxt.textContent = natMode==='leaf' ? NAT_ALL : `${natSel.size} selecionada${natSel.size>1?'s':''}`;
+    natTxt.textContent = natMode==='result' ? NAT_ALL : `${natSel.size} selecionada${natSel.size>1?'s':''}`;
     natChips.innerHTML='';
     [...natSel].forEach(name=>{
       const chip=document.createElement('span'); chip.className='chip-sel';
@@ -283,18 +290,19 @@ function renderDRE(el){
   const draw=()=>{
     clearCharts();
     const m=segVal('modelo'), cc=segVal('cc'), acc=document.getElementById('acc').value;
-    const natOk = r => natMode==='leaf' ? leafSet.has(r) : natSel.has(r);
+    const hasRes = natMode==='result' && comboHasResult(m,cc);   // FPG não tem linha de resultado -> cai p/ líquido
+    const natOk = r => natMode==='set' ? natSel.has(r) : (hasRes ? resultRe.test(r) : leafSet.has(r));
     // barras (ytd): [modelo,cc,acumulado,natureza,ano,cenario,valor]
     const anos=D.anos, byAno={}; anos.forEach(a=>byAno[a]={'Orçado':0,'Realizado':0});
     for(const r of D.ytd.rows){
       if(r[0]!==m||r[1]!==cc)continue;
-      if(acc!=='Todos'&&r[2]!==acc)continue;
+      if(r[2]!==acc)continue;                  // faixa única (Acumulado)
       if(!natOk(r[3]))continue;
       if(byAno[r[4]])byAno[r[4]][r[5]]+=r[6];
     }
     const orc=anos.map(a=>byAno[a]['Orçado']), rea=anos.map(a=>byAno[a]['Realizado']);
     const totO=orc.reduce((a,b)=>a+b,0), totR=rea.reduce((a,b)=>a+b,0), dev=totR-totO;
-    const natDesc = natMode==='leaf'?'líquido':(natSel.size===1?[...natSel][0]:`${natSel.size} naturezas`);
+    const natDesc = natMode==='result'?(hasRes?'resultado após investimentos':'líquido'):(natSel.size===1?[...natSel][0]:`${natSel.size} naturezas`);
     const devPct = totO!==0 ? dev/Math.abs(totO)*100 : null;
     document.getElementById('barSub').textContent=`${m} · ${cc} · ${acc} · ${natDesc}`;
     document.getElementById('kpis').innerHTML=[
