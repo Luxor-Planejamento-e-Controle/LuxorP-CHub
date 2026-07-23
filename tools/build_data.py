@@ -32,6 +32,10 @@ def build_indicadores():
     def pc(v):
         return None if (v is None or pd.isna(v)) else round(float(v) * 100, 2)
 
+    # Manga/Lipi: limitar exibição a partir de 2020 (histórico anterior existe, mas não interessa aqui)
+    lim2020 = df["Índice"].str.startswith(("Mangalarga", "Lipizzaner")) & (df["Data"] < "2020-01-01")
+    df = df[~lim2020]
+
     out, fantasy = {}, []
     for idx, g in df.groupby("Índice"):
         g = g.sort_values("Data").reset_index(drop=True)

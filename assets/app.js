@@ -28,7 +28,6 @@ function baseOpt(){return {
 const axis = extra => Object.assign({axisLine:{lineStyle:{color:C.line}},axisLabel:{color:C.ink3},
   splitLine:{lineStyle:{color:C.line}},axisTick:{show:false}},extra||{});
 function zoom(){return [
-  {type:'inside',throttle:50},
   {type:'slider',height:22,bottom:16,borderColor:C.line,fillerColor:'rgba(255,164,0,.14)',
    handleStyle:{color:C.orange},moveHandleStyle:{color:C.orange},
    dataBackground:{lineStyle:{color:C.ink3},areaStyle:{color:'rgba(167,195,197,.15)'}},
@@ -117,20 +116,6 @@ function renderIndicadores(el){
         <th>Data</th><th id="thCota">Cotação</th><th>% Dia</th><th>% MTD</th><th>% QTD</th><th>% YTD</th><th>% 36M</th>
       </tr></thead><tbody id="rows"></tbody></table></div></div>`;
 
-  const measureBox=()=>document.getElementById('measure');
-  function clearMeasure(chart){
-    measureBox().innerHTML='<span class="hint">Clique e arraste sobre o gráfico para medir a variação do período.</span>';
-    if(chart)chart.setOption({series:[{markArea:{data:[]}}]});
-  }
-  function showMeasure(chart,rows,a,b){
-    const lo=Math.min(a,b),hi=Math.max(a,b),p0=rows[lo][1],p1=rows[hi][1],pct=(p1/p0-1)*100;
-    measureBox().innerHTML=`<b>${fmt.br(rows[lo][0])} → ${fmt.br(rows[hi][0])}</b>`
-      +` · Variação <b class="${cls(pct)}">${fmt.pct(pct)}</b>`
-      +` · ${fmt.num(p0)} → ${fmt.num(p1)}`;
-    chart.setOption({series:[{markArea:{silent:true,itemStyle:{color:'rgba(255,164,0,.14)'},
-      data:[[{xAxis:rows[lo][0]},{xAxis:rows[hi][0]}]]}}]});
-  }
-
   const draw=()=>{
     clearCharts();
     const f=document.getElementById('ind').value;
@@ -165,7 +150,7 @@ function renderIndicadores(el){
         lineStyle:{color:C.orange,width:2.2},
         areaStyle:{color:new echarts.graphic.LinearGradient(0,0,0,1,[{offset:0,color:'rgba(255,164,0,.26)'},{offset:1,color:'rgba(255,164,0,0)'}])}}]
     }));
-    // histórico segue o período selecionado no gráfico (zoom)
+    // período definido SÓ pela barra de seleção (dataZoom). Tabela + variação seguem ela.
     const n=rows.length;
     const idxRange=(st,en)=>[Math.max(0,Math.floor(st/100*(n-1))),Math.min(n-1,Math.ceil(en/100*(n-1)))];
     const renderTable=(lo,hi)=>{
@@ -177,20 +162,28 @@ function renderIndicadores(el){
         <td class="${cls(r[4])}">${fmt.pct(r[4])}</td><td class="${cls(r[5])}">${fmt.pct(r[5])}</td>
         <td class="${cls(r[6])}">${fmt.pct(r[6])}</td></tr>`).join('');
     };
-    chart.on('dataZoom',()=>{const dz=chart.getOption().dataZoom[0];zoomState={start:dz.start,end:dz.end};
-      const[lo,hi]=idxRange(dz.start,dz.end);renderTable(lo,hi);});
-    // medir variação arrastando (estilo Google Finance)
-    const zr=chart.getZr(); let measuring=false,startIdx=null;
-    const idxAt=e=>{const x=e.offsetX,y=e.offsetY;
-      if(!chart.containPixel({gridIndex:0},[x,y]))return null;
-      let i=Math.round(chart.convertFromPixel({xAxisIndex:0},x));
-      return Math.max(0,Math.min(rows.length-1,i));};
-    zr.on('mousedown',e=>{const i=idxAt(e);if(i==null)return;measuring=true;startIdx=i;});
-    zr.on('mousemove',e=>{if(!measuring)return;const j=idxAt(e);if(j!=null)showMeasure(chart,rows,startIdx,j);});
-    zr.on('mouseup',e=>{if(!measuring)return;measuring=false;const j=idxAt(e);
-      if(j!=null&&j!==startIdx)showMeasure(chart,rows,startIdx,j);else clearMeasure(chart);});
-    clearMeasure(chart);
-    const[il,ih]=idxRange(s0,e0); renderTable(il,ih);
+    const measure=(lo,hi,label)=>{
+      const p0=rows[lo][1],p1=rows[hi][1],pct=(p1/p0-1)*100;
+      document.getElementById('measure').innerHTML=`${label} <b>${fmt.br(rows[lo][0])} → ${fmt.br(rows[hi][0])}</b>`
+        +` · Variação <b class="${cls(pct)}">${fmt.pct(pct)}</b> · ${fmt.num(p0)} → ${fmt.num(p1)}`
+        +(label==='Janela'?' <span class="hint">· arraste sobre o gráfico p/ medir um recorte</span>':'');
+    };
+    const setArea=(a,b)=>chart.setOption({series:[{markArea:{silent:true,itemStyle:{color:'rgba(255,164,0,.16)'},
+      data:[[{xAxis:rows[Math.min(a,b)][0]},{xAxis:rows[Math.max(a,b)][0]}]]}}]});
+    const clearArea=()=>chart.setOption({series:[{markArea:{data:[]}}]});
+    // BARRA: só janela de tempo (tabela + variação da janela)
+    let winLo,winHi;
+    const applyWindow=(st,en)=>{[winLo,winHi]=idxRange(st,en);renderTable(winLo,winHi);measure(winLo,winHi,'Janela');clearArea();};
+    chart.on('dataZoom',()=>{const dz=chart.getOption().dataZoom[0];zoomState={start:dz.start,end:dz.end};applyWindow(dz.start,dz.end);});
+    applyWindow(s0,e0);
+    // CLIQUE+ARRASTA: mede variação de um recorte, sem mexer no tempo
+    const zr=chart.getZr(); let measuring=false,startIdx=null,dragged=false;
+    const idxAt=e=>{if(!chart.containPixel({gridIndex:0},[e.offsetX,e.offsetY]))return null;
+      return Math.max(0,Math.min(rows.length-1,Math.round(chart.convertFromPixel({xAxisIndex:0},e.offsetX))));};
+    zr.on('mousedown',e=>{const i=idxAt(e);if(i==null)return;measuring=true;startIdx=i;dragged=false;});
+    zr.on('mousemove',e=>{if(!measuring)return;const j=idxAt(e);if(j==null||j===startIdx)return;dragged=true;
+      measure(Math.min(startIdx,j),Math.max(startIdx,j),'Recorte');setArea(startIdx,j);});
+    zr.on('mouseup',()=>{if(!measuring)return;measuring=false;if(!dragged){measure(winLo,winHi,'Janela');clearArea();}});
   };
   document.getElementById('ind').onchange=draw;
   draw();
@@ -322,23 +315,30 @@ function renderDRE(el){
         {name:'Realizado',type:'line',smooth:true,symbol:'none',data:gR,lineStyle:{color:C.orange,width:2.2},itemStyle:{color:C.orange}},
       ]
     }));
-    // medir intervalo arrastando (Google Finance)
+    // BARRA = janela de tempo; CLIQUE+ARRASTA = mede recorte (não mexe no tempo)
     const dm=document.getElementById('dreMeasure');
-    const clrM=()=>{dm.innerHTML='<span class="hint">Clique e arraste sobre o gráfico para medir o intervalo.</span>';lineChart.setOption({series:[{markArea:{data:[]}},{}]});};
     const vpct=(a0,a1)=>a0!==0?(a1-a0)/Math.abs(a0)*100:null;
-    const showM=(a,b)=>{const lo=Math.min(a,b),hi=Math.max(a,b);
+    const nD=datas.length;
+    const dmeasure=(lo,hi,label)=>{
       const dO=gO[hi]-gO[lo], dR=gR[hi]-gR[lo];
-      dm.innerHTML=`<b>${fmt.mesano(datas[lo])} → ${fmt.mesano(datas[hi])}</b>`
+      dm.innerHTML=`${label} <b>${fmt.mesano(datas[lo])} → ${fmt.mesano(datas[hi])}</b>`
         +` · Orçado ${fmt.mi(gO[lo])} → ${fmt.mi(gO[hi])} <b class="${cls(dO)}">(${fmt.mi(dO)} · ${fmt.pct(vpct(gO[lo],gO[hi]))})</b>`
-        +` · Realizado ${fmt.mi(gR[lo])} → ${fmt.mi(gR[hi])} <b class="${cls(dR)}">(${fmt.mi(dR)} · ${fmt.pct(vpct(gR[lo],gR[hi]))})</b>`;
-      lineChart.setOption({series:[{markArea:{silent:true,itemStyle:{color:'rgba(255,164,0,.14)'},data:[[{xAxis:datas[lo]},{xAxis:datas[hi]}]]}},{}]});};
-    const zr=lineChart.getZr(); let meas=false,si=null;
-    const idxAt=e=>{const x=e.offsetX,y=e.offsetY;if(!lineChart.containPixel({gridIndex:0},[x,y]))return null;
-      return Math.max(0,Math.min(datas.length-1,Math.round(lineChart.convertFromPixel({xAxisIndex:0},x))));};
-    zr.on('mousedown',e=>{const i=idxAt(e);if(i==null)return;meas=true;si=i;});
-    zr.on('mousemove',e=>{if(!meas)return;const j=idxAt(e);if(j!=null)showM(si,j);});
-    zr.on('mouseup',e=>{if(!meas)return;meas=false;const j=idxAt(e);if(j!=null&&j!==si)showM(si,j);else clrM();});
-    clrM();
+        +` · Realizado ${fmt.mi(gR[lo])} → ${fmt.mi(gR[hi])} <b class="${cls(dR)}">(${fmt.mi(dR)} · ${fmt.pct(vpct(gR[lo],gR[hi]))})</b>`
+        +(label==='Janela'?' <span class="hint">· arraste p/ medir recorte</span>':'');
+    };
+    const dRange=(st,en)=>[Math.max(0,Math.floor(st/100*(nD-1))),Math.min(nD-1,Math.ceil(en/100*(nD-1)))];
+    const dArea=(a,b)=>lineChart.setOption({series:[{markArea:{silent:true,itemStyle:{color:'rgba(255,164,0,.16)'},data:[[{xAxis:datas[Math.min(a,b)]},{xAxis:datas[Math.max(a,b)]}]]}},{}]});
+    const dClear=()=>lineChart.setOption({series:[{markArea:{data:[]}},{}]});
+    let dwLo,dwHi;
+    const dApply=(st,en)=>{[dwLo,dwHi]=dRange(st,en);dmeasure(dwLo,dwHi,'Janela');dClear();};
+    lineChart.on('dataZoom',()=>{const dz=lineChart.getOption().dataZoom[0];dApply(dz.start,dz.end);});
+    dApply(0,100);
+    const zr=lineChart.getZr(); let meas=false,si=null,drg=false;
+    const idxAt=e=>{if(!lineChart.containPixel({gridIndex:0},[e.offsetX,e.offsetY]))return null;
+      return Math.max(0,Math.min(nD-1,Math.round(lineChart.convertFromPixel({xAxisIndex:0},e.offsetX))));};
+    zr.on('mousedown',e=>{const i=idxAt(e);if(i==null)return;meas=true;si=i;drg=false;});
+    zr.on('mousemove',e=>{if(!meas)return;const j=idxAt(e);if(j==null||j===si)return;drg=true;dmeasure(Math.min(si,j),Math.max(si,j),'Recorte');dArea(si,j);});
+    zr.on('mouseup',()=>{if(!meas)return;meas=false;if(!drg){dmeasure(dwLo,dwHi,'Janela');dClear();}});
   };
   bindSeg('modelo',draw); bindSeg('cc',draw);
   document.getElementById('acc').onchange=draw;
