@@ -22,7 +22,6 @@ def azure_conn():
 
 
 def build_indicadores():
-    import numpy as np
     from azure.storage.blob import BlobServiceClient
     b = BlobServiceClient.from_connection_string(azure_conn())
     bc = b.get_blob_client("luxor-planejamento-e-controle",
@@ -30,48 +29,31 @@ def build_indicadores():
     df = pd.read_parquet(io.BytesIO(bc.download_blob().readall()))
     df = df.sort_values("Data")
 
-    def _prev_period(px, per):
-        """px / base - 1. base = fechamento do período anterior; se não houver
-        (período de início da série), usa a 1ª cotação do próprio período."""
-        per_last = px.groupby(per).last()
-        base = per.map(per_last.shift(1))
-        first_in = px.groupby(per).transform("first")
-        base = base.reset_index(drop=True).fillna(pd.Series(first_in.values))
-        return px.values / base.values - 1
+    def pc(v):
+        return None if (v is None or pd.isna(v)) else round(float(v) * 100, 2)
 
     out, fantasy = {}, []
     for idx, g in df.groupby("Índice"):
         g = g.sort_values("Data").reset_index(drop=True)
         d = g["Data"]
         cota = g["Cotação"].astype(float)
-        # tem cotação real (preço/NAV) se preenchida e variando bastante; senão índice sintético
+        # cotação real (preço/NAV) se preenchida e variando; senão índice sintético.
         real = cota.notna().all() and (cota.nunique() / len(g) > 0.5)
         if real:
-            px = cota.copy()
+            px = cota
         else:
+            # "Variação Diária" é taxa diária-CALENDÁRIO. Compõe por dias corridos
+            # entre linhas (inclui fim de semana), senão anualiza errado (ex.: 13,07%).
             vd = g["Variação Diária"].fillna(0).astype(float)
-            px = 100 * (1 + vd).cumprod()
+            dias = d.diff().dt.days.fillna(0)
+            px = 100 * ((1 + vd) ** dias).cumprod()
             fantasy.append(idx)
-        # métricas recomputadas da série de preço (consistentes, sem furos de fonte)
-        dia = px.pct_change()
-        mtd = _prev_period(px, d.dt.to_period("M"))
-        qtr = _prev_period(px, d.dt.to_period("Q"))
-        ytd = _prev_period(px, d.dt.to_period("Y"))
-        # 36M: px / px(~36 meses atrás), nulo só se histórico < 36 meses
-        tgt = d - pd.DateOffset(months=36)
-        base = pd.DataFrame({"baseDate": d, "basePx": px}).sort_values("baseDate")
-        tmp = pd.DataFrame({"i": range(len(g)), "target": tgt}).sort_values("target")
-        mg = pd.merge_asof(tmp, base, left_on="target", right_on="baseDate", direction="backward")
-        mg = mg.sort_values("i")
-        m36 = px.values / mg["basePx"].values - 1
-        m36 = np.where(tgt.values < d.min().to_datetime64(), np.nan, m36)
-
-        def pc(v):
-            return None if (v is None or pd.isna(v)) else round(float(v) * 100, 2)
+        # MÉTRICAS = colunas da FONTE (a pipeline dele já computa correto). Não recomputar.
         rows = []
         for i in range(len(g)):
             rows.append([d.iloc[i].strftime("%Y-%m-%d"), round(float(px.iloc[i]), 4),
-                         pc(dia.iloc[i]), pc(mtd[i]), pc(qtr[i]), pc(ytd[i]), pc(m36[i])])
+                         pc(g["Variação Diária"].iloc[i]), pc(g["Mensal"].iloc[i]),
+                         pc(g["QTR"].iloc[i]), pc(g["YTD"].iloc[i]), pc(g["36 Meses"].iloc[i])])
         out[idx] = rows
 
     indices = sorted(out.keys())

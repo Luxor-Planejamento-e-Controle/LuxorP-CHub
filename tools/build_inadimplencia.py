@@ -74,19 +74,24 @@ CHART_DARK = r"""
 
 # Correções cirúrgicas de cor NA FONTE (o gerador crava cores claras/berrantes).
 # Ordem importa: Chart.defaults.color é trocado antes do replace global de '#525252'.
+# Paleta oficial Luxor: #FF0000 #FFA400 #D9D9D9 #1D6E79 #1c3e44 #346e79 #f6c000
 COLOR_FIXES = [
     ("Chart.defaults.color = '#525252'", "Chart.defaults.color = '#C4DBDD'"),      # texto eixos/ticks
-    ("Chart.defaults.borderColor = '#e5e5e5'", "Chart.defaults.borderColor = 'rgba(255,255,255,0.06)'"),
-    ("color:'#f5f5f4'", "color:'rgba(255,255,255,0.05)'"),                          # grade
+    ("Chart.defaults.borderColor = '#e5e5e5'", "Chart.defaults.borderColor = 'transparent'"),
+    ("grid:{color:'#f5f5f4', drawBorder:false}", "grid:{display:false}"),          # remove grade
     ("borderColor:'#fff'", "borderColor:'#12303A'"),                               # separador do donut
     ("color:'#171717'", "color:'#EAF4F4'"),                                        # texto da legenda
-    ("color:'#9e9e9e'", "color:'#8A9BA0'"),                                        # Vencido (barra)
-    ("color:'#1a237e'", "color:'#4E8FBF'"),                                        # Ação Judicial (barra) -> azul
+    ("color:'#9e9e9e'", "color:'#D9D9D9'"),                                        # Vencido (barra)
+    ("color:'#1a237e'", "color:'#1D6E79'"),                                        # Ação Judicial (barra) -> teal
     ("color:'#e65100'", "color:'#FFA400'"),                                        # Não Entregue (barra)
-    ("'#16a34a'", "'#3FB27A'"),                                                     # A Vencer (verde melhor)
-    ("'#dc2626'", "'#E15C54'"),                                                     # Inadimplentes (vermelho)
-    ("'#ea580c'", "'#FFA400'"),                                                     # Não Entregues (laranja)
-    ("'#525252'", "'#8A9BA0'"),                                                     # Ação Judicial (donut) -> slate
+    ("'#16a34a'", "'#346e79'"),                                                     # A Vencer -> teal claro (contraste no dark)
+    ('"#16a34a"', '"#346e79"'),                                                     # (variante aspas duplas / JSON)
+    ("'#dc2626'", "'#FF0000'"),                                                     # Inadimplentes -> vermelho Luxor
+    ('"#dc2626"', '"#FF0000"'),
+    ("'#ea580c'", "'#FFA400'"),                                                     # Não Entregues -> laranja
+    ('"#ea580c"', '"#FFA400"'),
+    ("'#525252'", "'#D9D9D9'"),                                                     # Ação Judicial (donut) -> cinza Luxor
+    ('"#525252"', '"#D9D9D9"'),
 ]
 
 
