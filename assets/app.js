@@ -9,7 +9,8 @@ const C = {
 const fmt = {
   pct:v=>v==null?'—':(v>=0?'+':'')+v.toFixed(2).replace('.',',')+'%',
   num:(v,d=4)=>v==null?'—':v.toLocaleString('pt-BR',{minimumFractionDigits:d,maximumFractionDigits:d}),
-  mi:v=>(v/1e6).toLocaleString('pt-BR',{minimumFractionDigits:1,maximumFractionDigits:1})+' Mi',
+  mi:v=>(v/1e6).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2})+' Mi',
+  rs:v=>'R$ '+v.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}),
   br:d=>{const[y,m,dd]=d.split('-');return dd+'/'+m+'/'+y;},
   mesano:d=>{const[y,m]=d.split('-');return ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'][+m-1]+'/'+y.slice(2);}
 };
@@ -104,7 +105,7 @@ function renderIndicadores(el){
       <div class="field"><label>Índice / Fundo</label>
         <select id="ind">${inds.map(f=>`<option ${f===def?'selected':''}>${f}</option>`).join('')}</select></div>
     </div>
-    <div class="grid g-4" id="kpis" style="margin-bottom:16px"></div>
+    <div class="grid g-6" id="kpis" style="margin-bottom:16px"></div>
     <div class="card">
       <div class="card-title"><h2 id="chTitle">Cotação</h2><span class="muted" id="fant"></span></div>
       <div id="measure" class="measure"></div>
@@ -137,13 +138,14 @@ function renderIndicadores(el){
     document.getElementById('chTitle').textContent=(fant?'Índice (base 100) — ':'Cotação — ')+f;
     document.getElementById('fant').textContent=fant?'cotação sintética (sem preço de mercado)':'';
     document.getElementById('thCota').textContent=fant?'Índice':'Cotação';
-    document.getElementById('rowCount').textContent=rows.length+' pontos · '+fmt.br(rows[0][0])+' a '+fmt.br(rows[rows.length-1][0]);
     const last=rows[rows.length-1];
     document.getElementById('kpis').innerHTML=[
       [fant?'Último índice':'Última cotação',fmt.num(last[1]),fmt.br(last[0]),''],
       ['% Dia',fmt.pct(last[2]),'',cls(last[2])],
       ['% MTD',fmt.pct(last[3]),'',cls(last[3])],
+      ['% QTD',fmt.pct(last[4]),'',cls(last[4])],
       ['% YTD',fmt.pct(last[5]),'',cls(last[5])],
+      ['% 36M',fmt.pct(last[6]),'',cls(last[6])],
     ].map(([l,v,s,c])=>`<div class="card kpi"><div class="label">${l}</div><div class="val ${c}">${v}</div><div class="delta">${s||'&nbsp;'}</div></div>`).join('');
     const s0 = zoomState? zoomState.start : (rows.length>180?(1-180/rows.length)*100:0);
     const e0 = zoomState? zoomState.end : 100;
@@ -156,7 +158,20 @@ function renderIndicadores(el){
         lineStyle:{color:C.orange,width:2.2},
         areaStyle:{color:new echarts.graphic.LinearGradient(0,0,0,1,[{offset:0,color:'rgba(255,164,0,.26)'},{offset:1,color:'rgba(255,164,0,0)'}])}}]
     }));
-    chart.on('dataZoom',()=>{const dz=chart.getOption().dataZoom[0];zoomState={start:dz.start,end:dz.end};});
+    // histórico segue o período selecionado no gráfico (zoom)
+    const n=rows.length;
+    const idxRange=(st,en)=>[Math.max(0,Math.floor(st/100*(n-1))),Math.min(n-1,Math.ceil(en/100*(n-1)))];
+    const renderTable=(lo,hi)=>{
+      const sub=rows.slice(lo,hi+1);
+      document.getElementById('rowCount').textContent=sub.length+' de '+n+' pontos · '+fmt.br(rows[lo][0])+' a '+fmt.br(rows[hi][0]);
+      document.getElementById('rows').innerHTML=[...sub].reverse().map(r=>`<tr>
+        <td>${fmt.br(r[0])}</td><td>${fmt.num(r[1])}</td>
+        <td class="${cls(r[2])}">${fmt.pct(r[2])}</td><td class="${cls(r[3])}">${fmt.pct(r[3])}</td>
+        <td class="${cls(r[4])}">${fmt.pct(r[4])}</td><td class="${cls(r[5])}">${fmt.pct(r[5])}</td>
+        <td class="${cls(r[6])}">${fmt.pct(r[6])}</td></tr>`).join('');
+    };
+    chart.on('dataZoom',()=>{const dz=chart.getOption().dataZoom[0];zoomState={start:dz.start,end:dz.end};
+      const[lo,hi]=idxRange(dz.start,dz.end);renderTable(lo,hi);});
     // medir variação arrastando (estilo Google Finance)
     const zr=chart.getZr(); let measuring=false,startIdx=null;
     const idxAt=e=>{const x=e.offsetX,y=e.offsetY;
@@ -168,12 +183,7 @@ function renderIndicadores(el){
     zr.on('mouseup',e=>{if(!measuring)return;measuring=false;const j=idxAt(e);
       if(j!=null&&j!==startIdx)showMeasure(chart,rows,startIdx,j);else clearMeasure(chart);});
     clearMeasure(chart);
-
-    document.getElementById('rows').innerHTML=[...rows].reverse().map(r=>`<tr>
-      <td>${fmt.br(r[0])}</td><td>${fmt.num(r[1])}</td>
-      <td class="${cls(r[2])}">${fmt.pct(r[2])}</td><td class="${cls(r[3])}">${fmt.pct(r[3])}</td>
-      <td class="${cls(r[4])}">${fmt.pct(r[4])}</td><td class="${cls(r[5])}">${fmt.pct(r[5])}</td>
-      <td class="${cls(r[6])}">${fmt.pct(r[6])}</td></tr>`).join('');
+    const[il,ih]=idxRange(s0,e0); renderTable(il,ih);
   };
   document.getElementById('ind').onchange=draw;
   draw();
@@ -210,7 +220,7 @@ function renderDRE(el){
         </div></div>
     </div>
     <div class="ms-chips" id="natChips"></div>
-    <div class="grid g-3" id="kpis" style="margin-bottom:16px"></div>
+    <div class="grid g-4" id="kpis" style="margin-bottom:16px"></div>
     <div class="card"><div class="card-title"><h2>Orçado × Realizado por ano</h2><span class="muted" id="barSub"></span></div><div id="bar" class="chart"></div></div>
     <div class="card" style="margin-top:16px"><div class="card-title"><h2>Comparativo Orçado × Realizado (mensal)</h2></div>
       <div id="dreMeasure" class="measure"></div>
@@ -269,12 +279,17 @@ function renderDRE(el){
     const orc=anos.map(a=>byAno[a]['Orçado']), rea=anos.map(a=>byAno[a]['Realizado']);
     const totO=orc.reduce((a,b)=>a+b,0), totR=rea.reduce((a,b)=>a+b,0), dev=totR-totO;
     const natDesc = natMode==='leaf'?'líquido':(natSel.size===1?[...natSel][0]:`${natSel.size} naturezas`);
+    const devPct = totO!==0 ? dev/Math.abs(totO)*100 : null;
     document.getElementById('barSub').textContent=`${m} · ${cc} · ${acc} · ${natDesc}`;
     document.getElementById('kpis').innerHTML=[
-      ['Orçado (acum.)',fmt.mi(totO),''],['Realizado (acum.)',fmt.mi(totR),''],['Desvio (Real − Orç)',fmt.mi(dev),cls(dev)],
-    ].map(([l,v,c])=>`<div class="card kpi"><div class="label">${l}</div><div class="val ${c}" style="font-size:22px">${v}</div><div class="delta">&nbsp;</div></div>`).join('');
+      ['Orçado (acum.)',fmt.mi(totO),''],
+      ['Realizado (acum.)',fmt.mi(totR),''],
+      ['Desvio (Real − Orç)',fmt.mi(dev),cls(dev)],
+      ['Desvio %',fmt.pct(devPct),cls(devPct)],
+    ].map(([l,v,c])=>`<div class="card kpi"><div class="label">${l}</div><div class="val ${c}">${v}</div><div class="delta">&nbsp;</div></div>`).join('');
     mkChart(document.getElementById('bar'),Object.assign(baseOpt(),{
       grid:{left:64,right:24,top:34,bottom:34},
+      tooltip:Object.assign(baseOpt().tooltip,{valueFormatter:v=>fmt.rs(v)}),
       xAxis:axis({type:'category',data:anos}),
       yAxis:axis({type:'value',axisLabel:{color:C.ink3,formatter:v=>(v/1e6).toFixed(0)+' Mi'}}),
       series:[
@@ -292,6 +307,7 @@ function renderDRE(el){
     const gO=datas.map(d=>map.get(d)[0]), gR=datas.map(d=>map.get(d)[1]);
     const lineChart=mkChart(document.getElementById('line'),Object.assign(baseOpt(),{
       dataZoom:zoom(),
+      tooltip:Object.assign(baseOpt().tooltip,{valueFormatter:v=>fmt.rs(v)}),
       xAxis:axis({type:'category',data:datas,boundaryGap:false,axisLabel:{color:C.ink3,formatter:fmt.mesano}}),
       yAxis:axis({type:'value',axisLabel:{color:C.ink3,formatter:v=>(v/1e6).toFixed(1)+' Mi'}}),
       series:[

@@ -135,6 +135,9 @@ def run():
     # 2) neutraliza @import do Google Fonts (offline)
     h = re.sub(r"@import url\('https://fonts\.googleapis[^']*'\);", "", h)
 
+    # 2b) grade dos gráficos: cinza-claro do gerador -> quase invisível no dark
+    h = h.replace("color:'#f5f5f4'", "color:'rgba(255,255,255,0.05)'")
+
     # 3) injeta override Luxor antes de </head>
     h = h.replace("</head>", LUXOR_OVERRIDE + "</head>", 1)
 
