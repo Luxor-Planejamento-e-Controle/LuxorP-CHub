@@ -105,7 +105,8 @@ function renderIndicadores(el){
       <div class="field"><label>Índice / Fundo</label>
         <select id="ind">${inds.map(f=>`<option ${f===def?'selected':''}>${f}</option>`).join('')}</select></div>
     </div>
-    <div class="grid g-6" id="kpis" style="margin-bottom:16px"></div>
+    <div class="grid g-6" id="kpis" style="margin-bottom:10px"></div>
+    <div id="indNote" class="hint" style="margin:0 0 16px"></div>
     <div class="card">
       <div class="card-title"><h2 id="chTitle">Cotação</h2><span class="muted" id="fant"></span></div>
       <div id="measure" class="measure"></div>
@@ -147,6 +148,12 @@ function renderIndicadores(el){
       ['% YTD',fmt.pct(last[5]),'',cls(last[5])],
       ['% 36M',fmt.pct(last[6]),'',cls(last[6])],
     ].map(([l,v,s,c])=>`<div class="card kpi"><div class="label">${l}</div><div class="val ${c}">${v}</div><div class="delta">${s||'&nbsp;'}</div></div>`).join('');
+    // nota: 36M/YTD indisponíveis por histórico curto (não é erro)
+    const has36=rows.some(r=>r[6]!=null), hasYtd=rows.some(r=>r[5]!=null), ini=rows[0][0].slice(0,4);
+    const notes=[];
+    if(!has36) notes.push(`% 36M requer 36 meses de histórico — indisponível (série inicia em ${ini}).`);
+    if(!hasYtd) notes.push(`% YTD indisponível para o ano de início da série.`);
+    document.getElementById('indNote').textContent=notes.join(' ');
     const s0 = zoomState? zoomState.start : (rows.length>180?(1-180/rows.length)*100:0);
     const e0 = zoomState? zoomState.end : 100;
     const chart=mkChart(document.getElementById('chart'),Object.assign(baseOpt(),{

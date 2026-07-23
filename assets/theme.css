@@ -119,12 +119,15 @@ select:focus,input:focus{border-color:var(--orange)}
 
 /* table */
 .tbl-wrap{overflow-x:auto;border-radius:var(--r-sm)}
-table.data{width:100%;border-collapse:collapse;font-size:13px;font-variant-numeric:tabular-nums}
+table.data{width:100%;border-collapse:collapse;font-size:13px;font-variant-numeric:tabular-nums;table-layout:fixed}
+table.data th,table.data td{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 table.data th{
   text-align:right;padding:10px 14px;background:#0b1f24;color:var(--ink-2);
   font-weight:600;font-size:11px;letter-spacing:.05em;text-transform:uppercase;position:sticky;top:0;
 }
 table.data th:first-child,table.data td:first-child{text-align:left}
+table.data th:nth-child(1),table.data td:nth-child(1){width:13%}
+table.data th:nth-child(2),table.data td:nth-child(2){width:15%}
 table.data td{padding:9px 14px;border-top:1px solid var(--line);color:var(--ink)}
 table.data tbody tr:hover td,table.data tr:hover td{background:rgba(255,255,255,.03)}
 
