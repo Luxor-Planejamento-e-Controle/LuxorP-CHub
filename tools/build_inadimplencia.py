@@ -56,6 +56,10 @@ tr.row-total td{background:var(--surface-2) !important}
 select,input,.btn{background:var(--surface-2) !important;color:var(--text) !important;border-color:var(--border) !important}
 .btn:hover{background:#24505d !important}
 option{background:#0A1B20;color:var(--text)}
+/* coluna "Compra" não quebrar letra-a-letra + usar melhor a largura */
+td.compra>div{max-width:none !important;white-space:normal !important;overflow-wrap:break-word !important;word-break:normal !important}
+.container{max-width:none !important}
+table{table-layout:auto !important}
 /* tags de categoria — tints escuros legíveis */
 .tag-LATINO{background:rgba(46,151,166,.28) !important;color:#a9e4ec !important}
 .tag-CONDOMINIO{background:rgba(255,164,0,.24) !important;color:#ffca70 !important}

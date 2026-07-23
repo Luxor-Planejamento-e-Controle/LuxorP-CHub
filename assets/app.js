@@ -282,11 +282,11 @@ function renderDRE(el){
     const devPct = totO!==0 ? dev/Math.abs(totO)*100 : null;
     document.getElementById('barSub').textContent=`${m} · ${cc} · ${acc} · ${natDesc}`;
     document.getElementById('kpis').innerHTML=[
-      ['Orçado (acum.)',fmt.mi(totO),''],
-      ['Realizado (acum.)',fmt.mi(totR),''],
-      ['Desvio (Real − Orç)',fmt.mi(dev),cls(dev)],
-      ['Desvio %',fmt.pct(devPct),cls(devPct)],
-    ].map(([l,v,c])=>`<div class="card kpi"><div class="label">${l}</div><div class="val ${c}">${v}</div><div class="delta">&nbsp;</div></div>`).join('');
+      ['Orçado (acum.)',fmt.mi(totO),fmt.rs(totO),''],
+      ['Realizado (acum.)',fmt.mi(totR),fmt.rs(totR),''],
+      ['Desvio (Real − Orç)',fmt.mi(dev),fmt.rs(dev),cls(dev)],
+      ['Desvio %',fmt.pct(devPct),'',cls(devPct)],
+    ].map(([l,v,s,c])=>`<div class="card kpi"><div class="label">${l}</div><div class="val ${c}">${v}</div><div class="delta">${s||'&nbsp;'}</div></div>`).join('');
     mkChart(document.getElementById('bar'),Object.assign(baseOpt(),{
       grid:{left:64,right:24,top:34,bottom:34},
       tooltip:Object.assign(baseOpt().tooltip,{valueFormatter:v=>fmt.rs(v)}),
@@ -318,10 +318,12 @@ function renderDRE(el){
     // medir intervalo arrastando (Google Finance)
     const dm=document.getElementById('dreMeasure');
     const clrM=()=>{dm.innerHTML='<span class="hint">Clique e arraste sobre o gráfico para medir o intervalo.</span>';lineChart.setOption({series:[{markArea:{data:[]}},{}]});};
+    const vpct=(a0,a1)=>a0!==0?(a1-a0)/Math.abs(a0)*100:null;
     const showM=(a,b)=>{const lo=Math.min(a,b),hi=Math.max(a,b);
+      const dO=gO[hi]-gO[lo], dR=gR[hi]-gR[lo];
       dm.innerHTML=`<b>${fmt.mesano(datas[lo])} → ${fmt.mesano(datas[hi])}</b>`
-        +` · Orçado ${fmt.mi(gO[lo])} → ${fmt.mi(gO[hi])} <b class="${cls(gO[hi]-gO[lo])}">(${fmt.mi(gO[hi]-gO[lo])})</b>`
-        +` · Realizado ${fmt.mi(gR[lo])} → ${fmt.mi(gR[hi])} <b class="${cls(gR[hi]-gR[lo])}">(${fmt.mi(gR[hi]-gR[lo])})</b>`;
+        +` · Orçado ${fmt.mi(gO[lo])} → ${fmt.mi(gO[hi])} <b class="${cls(dO)}">(${fmt.mi(dO)} · ${fmt.pct(vpct(gO[lo],gO[hi]))})</b>`
+        +` · Realizado ${fmt.mi(gR[lo])} → ${fmt.mi(gR[hi])} <b class="${cls(dR)}">(${fmt.mi(dR)} · ${fmt.pct(vpct(gR[lo],gR[hi]))})</b>`;
       lineChart.setOption({series:[{markArea:{silent:true,itemStyle:{color:'rgba(255,164,0,.14)'},data:[[{xAxis:datas[lo]},{xAxis:datas[hi]}]]}},{}]});};
     const zr=lineChart.getZr(); let meas=false,si=null;
     const idxAt=e=>{const x=e.offsetX,y=e.offsetY;if(!lineChart.containPixel({gridIndex:0},[x,y]))return null;
