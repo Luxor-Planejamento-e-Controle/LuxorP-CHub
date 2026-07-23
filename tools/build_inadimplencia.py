@@ -76,6 +76,12 @@ table{table-layout:auto !important}
 
 CHART_DARK = r"""
 <script>if(window.Chart){Chart.defaults.font.family="Fakt Pro, system-ui, sans-serif";}</script>
+<script>document.addEventListener('DOMContentLoaded',function(){
+  var m={};[].forEach.call(document.querySelectorAll('.kpi-card'),function(c){var l=c.querySelector('.kpi-label');if(l)m[l.textContent.trim()]=c;});
+  // Vencidos logo depois de A Vencer
+  if(m['A Vencer']&&m['Vencidos']&&m['A Vencer'].parentNode)
+    m['A Vencer'].parentNode.insertBefore(m['Vencidos'],m['A Vencer'].nextSibling);
+});</script>
 """
 
 # Correções cirúrgicas de cor NA FONTE (o gerador crava cores claras/berrantes).
@@ -103,8 +109,14 @@ COLOR_FIXES = [
 # Cor do KPI por rótulo (sobrescreve a classe original do gerador).
 # '' = neutro (branco). yellow = atenção/vencido. red = ação judicial.
 KPI_COLOR = [
-    ("Total em Aberto", ""), ("Vencido", "yellow"), ("A Vencer", ""),
-    ("Inadimplentes", "yellow"), ("Judicial", "red"), ("Entregues", "yellow"),
+    ("Total em Aberto", ""), ("Vencidos", ""), ("A Vencer", ""),
+    ("Inadimplentes", "red"), ("Judicial", "yellow"), ("Entregues", "yellow"),
+]
+
+# Renome de rótulos
+LABEL_FIXES = [
+    ("Vencido &gt; 7 dias", "Vencidos"),
+    ("Inadimplentes L&iacute;quido", "Inadimplentes"),
 ]
 
 
@@ -123,6 +135,10 @@ def run():
 
     # 2b) cores dos gráficos -> paleta Luxor (cirúrgico, na ordem definida)
     for a, b in COLOR_FIXES:
+        h = h.replace(a, b)
+
+    # 2b2) renomeia rótulos dos KPIs
+    for a, b in LABEL_FIXES:
         h = h.replace(a, b)
 
     # 2c) cor dos KPIs por rótulo (troca a classe do card conforme o label)
