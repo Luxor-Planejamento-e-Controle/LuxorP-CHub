@@ -31,12 +31,24 @@ SEGMENTOS = [
 # é o cvm.py em "Relatórios de Gestão/Novo Extrato de Cotista/Composição de
 # Dividendos/cotas/", que ao salvar o cache sobe pro Blob. Aqui só lemos.
 QUOTAS_BLOB = "LuxorControlDatabase/parquet/funds_quotas_historico.parquet"
-# (nome na coluna FUNDO, rótulo no hub). Manga/Lipi já vêm do parquet de
-# indicadores, então aqui entram só os que faltavam.
-FUNDOS_COTA = [
-    ("Tesouro Selic", "Tesouro Selic"),
-    ("Mastercash",    "Mastercash"),
-]
+# (nome na coluna FUNDO, rótulo no hub). Esta é a fonte oficial das cotas de
+# fundos no Indicadores — o Indicadores_financeiros.parquet também traz
+# Manga/Lipi, mas essas linhas são descartadas (ver PREFIXOS_VIA_CVM) pra não
+# ficar a mesma série duas vezes, com nome e origem diferentes.
+FUNDOS_COTA = [(n, n) for n in (
+    "Lipizzaner",
+    "Lipizzaner USD",
+    "Mangalarga I",
+    "Mangalarga I USD",
+    "Mangalarga II",
+    "Mangalarga II USD",
+    "Mangalarga Consolidado",
+    "Mangalarga Consolidado USD",
+    "Mastercash",
+    "Tesouro Selic",
+)]
+# Índices do parquet de indicadores que agora vêm da CVM e devem ser ignorados lá.
+PREFIXOS_VIA_CVM = ("Mangalarga", "Lipizzaner")
 
 
 def azure_conn():
@@ -137,9 +149,10 @@ def build_indicadores():
     df = read_blob(b, IND_BLOB)
     df = df.sort_values("Data")
 
-    # Manga/Lipi: limitar exibição a partir de 2020 (histórico anterior existe, mas não interessa aqui)
-    lim2020 = df["Índice"].str.startswith(("Mangalarga", "Lipizzaner")) & (df["Data"] < "2020-01-01")
-    df = df[~lim2020]
+    # Manga/Lipi saem daqui: a fonte oficial dessas cotas passou a ser a CVM
+    # (funds_quotas_historico, ver build_cotas). Sem isso, a mesma série
+    # apareceria duas vezes — "Mangalarga BRL" (parquet) e "Mangalarga II" (CVM).
+    df = df[~df["Índice"].str.startswith(PREFIXOS_VIA_CVM)]
 
     out, fantasy = {}, []
     for idx, g in df.groupby("Índice"):
