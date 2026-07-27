@@ -177,30 +177,42 @@ async function start(){
   // token e, pior, o client do iframe de Projetos avisa o client do hub (mesmo
   // origin, mesmo storageKey). Sem essa trava vira loop — o hub remontava a
   // rota, a rota recriava o iframe, o iframe emitia SIGNED_IN de novo.
-  let sessaoAtual = null;
+  // Começa em undefined, NÃO em null: sem sessão o email também é null, e a
+  // trava abaixo engoliria a primeira chamada — o gate nunca apareceria e a
+  // página ficaria preta (o .app só aparece depois do boot).
+  let sessaoAtual;
   async function onSession(session){
     const email = session ? (session.user.email||'').toLowerCase() : null;
     if(email === sessaoAtual) return;
     sessaoAtual = email;
     if(!session){ window.HUB.email=null; showGate('', true); return; }
-    const access = await loadAccess(email);
-    // Falhou: libera a trava pra um próximo evento poder tentar de novo.
-    if(access.erro){                                     // problema de setup, não de convite
-      sessaoAtual = null;
-      console.error('[hub]', access.erro);
-      showGate(access.erro, false); return;
+    try {
+      const access = await loadAccess(email);
+      // Falhou: volta pra "estado desconhecido" (undefined, não null) pra um
+      // próximo evento poder tentar de novo — inclusive um SIGNED_OUT.
+      if(access.erro){                                   // problema de setup, não de convite
+        sessaoAtual = undefined;
+        console.error('[hub]', access.erro);
+        showGate(access.erro, false); return;
+      }
+      if(!access.role){
+        sessaoAtual = undefined;
+        showGate(access.inativo ? 'Seu acesso ao hub está desativado.'
+                                : 'Seu e-mail não está liberado no hub.', false);
+        return;
+      }
+      Object.assign(window.HUB, { email, role:access.role, nome:access.nome,
+                                  dashboards:access.dashboards });
+      await loadData(access.dashboards);
+      hideGate();
+      window.hubBoot();
+    } catch(e){
+      // Nada pode escapar daqui: exceção sem tratamento deixaria a tela preta,
+      // porque o .app só aparece depois do boot e o gate nunca seria mostrado.
+      sessaoAtual = undefined;
+      console.error('[hub] falha ao montar a sessão:', e);
+      showGate('Não consegui carregar o hub. Recarregue a página.', false);
     }
-    if(!access.role){
-      sessaoAtual = null;
-      showGate(access.inativo ? 'Seu acesso ao hub está desativado.'
-                              : 'Seu e-mail não está liberado no hub.', false);
-      return;
-    }
-    Object.assign(window.HUB, { email, role:access.role, nome:access.nome,
-                                dashboards:access.dashboards });
-    await loadData(access.dashboards);
-    hideGate();
-    window.hubBoot();
   }
 
   if(HUB_URL_TOKENS){
