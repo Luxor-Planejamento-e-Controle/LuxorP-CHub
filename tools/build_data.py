@@ -27,6 +27,18 @@ SEGMENTOS = [
     ("Resultado_FO", "Resultado FO"),
 ]
 
+# Cotas de fundos vindas da CVM (informe diário por CNPJ). Quem baixa e mantém
+# o cache é o cvm.py em "Relatórios de Gestão/Novo Extrato de Cotista/
+# Composição de Dividendos/cotas/" — aqui só lemos a saída dele.
+QUOTAS_XLSX = (r"G:/Drives compartilhados/Luxor Controladoria/Relatórios de Gestão/"
+               r"Novo Extrato de Cotista/Bases de dados/funds_quotas_historico.xlsx")
+# (nome na coluna FUNDO, rótulo no hub). Manga/Lipi já vêm do parquet de
+# indicadores, então aqui entram só os que faltavam.
+FUNDOS_COTA = [
+    ("Tesouro Selic", "Tesouro Selic"),
+    ("Mastercash",    "Mastercash"),
+]
+
 
 def azure_conn():
     from dotenv import dotenv_values
@@ -82,6 +94,29 @@ def build_segmento(gdf, segmento):
                      pc(g["%_MoM"].iloc[i]), pc(g["%_Quarter"].iloc[i]),
                      pc(g["%_YTD"].iloc[i]), pc(m36)])
     return rows
+
+
+def build_cotas():
+    """Cotas de fundos do cache do cvm.py. A planilha já traz cota real e as
+    variações prontas (VAR_DIA/MTD/QTD/YTD/36M em fração), com a mesma semântica
+    do parquet de indicadores — então NÃO recalcula nada, só reempacota.
+    Devolve {rótulo: rows} no formato [data, px, dia, mtd, qtr, ytd, m36].
+    """
+    df = pd.read_excel(QUOTAS_XLSX)
+    df["DATA"] = pd.to_datetime(df["DATA"])
+    out = {}
+    for fundo, label in FUNDOS_COTA:
+        g = (df[df["FUNDO"] == fundo].dropna(subset=["DATA", "COTA"])
+               .sort_values("DATA").drop_duplicates("DATA", keep="last"))
+        if g.empty:
+            print(f"[indicadores] {label}: sem linhas em {Path(QUOTAS_XLSX).name}", file=sys.stderr)
+            continue
+        out[label] = [[r["DATA"].strftime("%Y-%m-%d"), round(float(r["COTA"]), 6),
+                       pc(r["VAR_DIA"]), pc(r["MTD"]), pc(r["QTD"]),
+                       pc(r["YTD"]), pc(r["36M"])] for _, r in g.iterrows()]
+        print(f"[indicadores] {label}: {len(out[label])} pontos "
+              f"({out[label][0][0]} a {out[label][-1][0]})")
+    return out
 
 
 def listar_segmentos():
@@ -147,6 +182,13 @@ def build_indicadores():
                 print(f"[indicadores] {label} ignorado:", e, file=sys.stderr)
     except Exception as e:
         print("[indicadores] group_hist_data indisponível:", e, file=sys.stderr)
+
+    # Cotas de fundos (CVM). Cota real e série diária, então não entram em
+    # fantasy nem em monthly. Falha aqui também não derruba o resto.
+    try:
+        out.update(build_cotas())
+    except Exception as e:
+        print("[indicadores] cotas de fundos indisponíveis:", e, file=sys.stderr)
 
     indices = sorted(out.keys())
     payload = {"indices": indices, "rows": out, "fantasy": sorted(fantasy),
