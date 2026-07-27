@@ -37,9 +37,11 @@ header{display:none !important}
 .kpi-card:hover,section:hover{border-color:var(--border-2) !important}
 .kpi-label,.kpi-sub{color:var(--text-2) !important}
 .kpi-value{color:var(--text) !important}
-/* cor por natureza: amarelo=vencido/atenção · vermelho=ação judicial · branco=total/a vencer */
+/* cor por gravidade: branco=total/a vencer/vencidos · amarelo=não entregues ·
+   vermelho=inadimplentes · carmim=ação judicial (mesma cor do donut e da barra) */
 .kpi-card.yellow .kpi-value{color:#f6c000 !important}
 .kpi-card.red .kpi-value{color:#FF0000 !important}
+.kpi-card.wine .kpi-value{color:JUDICIAL_HEX !important}
 /* scrollbars discretas (mata o quadrado branco no canto) */
 ::-webkit-scrollbar{height:9px;width:9px}
 ::-webkit-scrollbar-track{background:transparent !important}
@@ -84,6 +86,13 @@ CHART_DARK = r"""
 });</script>
 """
 
+# Ação Judicial: é o estágio mais grave, então não pode ficar em cinza. Escurecer
+# o vermelho não serve — em fundo escuro vinho fica ilegível (#8C1010 dá contraste
+# 1.5, o mínimo p/ elemento gráfico é 3). Separa-se por MATIZ: carmim, 21° do
+# vermelho puro, contraste 3.0 sobre o #12303A (o próprio #FF0000 tem 3.5).
+# Mesma cor no donut, na barra e no card — antes cada um tinha a sua.
+JUDICIAL = "#D6336C"
+
 # Correções cirúrgicas de cor NA FONTE (o gerador crava cores claras/berrantes).
 # Ordem importa: Chart.defaults.color é trocado antes do replace global de '#525252'.
 # Paleta oficial Luxor: #FF0000 #FFA400 #D9D9D9 #1D6E79 #1c3e44 #346e79 #f6c000
@@ -94,7 +103,7 @@ COLOR_FIXES = [
     ("borderColor:'#fff'", "borderColor:'#12303A'"),                               # separador do donut
     ("color:'#171717'", "color:'#EAF4F4'"),                                        # texto da legenda
     ("color:'#9e9e9e'", "color:'#D9D9D9'"),                                        # Vencido (barra)
-    ("color:'#1a237e'", "color:'#1D6E79'"),                                        # Ação Judicial (barra) -> teal
+    ("color:'#1a237e'", f"color:'{JUDICIAL}'"),                                    # Ação Judicial (barra)
     ("color:'#e65100'", "color:'#FFA400'"),                                        # Não Entregue (barra)
     ("'#16a34a'", "'#346e79'"),                                                     # A Vencer -> teal claro (contraste no dark)
     ('"#16a34a"', '"#346e79"'),                                                     # (variante aspas duplas / JSON)
@@ -102,15 +111,18 @@ COLOR_FIXES = [
     ('"#dc2626"', '"#FF0000"'),
     ("'#ea580c'", "'#FFA400'"),                                                     # Não Entregues -> laranja
     ('"#ea580c"', '"#FFA400"'),
-    ("'#525252'", "'#D9D9D9'"),                                                     # Ação Judicial (donut) -> cinza Luxor
-    ('"#525252"', '"#D9D9D9"'),
+    # ATENÇÃO: '#525252' com aspas SIMPLES é texto de eixo (ticks x/y), não é
+    # Ação Judicial. Trocar essa string pela cor da categoria pintaria os
+    # rótulos dos eixos. A cor do donut mora só na entrada da paleta abaixo.
+    ("'#525252'", "'#D9D9D9'"),                                                     # ticks dos eixos -> cinza claro
+    ('"ACAO_JUDICIAL": "#525252"', f'"ACAO_JUDICIAL": "{JUDICIAL}"'),               # Ação Judicial (donut)
 ]
 
 # Cor do KPI por rótulo (sobrescreve a classe original do gerador).
 # '' = neutro (branco). yellow = atenção/vencido. red = ação judicial.
 KPI_COLOR = [
     ("Total em Aberto", ""), ("Vencidos", ""), ("A Vencer", ""),
-    ("Inadimplentes", "red"), ("Judicial", "yellow"), ("Entregues", "yellow"),
+    ("Inadimplentes", "red"), ("Judicial", "wine"), ("Entregues", "yellow"),
 ]
 
 # Renome de rótulos
@@ -147,8 +159,9 @@ def run():
         pat = r'class="kpi-card[^"]*"((?:(?!kpi-card).)*?kpi-label">[^<]*?' + re.escape(label) + r')'
         h = re.sub(pat, lambda m, nc=newc: f'class="{nc}"' + m.group(1), h, count=1, flags=re.S)
 
-    # 3) injeta override Luxor antes de </head>
-    h = h.replace("</head>", LUXOR_OVERRIDE + "</head>", 1)
+    # 3) injeta override Luxor antes de </head> (JUDICIAL_HEX é resolvido aqui
+    #    porque a constante é definida depois do bloco de CSS)
+    h = h.replace("</head>", LUXOR_OVERRIDE.replace("JUDICIAL_HEX", JUDICIAL) + "</head>", 1)
 
     # 4) logo Luxor no header
     h = h.replace("<header>", '<header><img class="lx-logo" src="../luxor-logo.png" alt="Luxor">', 1)
