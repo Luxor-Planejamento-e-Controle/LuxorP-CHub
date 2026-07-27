@@ -6,12 +6,31 @@ Inadimplência, Projetos).
 
 Arquitetura completa: [docs/ARQUITETURA.md](docs/ARQUITETURA.md).
 
-## Versão offline
+## Deploy inicial no Netlify
 
 Casca do hub com **identidade visual do controle-de-projetos** (tema Luxor,
-fontes Fakt Pro, logo real) e **dados reais** — sem login, sem backend, sem internet.
+fontes Fakt Pro, logo real) e a aba **Projetos** integrada ao app existente via
+iframe. Projetos continua usando o mesmo Supabase, com magic-link, RLS e realtime.
 
-**Como abrir**: duplo-clique em `index.html`. Funciona via `file://`, tudo local.
+**Como testar localmente**: servir a pasta por HTTP, por exemplo:
+
+```bash
+python -m http.server 5178
+```
+
+Depois abrir `http://localhost:5178/#/projetos`.
+
+**Como substituir o link atual**:
+
+1. No Netlify, trocar o site atual para publicar este repo (`LuxorP-CHub`) com
+   publish directory na raiz e sem build command.
+2. No Supabase Auth, manter/adicionar a URL final do Netlify como `Site URL` e
+   adicionar também `https://SEU-DOMINIO/assets/projetos/index.html?hubReturn=1`
+   em `Redirect URLs`.
+3. Fazer deploy preview e testar login/salvamento da aba Projetos antes de
+   promover para produção.
+
+## Dados locais / offline
 
 **Gerar os dados** (uma vez, e a cada atualização das bases):
 
@@ -40,13 +59,15 @@ aplica a identidade Luxor sem mexer na lógica (re-skin via `:root` + Chart.js
 vendorizado) → `assets/inadimplencia/dashboard.html`, embutido no hub por iframe.
 **Contém PII** — pasta no `.gitignore`, nunca versionar.
 
-Arquivos: `index.html`, `assets/theme.css`, `assets/fonts.css`, `assets/app.js`,
-`assets/vendor/echarts.min.js`, `assets/luxor-logo.png`, `tools/build_data.py`.
+Arquivos principais: `index.html`, `_redirects`, `assets/theme.css`,
+`assets/fonts.css`, `assets/app.js`, `assets/vendor/echarts.min.js`,
+`assets/luxor-logo.png`, `assets/projetos/`, `tools/build_data.py`.
 
 > ⚠ `assets/data/` tem dado financeiro real — está no `.gitignore`, não é
 > versionado. Regenerar com `build_data.py`. Inadimplência (PII) fica de fora.
 
 ## Próximos passos
 
-Ver fases em [docs/ARQUITETURA.md](docs/ARQUITETURA.md): scaffold Vite + Supabase
-→ Indicadores → DRE → demais → Inadimplência → Projetos.
+Ver fases em [docs/ARQUITETURA.md](docs/ARQUITETURA.md): autenticação global do
+Hub + Supabase dedicado → publishers de Indicadores/DRE/demais → Inadimplência
+com RBAC/RLS/auditoria.

@@ -4,7 +4,9 @@ Hub web de dashboards do Planejamento & Controle. Guarda-chuva que reúne, num
 único site com login e tema Luxor, os relatórios hoje espalhados em vários
 `.pbix` e num app avulso (controle-de-projetos).
 
-Status: **planejamento**. Nada de código de app ainda.
+Status: **MVP estático**. A casca do Hub existe e a aba **Projetos** já embute
+o app `controle-de-projetos` com o mesmo Supabase. As demais telas ainda seguem
+o desenho abaixo até migrarem para dados publicados no Supabase.
 
 ---
 
@@ -191,13 +193,13 @@ Os `publish_hub.py` ficam nos repos de ETL (perto da fonte), não aqui.
 
 ## 7. Fases de entrega
 
-1. **Scaffold** — SPA + auth `@luxor.com.br` + tema Luxor (dark + `#ffa400`) +
-   nav, com dados mock. Deploy Netlify.
-2. **Indicadores** — fonte mais mapeada (Azure). Valida o ciclo ETL→publish→web.
-3. **DRE** — Orçado×Realizado + Comparativo YTD.
-4. **Fluxo de Caixa + Participações + Plantel/Vendas**.
-5. **Inadimplência** — com o desenho LGPD completo (seção 5).
-6. **Projetos** — migrar/embutir o controle-de-projetos no hub.
+1. **Substituição inicial do link** — Hub estático no Netlify, com a aba Projetos
+   embutindo o app atual e preservando o Supabase existente.
+2. **Auth global do Hub** — sessão única na casca do Hub, allowlist e RBAC.
+3. **Indicadores** — fonte mais mapeada (Azure). Valida o ciclo ETL→publish→web.
+4. **DRE** — Orçado×Realizado + Comparativo YTD.
+5. **Fluxo de Caixa + Participações + Plantel/Vendas**.
+6. **Inadimplência** — com o desenho LGPD completo (seção 5).
 
 ---
 

@@ -2,7 +2,6 @@
 # Regenerar localmente: python tools/build_data.py
 assets/data/
 assets/inadimplencia/
-assets/projetos/
 
 # ambientes
 .venv/

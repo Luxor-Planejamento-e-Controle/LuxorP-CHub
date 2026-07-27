@@ -1,4 +1,4 @@
-/* Luxor P&C Hub — app offline. Dados REAIS embutidos (window.IND_DATA, window.DRE_DATA). */
+/* Luxor P&C Hub — shell web. Projetos usa Supabase; demais abas migram por etapas. */
 'use strict';
 
 const C = {
@@ -88,7 +88,7 @@ function renderHome(el){
       <div class="desc">${r.sub}</div></a>`;
   }).join('');
   el.innerHTML=`<div class="hero"><h1>Planejamento &amp; Controle</h1>
-    <p>Hub central dos dashboards do P&amp;C da Luxor. Versão <b>offline</b> — Indicadores e DRE já com <b>dados reais</b>; demais em migração.</p></div>
+    <p>Hub central dos dashboards do P&amp;C da Luxor. A aba Projetos já usa a base compartilhada no Supabase; os demais painéis entram por etapas.</p></div>
     <div class="grid g-3">${cards}</div>`;
 }
 
