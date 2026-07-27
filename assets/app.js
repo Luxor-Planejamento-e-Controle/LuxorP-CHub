@@ -159,7 +159,7 @@ function renderIndicadores(el){
     inp.value=datas[ri];
     const ref=rows[ri], ehUltima=ri===rows.length-1;
     document.getElementById('kpis').innerHTML=[
-      [fant?'Último índice':'Cotação',fmt.num(ref[1]),fmt.br(ref[0]),''],
+      [fant?(ehUltima?'Último índice':'Índice'):'Cotação',fmt.num(ref[1]),fmt.br(ref[0]),''],
       ['% Dia',fmt.pct(ref[2]),'',cls(ref[2])],
       ['% MTD',fmt.pct(ref[3]),'',cls(ref[3])],
       ['% QTD',fmt.pct(ref[4]),'',cls(ref[4])],
