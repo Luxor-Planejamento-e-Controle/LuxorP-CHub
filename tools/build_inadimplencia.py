@@ -168,9 +168,8 @@ def run():
         pat = r'class="kpi-card[^"]*"((?:(?!kpi-card).)*?kpi-label">[^<]*?' + re.escape(label) + r')'
         h = re.sub(pat, lambda m, nc=newc: f'class="{nc}"' + m.group(1), h, count=1, flags=re.S)
 
-    # 3) injeta override Luxor antes de </head> (JUDICIAL_HEX é resolvido aqui
-    #    porque a constante é definida depois do bloco de CSS)
-    h = h.replace("</head>", LUXOR_OVERRIDE.replace("JUDICIAL_HEX", JUDICIAL) + "</head>", 1)
+    # 3) injeta override Luxor antes de </head>
+    h = h.replace("</head>", LUXOR_OVERRIDE + "</head>", 1)
 
     # 4) logo Luxor no header
     h = h.replace("<header>", '<header><img class="lx-logo" src="../luxor-logo.png" alt="Luxor">', 1)
