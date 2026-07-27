@@ -114,6 +114,7 @@ function renderIndicadores(el){
   if(!D){el.innerHTML='<div class="empty">Dados não carregados. Rode <code>python tools/build_data.py</code>.</div>';return;}
   const inds=D.indices, def=inds.includes('Dólar')?'Dólar':inds[0];
   const fantasy=new Set(D.fantasy||[]);
+  const monthly=new Set(D.monthly||[]);   // séries de fechamento de mês (ex.: Resultado FO)
   let zoomState=null;         // {start,end} preservado entre trocas de ticker
   el.innerHTML=`
     <div class="toolbar">
@@ -136,9 +137,10 @@ function renderIndicadores(el){
     clearCharts();
     const f=document.getElementById('ind').value;
     const rows=D.rows[f]; // [data,px,dia,mtd,qtr,ytd,m36] asc
-    const fant=fantasy.has(f);
+    const fant=fantasy.has(f), mens=monthly.has(f);
     document.getElementById('chTitle').textContent=(fant?'Índice (base 100) — ':'Cotação — ')+f;
-    document.getElementById('fant').textContent=fant?'cotação sintética (sem preço de mercado)':'';
+    document.getElementById('fant').textContent=mens?'série mensal (fechamento de mês)'
+      :fant?'cotação sintética (sem preço de mercado)':'';
     document.getElementById('thCota').textContent=fant?'Índice':'Cotação';
     const last=rows[rows.length-1];
     document.getElementById('kpis').innerHTML=[
@@ -152,6 +154,7 @@ function renderIndicadores(el){
     // nota: 36M/YTD indisponíveis por histórico curto (não é erro)
     const has36=rows.some(r=>r[6]!=null), hasYtd=rows.some(r=>r[5]!=null), ini=rows[0][0].slice(0,4);
     const notes=[];
+    if(mens) notes.push(`Série mensal: % Dia não se aplica; % MTD é a variação do mês fechado.`);
     if(!has36) notes.push(`% 36M requer 36 meses de histórico — indisponível (série inicia em ${ini}).`);
     if(!hasYtd) notes.push(`% YTD indisponível para o ano de início da série.`);
     document.getElementById('indNote').textContent=notes.join(' ');

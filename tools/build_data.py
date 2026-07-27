@@ -33,16 +33,46 @@ def write(name, var, payload):
     (OUT / f"{name}.js").write_text(f"window.{var}={blob};", encoding="utf-8")
 
 
+def pc(v):
+    return None if (v is None or pd.isna(v)) else round(float(v) * 100, 2)
+
+
+def read_blob(bsc, path):
+    bc = bsc.get_blob_client(CONTAINER, path)
+    return pd.read_parquet(io.BytesIO(bc.download_blob().readall()))
+
+
+def build_resultado_fo(bsc):
+    """Resultado_FO do group_hist_data (pipeline mensal do FO) como se fosse um
+    índice da lista de tickers. Série MENSAL (fechamento de mês), então:
+      px  = Quota * 100  -> índice base 100 (Quota é acumulado contínuo, não
+            reinicia por ano; conferido na base)
+      dia = None         -> não existe variação diária nessa série
+      mtd/qtr/ytd        = %_MoM / %_Quarter / %_YTD (já calculados na fonte)
+      m36                = Quota[i]/Quota[i-36]-1 (só quando há 36 meses)
+    Obs: a base vem desordenada (ver docs/ARQUITETURA.md), daí o sort por Date.
+    """
+    df = read_blob(bsc, GROUP_BLOB)
+    g = df[df["Segment"] == FO_SEGMENT].dropna(subset=["Date", "Quota"])
+    g = (g.sort_values("Date").drop_duplicates("Date", keep="last").reset_index(drop=True))
+    if g.empty:
+        raise ValueError(f"segmento {FO_SEGMENT} vazio em {GROUP_BLOB}")
+    q = g["Quota"].astype(float)
+    rows = []
+    for i in range(len(g)):
+        m36 = (q.iloc[i] / q.iloc[i - 36] - 1) if i >= 36 else None
+        rows.append([pd.Timestamp(g["Date"].iloc[i]).strftime("%Y-%m-%d"),
+                     round(q.iloc[i] * 100, 4), None,
+                     pc(g["%_MoM"].iloc[i]), pc(g["%_Quarter"].iloc[i]),
+                     pc(g["%_YTD"].iloc[i]), pc(m36)])
+    return rows
+
+
 def build_indicadores():
     from azure.storage.blob import BlobServiceClient
     b = BlobServiceClient.from_connection_string(azure_conn())
-    bc = b.get_blob_client("luxor-planejamento-e-controle",
-                           "LuxorControlDatabase/Indicadores_financeiros.parquet")
-    df = pd.read_parquet(io.BytesIO(bc.download_blob().readall()))
+    df = read_blob(b, IND_BLOB)
     df = df.sort_values("Data")
-
-    def pc(v):
-        return None if (v is None or pd.isna(v)) else round(float(v) * 100, 2)
 
     # Manga/Lipi: limitar exibição a partir de 2020 (histórico anterior existe, mas não interessa aqui)
     lim2020 = df["Índice"].str.startswith(("Mangalarga", "Lipizzaner")) & (df["Data"] < "2020-01-01")
@@ -72,8 +102,19 @@ def build_indicadores():
                          pc(g["QTR"].iloc[i]), pc(g["YTD"].iloc[i]), pc(g["36 Meses"].iloc[i])])
         out[idx] = rows
 
+    # Resultado FO entra na mesma lista (outra fonte). Falha aqui não derruba o resto.
+    monthly = []
+    try:
+        out[FO_LABEL] = build_resultado_fo(b)
+        fantasy.append(FO_LABEL)      # índice sintético (não tem preço de mercado)
+        monthly.append(FO_LABEL)
+        print(f"[indicadores] {FO_LABEL}: {len(out[FO_LABEL])} meses ({out[FO_LABEL][0][0]} a {out[FO_LABEL][-1][0]})")
+    except Exception as e:
+        print(f"[indicadores] {FO_LABEL} ignorado:", e, file=sys.stderr)
+
     indices = sorted(out.keys())
     payload = {"indices": indices, "rows": out, "fantasy": sorted(fantasy),
+               "monthly": sorted(monthly),
                "cols": ["data", "px", "dia", "mtd", "qtr", "ytd", "m36"]}
     write("indicadores", "IND_DATA", payload)
     print(f"[indicadores] {len(indices)} índices ({len(fantasy)} fantasia), {len(df)} linhas -> indicadores.json/.js")
