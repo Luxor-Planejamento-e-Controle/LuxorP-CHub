@@ -18,11 +18,20 @@ import requests
 from dotenv import dotenv_values
 
 ROOT = Path(__file__).resolve().parent.parent
-DATA = ROOT / "assets" / "data"
 BUCKET = "hub-data"
-# Dashboards publicáveis. Inadimplência tem PII e NÃO entra aqui enquanto o
-# desenho LGPD/RBAC (ARQUITETURA.md seção 5) não estiver de pé.
-DATASETS = ["indicadores", "dre"]
+
+# dataset -> (arquivo local, nome no bucket, content-type).
+# O nome no bucket manda: a policy usa o prefixo antes do ponto pra decidir
+# quem baixa (`hub_can('<prefixo>')`, ver sql/hub_schema.sql).
+DATASETS = {
+    "indicadores":   (ROOT / "assets/data/indicadores.json",        "indicadores.json",   "application/json"),
+    "dre":           (ROOT / "assets/data/dre.json",                "dre.json",           "application/json"),
+    # PII: sai do bucket privado direto pro navegador de quem tem
+    # `hub_can('inadimplencia')`. Nunca vira arquivo estático no Netlify.
+    "inadimplencia": (ROOT / "assets/inadimplencia/dashboard.html", "inadimplencia.html", "text/html; charset=utf-8"),
+}
+# Padrão do publish sem argumento. Inadimplência é explícita por causa da PII.
+PADRAO = ["indicadores", "dre"]
 
 
 def env():
@@ -35,31 +44,38 @@ def env():
 
 
 def upload(url, key, name):
-    src = DATA / f"{name}.json"
+    src, dest, ctype = DATASETS[name]
     if not src.exists():
-        print(f"[skip] {src.name} não existe — rode tools/build_data.py antes.")
+        gerador = "tools/build_inadimplencia.py" if name == "inadimplencia" else "tools/build_data.py"
+        print(f"[skip] {src.name} não existe — rode {gerador} antes.")
         return False
     body = src.read_bytes()
     r = requests.post(
-        f"{url}/storage/v1/object/{BUCKET}/{name}.json",
+        f"{url}/storage/v1/object/{BUCKET}/{dest}",
         data=body,
-        headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json",
+        headers={"Authorization": f"Bearer {key}", "Content-Type": ctype,
                  "x-upsert": "true", "cache-control": "no-store"},
         timeout=120,
     )
     if r.status_code >= 300:
-        print(f"[erro] {name}.json -> HTTP {r.status_code}: {r.text[:300]}")
+        print(f"[erro] {dest} -> HTTP {r.status_code}: {r.text[:300]}")
         return False
-    print(f"[ok] {name}.json ({len(body)//1024} KB) -> {BUCKET}/{name}.json")
+    print(f"[ok] {dest} ({len(body)//1024} KB) -> {BUCKET}/{dest}")
     return True
 
 
 def main():
     url, key = env()
-    alvos = sys.argv[1:] or DATASETS
+    alvos = sys.argv[1:] or PADRAO
+    if alvos == ["--all"]:
+        alvos = list(DATASETS)
     desconhecido = [a for a in alvos if a not in DATASETS]
     if desconhecido:
-        sys.exit(f"Dataset não publicável: {', '.join(desconhecido)}. Válidos: {', '.join(DATASETS)}")
+        sys.exit(f"Dataset não publicável: {', '.join(desconhecido)}. "
+                 f"Válidos: {', '.join(DATASETS)}")
+    if "inadimplencia" in alvos:
+        print("[aviso] inadimplencia contém PII. Vai pro bucket PRIVADO, visível só "
+              "para quem tem hub_can('inadimplencia').")
     falhou = [n for n in alvos if not upload(url, key, n)]
     if falhou:
         sys.exit(f"Falha ao publicar: {', '.join(falhou)}")

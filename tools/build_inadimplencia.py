@@ -153,6 +153,15 @@ def run():
     # 4) logo Luxor no header
     h = h.replace("<header>", '<header><img class="lx-logo" src="../luxor-logo.png" alt="Luxor">', 1)
 
+    # 5) caminhos relativos -> absolutos. Em produção o arquivo é servido como
+    #    blob: (vem do bucket privado, nunca vira arquivo público) e blob não
+    #    tem caminho base, então "../vendor/x" não resolve. O blob herda o
+    #    origin do hub, então "/assets/vendor/x" resolve nos dois casos.
+    for rel, absolute in (("../vendor/", "/assets/vendor/"),
+                          ("../fonts.css", "/assets/fonts.css"),
+                          ("../luxor-logo.png", "/assets/luxor-logo.png")):
+        h = h.replace(rel, absolute)
+
     OUT.write_text(h, encoding="utf-8")
     print(f"[inadimplencia] {len(h)//1024} KB -> {OUT.relative_to(ROOT)}")
 

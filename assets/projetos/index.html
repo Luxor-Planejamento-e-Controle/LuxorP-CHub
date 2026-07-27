@@ -986,9 +986,10 @@ Reduzir atividades manuais"></textarea>
         return (res.data && Array.isArray(res.data.data)) ? res.data.data : [];
       });
   }
+  var rtChannel = null;
   function subscribeRealtime() {
-    var c = sbc(); if (!c) return;
-    c.channel("app_state_projetos")
+    var c = sbc(); if (!c || rtChannel) return;   // um canal só, senão acumula
+    rtChannel = c.channel("app_state_projetos")
       .on("postgres_changes",
           { event: "UPDATE", schema: "public", table: "app_state", filter: "id=eq.projetos" },
           function (payload) {
@@ -1042,7 +1043,14 @@ Reduzir atividades manuais"></textarea>
       });
   }
 
+  // Roda UMA vez. onAuthStateChange dispara em TOKEN_REFRESHED e na sincronia
+  // entre os clientes Supabase do hub e deste iframe (mesmo origin, mesmo
+  // storageKey) — sem essa trava, cada evento refazia remoteLoad + render
+  // inteiro e o dashboard ficava piscando.
+  var dataBooted = false;
   function bootData() {
+    if (dataBooted) return;
+    dataBooted = true;
     hideLogin();
     remoteLoad().then(function (arr) {
       if (arr) state.projects = arr.map(normalize);
@@ -1058,7 +1066,10 @@ Reduzir atividades manuais"></textarea>
       if (res.data && res.data.session) { if (!returnToHub()) bootData(); } else showLogin();
     });
     c.auth.onAuthStateChange(function (ev, session) {
-      if (session) { if (!returnToHub()) bootData(); } else showLogin();
+      if (session) { if (!returnToHub()) bootData(); }
+      // Só SIGNED_OUT volta pro login. Outros eventos com sessão nula são
+      // transitórios (INITIAL_SESSION antes de restaurar) e faziam piscar.
+      else if (ev === "SIGNED_OUT") { dataBooted = false; showLogin(); }
     });
   }
   boot();

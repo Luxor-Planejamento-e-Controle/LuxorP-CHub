@@ -50,18 +50,24 @@ const ROUTES = [
   {id:'', title:'Início', sub:'Hub de Planejamento & Controle', icon:'home', render:renderHome},
   {id:'indicadores', title:'Indicadores Financeiros', sub:'Cotações e variações por índice', icon:'ind', render:renderIndicadores},
   {id:'dre', title:'DRE — Orçado × Realizado', sub:'Comparativo orçado vs realizado', icon:'dre', render:renderDRE},
-  // staged: a tela existe, mas o dado tem PII e ainda não é publicado no hub —
-  // fica fora da nav até o desenho LGPD/RBAC da seção 5 estar de pé.
-  {id:'inadimplencia', title:'Controle de Inadimplência', sub:'', icon:'inad', render:renderInad, staged:true},
+  {id:'inadimplencia', title:'Controle de Inadimplência', sub:'', icon:'inad', render:renderInad},
   {id:'projetos', title:'Projetos', sub:'Controle de projetos de automação/BI', icon:'proj', render:renderProjetos},
 ];
 // Rotas que o usuário logado pode abrir (Início sempre). Fora da allowlist a
 // aba nem aparece — e o dado dela nem foi baixado (ver assets/auth.js).
+// Aba só entra na nav se o usuário tem permissão E o dado dela chegou. Assim
+// ninguém abre um painel vazio porque o publish ainda não rodou.
+function temDado(id, hub){
+  if(hub.offline) return true;
+  if(id==='indicadores')   return !!window.IND_DATA;
+  if(id==='dre')           return !!window.DRE_DATA;
+  if(id==='inadimplencia') return !!hub.inadUrl;
+  return true;                                    // Projetos lê direto do Postgres
+}
 function allowed(){
   const hub = window.HUB || {};
   const ok = hub.dashboards || [];
-  // offline (file://) mostra a tela staged; em produção ela fica fora.
-  return ROUTES.filter(r => !r.id || (ok.includes(r.id) && (hub.offline || !r.staged)));
+  return ROUTES.filter(r => !r.id || (ok.includes(r.id) && temDado(r.id, hub)));
 }
 const byId = id => allowed().find(r=>r.id===id) || ROUTES[0];
 
@@ -379,10 +385,13 @@ function renderDRE(el){
   draw();
 }
 
-/* ---- Inadimplência (dashboard real re-skin Luxor, via iframe) ---- */
+/* ---- Inadimplência (dashboard real re-skin Luxor, via iframe) ----
+   Em produção o HTML vem do bucket privado como blob (tem PII, nunca vira
+   arquivo público). Offline usa o build local. */
 function renderInad(el){
   el.classList.add('flush');
-  el.innerHTML=`<iframe class="embed" src="assets/inadimplencia/dashboard.html" title="Dashboard de Inadimplência"></iframe>`;
+  const src=(window.HUB&&window.HUB.inadUrl)||'assets/inadimplencia/dashboard.html';
+  el.innerHTML=`<iframe class="embed" src="${src}" title="Dashboard de Inadimplência"></iframe>`;
 }
 
 /* ---- Projetos (app real controle-de-projetos, via iframe) ---- */

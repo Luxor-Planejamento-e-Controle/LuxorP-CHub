@@ -11,9 +11,17 @@
 window.HUB = { sb:null, email:null, role:null, dashboards:[], offline:false };
 
 const HUB_OFFLINE = location.protocol === 'file:';
-// Cada dashboard e o arquivo que ele precisa no bucket (null = não usa snapshot).
-const HUB_DATASETS = { indicadores:'indicadores.json', dre:'dre.json',
-                       inadimplencia:null, projetos:null };
+// Cada dashboard e o que ele precisa buscar no bucket privado.
+//   json  -> vira window.<nome>      blob -> vira window.HUB.<nome> (URL p/ iframe)
+//   null  -> não usa snapshot (Projetos lê direto do Postgres)
+// O nome do arquivo importa: a policy do bucket usa o prefixo antes do ponto
+// pra decidir quem pode baixar (ver sql/hub_schema.sql).
+const HUB_DATASETS = {
+  indicadores:   { file:'indicadores.json',   json:'IND_DATA' },
+  dre:           { file:'dre.json',           json:'DRE_DATA' },
+  inadimplencia: { file:'inadimplencia.html', blob:'inadUrl'  },
+  projetos:      null,
+};
 
 /* Erro devolvido pelo GoTrue vem na URL (hash no fluxo implícito, query no PKCE)
    e o supabase-js limpa isso na inicialização. Capturar AGORA, antes disso,
@@ -128,14 +136,19 @@ async function loadAccess(email){
 /* ---------- snapshots do bucket privado ---------- */
 async function loadData(dashboards){
   const sb = window.HUB.sb, bucket = window.HUB_BUCKET;
-  const target = { indicadores:'IND_DATA', dre:'DRE_DATA' };
   await Promise.all(dashboards.map(async d => {
-    const file = HUB_DATASETS[d];
-    if(!file || window[target[d]]) return;              // sem snapshot ou já veio do build local
-    const { data, error } = await sb.storage.from(bucket).download(file);
-    if(error){ console.warn('[hub] snapshot ausente:', file, error.message); return; }
-    try { window[target[d]] = JSON.parse(await data.text()); }
-    catch(e){ console.warn('[hub] snapshot inválido:', file, e); }
+    const spec = HUB_DATASETS[d];
+    if(!spec) return;
+    if(spec.json && window[spec.json]) return;          // já veio do build local
+    const { data, error } = await sb.storage.from(bucket).download(spec.file);
+    if(error){ console.warn('[hub] snapshot ausente:', spec.file, error.message); return; }
+    try {
+      const txt = await data.text();
+      if(spec.json) window[spec.json] = JSON.parse(txt);
+      // O HTML da inadimplência nunca vira arquivo público: fica em memória,
+      // como blob do próprio origin (caminhos /assets/... continuam resolvendo).
+      else window.HUB[spec.blob] = URL.createObjectURL(new Blob([txt], {type:'text/html'}));
+    } catch(e){ console.warn('[hub] snapshot inválido:', spec.file, e); }
   }));
 }
 
