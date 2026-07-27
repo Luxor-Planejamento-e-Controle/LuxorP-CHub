@@ -37,11 +37,11 @@ header{display:none !important}
 .kpi-card:hover,section:hover{border-color:var(--border-2) !important}
 .kpi-label,.kpi-sub{color:var(--text-2) !important}
 .kpi-value{color:var(--text) !important}
-/* cor por gravidade: branco=total/a vencer/vencidos · amarelo=não entregues ·
-   vermelho=inadimplentes · carmim=ação judicial (mesma cor do donut e da barra) */
+/* rampa de gravidade, igual à dos gráficos: branco=total/a vencer/vencidos ·
+   amarelo=não entregues · laranja=inadimplentes · vermelho=ação judicial */
 .kpi-card.yellow .kpi-value{color:#f6c000 !important}
-.kpi-card.red .kpi-value{color:#FF0000 !important}
-.kpi-card.wine .kpi-value{color:JUDICIAL_HEX !important}
+.kpi-card.orange .kpi-value{color:#FFA400 !important}
+.kpi-card.red    .kpi-value{color:#FF0000 !important}
 /* scrollbars discretas (mata o quadrado branco no canto) */
 ::-webkit-scrollbar{height:9px;width:9px}
 ::-webkit-scrollbar-track{background:transparent !important}
@@ -86,43 +86,52 @@ CHART_DARK = r"""
 });</script>
 """
 
-# Ação Judicial: é o estágio mais grave, então não pode ficar em cinza. Escurecer
-# o vermelho não serve — em fundo escuro vinho fica ilegível (#8C1010 dá contraste
-# 1.5, o mínimo p/ elemento gráfico é 3). Separa-se por MATIZ: carmim, 21° do
-# vermelho puro, contraste 3.0 sobre o #12303A (o próprio #FF0000 tem 3.5).
-# Mesma cor no donut, na barra e no card — antes cada um tinha a sua.
-JUDICIAL = "#D6336C"
+# ── Cores por GRAVIDADE ────────────────────────────────────────────────────────
+# A cor acompanha o quão ruim é o estágio, e não a categoria em si:
+#     A Vencer  <  Não Entregues  <  Inadimplentes  <  Ação Judicial
+# Por isso o vermelho fica na Ação Judicial (o pior estágio), não em
+# Inadimplentes. Tentativa anterior foi dar um tom próprio à Judicial mantendo
+# o vermelho em Inadimplentes: não funciona. Em fundo escuro, vermelho tem
+# luminância baixa, então ganhar contraste exige clarear — e clarear vermelho
+# vai pro rosa (mais azul) ou pro laranja (mais verde, já ocupado). Tudo que
+# sobra com bom contraste tem matiz 0° do vermelho, ou seja, é outro vermelho:
+# dois vermelhos vizinhos no donut não se distinguem.
+# Só cores da paleta oficial, e nenhum par de vizinhos a menos de 17° de matiz.
+A_VENCER  = "#346e79"   # teal claro   contraste 2.4
+N_ENTREG  = "#f6c000"   # amarelo      contraste 8.3
+INADIMPL  = "#FFA400"   # laranja      contraste 7.0
+JUDICIAL  = "#FF0000"   # vermelho     contraste 3.5  <- mais grave
+VENCIDO   = "#D9D9D9"   # cinza        contraste 9.9  (só na barra)
 
 # Correções cirúrgicas de cor NA FONTE (o gerador crava cores claras/berrantes).
-# Ordem importa: Chart.defaults.color é trocado antes do replace global de '#525252'.
-# Paleta oficial Luxor: #FF0000 #FFA400 #D9D9D9 #1D6E79 #1c3e44 #346e79 #f6c000
+# Ordem importa: Chart.defaults.color é trocado antes do replace de '#525252'.
 COLOR_FIXES = [
     ("Chart.defaults.color = '#525252'", "Chart.defaults.color = '#C4DBDD'"),      # texto eixos/ticks
     ("Chart.defaults.borderColor = '#e5e5e5'", "Chart.defaults.borderColor = 'transparent'"),
     ("grid:{color:'#f5f5f4', drawBorder:false}", "grid:{display:false}"),          # remove grade
     ("borderColor:'#fff'", "borderColor:'#12303A'"),                               # separador do donut
     ("color:'#171717'", "color:'#EAF4F4'"),                                        # texto da legenda
-    ("color:'#9e9e9e'", "color:'#D9D9D9'"),                                        # Vencido (barra)
-    ("color:'#1a237e'", f"color:'{JUDICIAL}'"),                                    # Ação Judicial (barra)
-    ("color:'#e65100'", "color:'#FFA400'"),                                        # Não Entregue (barra)
-    ("'#16a34a'", "'#346e79'"),                                                     # A Vencer -> teal claro (contraste no dark)
-    ('"#16a34a"', '"#346e79"'),                                                     # (variante aspas duplas / JSON)
-    ("'#dc2626'", "'#FF0000'"),                                                     # Inadimplentes -> vermelho Luxor
-    ('"#dc2626"', '"#FF0000"'),
-    ("'#ea580c'", "'#FFA400'"),                                                     # Não Entregues -> laranja
-    ('"#ea580c"', '"#FFA400"'),
     # ATENÇÃO: '#525252' com aspas SIMPLES é texto de eixo (ticks x/y), não é
-    # Ação Judicial. Trocar essa string pela cor da categoria pintaria os
-    # rótulos dos eixos. A cor do donut mora só na entrada da paleta abaixo.
-    ("'#525252'", "'#D9D9D9'"),                                                     # ticks dos eixos -> cinza claro
-    ('"ACAO_JUDICIAL": "#525252"', f'"ACAO_JUDICIAL": "{JUDICIAL}"'),               # Ação Judicial (donut)
+    # categoria. Trocar essa string por cor de categoria pintaria os rótulos
+    # dos eixos. As cores do donut moram só nas entradas da paleta, adiante.
+    ("'#525252'", "'#D9D9D9'"),                                                    # ticks dos eixos
+    # --- barra "% do total por ano": cada série tem cor cravada no JS ---
+    ("color:'#9e9e9e'", f"color:'{VENCIDO}'"),                                     # Vencido
+    ("color:'#1a237e'", f"color:'{JUDICIAL}'"),                                    # Ação Judicial
+    ("color:'#e65100'", f"color:'{N_ENTREG}'"),                                    # Não Entregue
+    # --- donut: lê de DATA.palette[categoria] ---
+    ('"A_VENCER": "#16a34a"',      f'"A_VENCER": "{A_VENCER}"'),
+    ('"NAO_ENTREGUES": "#ea580c"', f'"NAO_ENTREGUES": "{N_ENTREG}"'),
+    ('"INADIMPLENTE": "#dc2626"',  f'"INADIMPLENTE": "{INADIMPL}"'),
+    ('"ACAO_JUDICIAL": "#525252"', f'"ACAO_JUDICIAL": "{JUDICIAL}"'),
 ]
 
 # Cor do KPI por rótulo (sobrescreve a classe original do gerador).
 # '' = neutro (branco). yellow = atenção/vencido. red = ação judicial.
+# Mesma rampa de gravidade dos gráficos: card e fatia do donut na mesma cor.
 KPI_COLOR = [
     ("Total em Aberto", ""), ("Vencidos", ""), ("A Vencer", ""),
-    ("Inadimplentes", "red"), ("Judicial", "wine"), ("Entregues", "yellow"),
+    ("Inadimplentes", "orange"), ("Judicial", "red"), ("Entregues", "yellow"),
 ]
 
 # Renome de rótulos
