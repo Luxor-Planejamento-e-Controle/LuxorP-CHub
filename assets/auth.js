@@ -51,12 +51,16 @@ function sendLink(){
   if(!/^[^@\s]+@luxor\.com\.br$/.test(email)){ msg.textContent='Use um e-mail @luxor.com.br.'; return; }
   msg.textContent = 'Enviando...';
   // shouldCreateUser:false — o hub é invite-only; magic-link não cria conta.
+  // A resposta é a MESMA pra e-mail liberado e não liberado: o site é público,
+  // então não pode servir de oráculo pra descobrir quem tem conta na Luxor.
+  // Quem não está na allowlist descobre depois de autenticar, não antes.
   window.HUB.sb.auth.signInWithOtp({ email, options:{ shouldCreateUser:false,
                                                       emailRedirectTo: location.origin + '/' } })
-    .then(r => { msg.textContent = !r.error ? 'Link enviado. Abra o e-mail e clique para entrar.'
-               : /not allowed|not found/i.test(r.error.message)
-                 ? 'E-mail não liberado no hub. Fale com o Arthur Martins.'
-                 : ('Erro: ' + r.error.message); });
+    .then(r => {
+      if(r.error && !/not allowed|not found|signups? not allowed/i.test(r.error.message))
+        console.warn('[hub] signInWithOtp:', r.error.message);
+      msg.textContent = 'Se este e-mail estiver liberado, o link de acesso chegou na caixa de entrada.';
+    });
 }
 
 /* ---------- permissões ---------- */

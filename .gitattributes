@@ -1,0 +1,5 @@
+# Hooks são shell script: CRLF faz o sh falhar com "bad interpreter: ^M".
+.githooks/* text eol=lf
+
+# Bundles vendorizados: não normalizar nem tratar como texto em diff.
+assets/vendor/* binary

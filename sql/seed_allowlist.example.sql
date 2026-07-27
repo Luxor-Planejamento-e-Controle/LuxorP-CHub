@@ -1,19 +1,18 @@
--- Seed da allowlist. NÃO versionar a versão com e-mails reais —
--- rodar direto no SQL editor do Supabase (os e-mails não vivem no Git).
---
--- Copiar, trocar pelos 9 e-mails e rodar uma vez.
+-- MODELO. Repositório é PÚBLICO — nenhum e-mail real aqui.
+-- A versão real fica em sql/seed_allowlist.local.sql (gitignorado) e no
+-- Supabase. Copiar este arquivo, trocar os e-mails e rodar uma vez.
 
 insert into allowed_users (email, nome, role) values
-  ('usuario1@exemplo.com', 'Arthur Martins', 'admin'),
-  ('fulano@luxor.com.br',         'Fulano',         'user')
+  ('admin@exemplo.com.br',   'Nome do Admin',   'admin'),
+  ('usuario@exemplo.com.br', 'Nome do Usuário', 'user')
 on conflict (email) do update
   set nome = excluded.nome, role = excluded.role, ativo = true;
 
 -- Libera dashboards por usuário (admin não precisa: vê tudo).
 insert into user_dashboard_access (email, dashboard) values
-  ('fulano@luxor.com.br', 'projetos'),
-  ('fulano@luxor.com.br', 'indicadores'),
-  ('fulano@luxor.com.br', 'dre')
+  ('usuario@exemplo.com.br', 'projetos'),
+  ('usuario@exemplo.com.br', 'indicadores'),
+  ('usuario@exemplo.com.br', 'dre')
 on conflict do nothing;
 
 -- Conferência:

@@ -5,6 +5,21 @@ board (Indicadores, DRE, Fluxo de Caixa, Participações, Plantel/Vendas,
 Inadimplência, Projetos).
 
 Arquitetura completa: [docs/ARQUITETURA.md](docs/ARQUITETURA.md).
+Deploy passo a passo: [docs/DEPLOY.md](docs/DEPLOY.md).
+
+> ⚠ **Repositório PÚBLICO** (exigência do plano do Netlify para deploy contínuo).
+> Só a casca do site vive aqui. Nenhum dado real, e-mail da allowlist, planilha
+> ou segredo — tudo isso fica no Supabase, atrás de auth + RLS. A anon key em
+> `assets/config.js` é pública por design; a `service_role`, **jamais**.
+>
+> Antes do primeiro commit neste clone:
+>
+> ```bash
+> python tools/install_hooks.py
+> ```
+>
+> Instala o `pre-commit` que recusa dado real, PII, e-mail `@luxor.com.br` e
+> segredo. Não é substituto de atenção, é rede de segurança.
 
 ## Como funciona
 
