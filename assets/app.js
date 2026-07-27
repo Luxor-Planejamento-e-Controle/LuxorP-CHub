@@ -115,6 +115,7 @@ function renderIndicadores(el){
   const inds=D.indices, def=inds.includes('Dólar')?'Dólar':inds[0];
   const fantasy=new Set(D.fantasy||[]);
   const monthly=new Set(D.monthly||[]);   // séries de fechamento de mês (ex.: Resultado FO)
+  const parcial36=D.parcial36||{};        // {índice: meses} — 36M vira acumulado do período
   let zoomState=null;         // {start,end} preservado entre trocas de ticker
   let refDate=null;           // data dos KPIs; null = última disponível da série
   el.innerHTML=`
@@ -135,7 +136,7 @@ function renderIndicadores(el){
     </div>
     <div class="card" style="margin-top:16px"><div class="card-title"><h2>Histórico</h2><span class="muted" id="rowCount"></span></div>
       <div class="tbl-wrap" style="max-height:520px"><table class="data"><thead><tr>
-        <th>Data</th><th id="thCota">Cotação</th><th>% Dia</th><th>% MTD</th><th>% QTD</th><th>% YTD</th><th>% 36M</th>
+        <th>Data</th><th id="thCota">Cotação</th><th>% Dia</th><th>% MTD</th><th>% QTD</th><th>% YTD</th><th id="th36">% 36M</th>
       </tr></thead><tbody id="rows"></tbody></table></div></div>`;
 
   const draw=()=>{
@@ -158,13 +159,18 @@ function renderIndicadores(el){
     if(ri<0) ri=rows.length-1;                 // data antes do início da série
     inp.value=datas[ri];
     const ref=rows[ri], ehUltima=ri===rows.length-1;
+    // Série com menos de 36 meses: a coluna traz o acumulado do período todo.
+    // Rótulo muda junto, senão parece 36 meses e vira comparação errada.
+    const mesesParc=parcial36[f]||0;
+    const lbl36=mesesParc?`% Acum. ${mesesParc}M`:'% 36M';
+    document.getElementById('th36').textContent=lbl36;
     document.getElementById('kpis').innerHTML=[
       [fant?(ehUltima?'Último índice':'Índice'):'Cotação',fmt.num(ref[1]),fmt.br(ref[0]),''],
       ['% Dia',fmt.pct(ref[2]),'',cls(ref[2])],
       ['% MTD',fmt.pct(ref[3]),'',cls(ref[3])],
       ['% QTD',fmt.pct(ref[4]),'',cls(ref[4])],
       ['% YTD',fmt.pct(ref[5]),'',cls(ref[5])],
-      ['% 36M',fmt.pct(ref[6]),'',cls(ref[6])],
+      [lbl36,fmt.pct(ref[6]),mesesParc?'desde '+fmt.mesano(rows[0][0]):'',cls(ref[6])],
     ].map(([l,v,s,c])=>`<div class="card kpi"><div class="label">${l}</div><div class="val ${c}">${v}</div><div class="delta">${s||'&nbsp;'}</div></div>`).join('');
     document.getElementById('refLast').disabled=ehUltima;
     // nota: 36M/YTD indisponíveis por histórico curto (não é erro)
@@ -172,7 +178,8 @@ function renderIndicadores(el){
     const notes=[];
     if(!ehUltima) notes.push(`Indicadores em ${fmt.br(ref[0])}, não na última data disponível (${fmt.br(datas[datas.length-1])}).`);
     if(mens) notes.push(`Série mensal: % Dia não se aplica; % MTD é a variação do mês fechado.`);
-    if(!has36) notes.push(`% 36M requer 36 meses de histórico — indisponível (série inicia em ${ini}).`);
+    if(mesesParc) notes.push(`Série tem ${mesesParc} meses: no lugar do % 36M, a coluna mostra o acumulado desde o início — não é comparável com quem tem 36 meses.`);
+    else if(!has36) notes.push(`% 36M requer 36 meses de histórico — indisponível (série inicia em ${ini}).`);
     if(!hasYtd) notes.push(`% YTD indisponível para o ano de início da série.`);
     document.getElementById('indNote').textContent=notes.join(' ');
     // Padrão = período completo. Antes abria nos últimos 180 pontos, o que

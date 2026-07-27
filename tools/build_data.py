@@ -87,7 +87,14 @@ def build_segmento(gdf, segmento):
             reinicia por ano; conferido na base)
       dia = None         -> não existe variação diária nessa série
       mtd/qtr/ytd        = %_MoM / %_Quarter / %_YTD (já calculados na fonte)
-      m36                = Quota[i]/Quota[i-36]-1 (só quando há 36 meses)
+      m36                = Quota[i]/Quota[i-36]-1 quando há 36 meses; com menos
+            que isso, o ACUMULADO DESDE O INÍCIO (deixar vazio jogaria fora
+            informação que existe). O rótulo no hub muda junto, senão viraria
+            comparação errada com quem tem 36 meses de verdade — quem avisa é
+            o `parcial36` do payload.
+
+    Devolve (rows, meses).
+
     Obs: o group_hist_data vem com as linhas fora de ordem (o mês mais recente
     pode aparecer no topo do arquivo), daí o sort/drop_duplicates por Date.
     """
@@ -97,14 +104,19 @@ def build_segmento(gdf, segmento):
     if g.empty:
         raise ValueError(f"segmento '{segmento}' não existe ou está sem Quota")
     q = g["Quota"].astype(float)
+    # Base do índice = valor ANTES do primeiro mês. A Quota da 1ª linha já
+    # embute o retorno daquele mês, então dividir por ela subestimaria o
+    # acumulado no primeiro mês inteiro.
+    mom0 = float(g["%_MoM"].iloc[0] or 0)
+    base = q.iloc[0] / (1 + mom0) if (1 + mom0) else q.iloc[0]
     rows = []
     for i in range(len(g)):
-        m36 = (q.iloc[i] / q.iloc[i - 36] - 1) if i >= 36 else None
+        m36 = (q.iloc[i] / q.iloc[i - 36] - 1) if i >= 36 else (q.iloc[i] / base - 1)
         rows.append([pd.Timestamp(g["Date"].iloc[i]).strftime("%Y-%m-%d"),
                      round(q.iloc[i] * 100, 4), None,
                      pc(g["%_MoM"].iloc[i]), pc(g["%_Quarter"].iloc[i]),
                      pc(g["%_YTD"].iloc[i]), pc(m36)])
-    return rows
+    return rows, len(g)
 
 
 def build_cotas(bsc):
@@ -180,16 +192,19 @@ def build_indicadores():
 
     # Cotas do group_hist_data entram na mesma lista (outra fonte, série mensal).
     # Falha num segmento não derruba o resto — o painel sobe sem ele.
-    monthly = []
+    monthly, parcial36 = [], {}
     try:
         gdf = read_blob(b, GROUP_BLOB)
         for seg, label in SEGMENTOS:
             try:
-                out[label] = build_segmento(gdf, seg)
+                out[label], meses = build_segmento(gdf, seg)
                 fantasy.append(label)     # cota, não preço de mercado
                 monthly.append(label)
+                if meses < 36:            # coluna "36M" traz o acumulado do período
+                    parcial36[label] = meses
                 print(f"[indicadores] {label}: {len(out[label])} meses "
-                      f"({out[label][0][0]} a {out[label][-1][0]})")
+                      f"({out[label][0][0]} a {out[label][-1][0]})"
+                      + (f" — 36M mostra acumulado de {meses}m" if meses < 36 else ""))
             except Exception as e:
                 print(f"[indicadores] {label} ignorado:", e, file=sys.stderr)
     except Exception as e:
@@ -205,6 +220,9 @@ def build_indicadores():
     indices = sorted(out.keys())
     payload = {"indices": indices, "rows": out, "fantasy": sorted(fantasy),
                "monthly": sorted(monthly),
+               # {índice: nº de meses} — nesses, a coluna m36 é acumulado do
+               # período, não 36 meses. O hub rotula diferente.
+               "parcial36": parcial36,
                "cols": ["data", "px", "dia", "mtd", "qtr", "ytd", "m36"]}
     write("indicadores", "IND_DATA", payload)
     print(f"[indicadores] {len(indices)} índices ({len(fantasy)} fantasia), {len(df)} linhas -> indicadores.json/.js")
