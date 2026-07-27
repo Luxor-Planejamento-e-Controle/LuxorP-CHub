@@ -27,11 +27,10 @@ SEGMENTOS = [
     ("Resultado_FO", "Resultado FO"),
 ]
 
-# Cotas de fundos vindas da CVM (informe diário por CNPJ). Quem baixa e mantém
-# o cache é o cvm.py em "Relatórios de Gestão/Novo Extrato de Cotista/
-# Composição de Dividendos/cotas/" — aqui só lemos a saída dele.
-QUOTAS_XLSX = (r"G:/Drives compartilhados/Luxor Controladoria/Relatórios de Gestão/"
-               r"Novo Extrato de Cotista/Bases de dados/funds_quotas_historico.xlsx")
+# Cotas de fundos vindas da CVM (informe diário por CNPJ). Quem baixa e publica
+# é o cvm.py em "Relatórios de Gestão/Novo Extrato de Cotista/Composição de
+# Dividendos/cotas/", que ao salvar o cache sobe pro Blob. Aqui só lemos.
+QUOTAS_BLOB = "LuxorControlDatabase/parquet/funds_quotas_historico.parquet"
 # (nome na coluna FUNDO, rótulo no hub). Manga/Lipi já vêm do parquet de
 # indicadores, então aqui entram só os que faltavam.
 FUNDOS_COTA = [
@@ -96,20 +95,20 @@ def build_segmento(gdf, segmento):
     return rows
 
 
-def build_cotas():
-    """Cotas de fundos do cache do cvm.py. A planilha já traz cota real e as
+def build_cotas(bsc):
+    """Cotas de fundos publicadas pelo cvm.py no Blob. Já vêm com cota real e as
     variações prontas (VAR_DIA/MTD/QTD/YTD/36M em fração), com a mesma semântica
     do parquet de indicadores — então NÃO recalcula nada, só reempacota.
     Devolve {rótulo: rows} no formato [data, px, dia, mtd, qtr, ytd, m36].
     """
-    df = pd.read_excel(QUOTAS_XLSX)
+    df = read_blob(bsc, QUOTAS_BLOB)
     df["DATA"] = pd.to_datetime(df["DATA"])
     out = {}
     for fundo, label in FUNDOS_COTA:
         g = (df[df["FUNDO"] == fundo].dropna(subset=["DATA", "COTA"])
                .sort_values("DATA").drop_duplicates("DATA", keep="last"))
         if g.empty:
-            print(f"[indicadores] {label}: sem linhas em {Path(QUOTAS_XLSX).name}", file=sys.stderr)
+            print(f"[indicadores] {label}: sem linhas em {QUOTAS_BLOB}", file=sys.stderr)
             continue
         out[label] = [[r["DATA"].strftime("%Y-%m-%d"), round(float(r["COTA"]), 6),
                        pc(r["VAR_DIA"]), pc(r["MTD"]), pc(r["QTD"]),
@@ -186,7 +185,7 @@ def build_indicadores():
     # Cotas de fundos (CVM). Cota real e série diária, então não entram em
     # fantasy nem em monthly. Falha aqui também não derruba o resto.
     try:
-        out.update(build_cotas())
+        out.update(build_cotas(b))
     except Exception as e:
         print("[indicadores] cotas de fundos indisponíveis:", e, file=sys.stderr)
 
