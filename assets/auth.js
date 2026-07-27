@@ -28,6 +28,16 @@ const HUB_URL_ERR = (function(){
   return { code, desc: (desc||'').replace(/\+/g,' ') };
 })();
 
+/* Token no hash = fluxo implícito, que é o que o `admin/generate_link` produz.
+   O supabase-js com flowType:'pkce' RECUSA esse formato ("Not a valid PKCE flow
+   url") e joga o token fora. Manter PKCE (melhor: o token não passa pela URL no
+   login por e-mail) e tratar o implícito na mão, só nesse caso. */
+const HUB_URL_TOKENS = (function(){
+  const p = new URLSearchParams(location.hash.replace(/^#/,''));
+  const at = p.get('access_token'), rt = p.get('refresh_token');
+  return at && rt ? { access_token: at, refresh_token: rt } : null;
+})();
+
 const HUB_TRAD = {
   otp_expired:      'Link expirado ou já usado. Peça um novo — cada link vale uma vez só.',
   access_denied:    'Link inválido ou já usado. Peça um novo.',
@@ -166,6 +176,13 @@ async function start(){
     await loadData(access.dashboards);
     hideGate();
     window.hubBoot();
+  }
+
+  if(HUB_URL_TOKENS){
+    const { error:setErr } = await sb.auth.setSession(HUB_URL_TOKENS);
+    // Tira o token da barra de endereços: fica no histórico e vaza em print.
+    history.replaceState(history.state, '', location.pathname + location.search);
+    if(setErr) console.error('[hub] setSession:', setErr.message);
   }
 
   const { data, error } = await sb.auth.getSession();
