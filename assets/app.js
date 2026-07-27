@@ -116,10 +116,15 @@ function renderIndicadores(el){
   const fantasy=new Set(D.fantasy||[]);
   const monthly=new Set(D.monthly||[]);   // séries de fechamento de mês (ex.: Resultado FO)
   let zoomState=null;         // {start,end} preservado entre trocas de ticker
+  let refDate=null;           // data dos KPIs; null = última disponível da série
   el.innerHTML=`
     <div class="toolbar">
       <div class="field"><label>Índice / Fundo</label>
         <select id="ind">${inds.map(f=>`<option ${f===def?'selected':''}>${f}</option>`).join('')}</select></div>
+      <div class="field"><label>Data de referência</label>
+        <input type="date" id="refDate"></div>
+      <div class="field"><label>&nbsp;</label>
+        <button type="button" class="btn-ghost" id="refLast">Última</button></div>
     </div>
     <div class="grid g-6" id="kpis" style="margin-bottom:10px"></div>
     <div id="indNote" class="hint" style="margin:0 0 16px"></div>
@@ -142,24 +147,38 @@ function renderIndicadores(el){
     document.getElementById('fant').textContent=mens?'série mensal (fechamento de mês)'
       :fant?'cotação sintética (sem preço de mercado)':'';
     document.getElementById('thCota').textContent=fant?'Índice':'Cotação';
-    const last=rows[rows.length-1];
+    // KPIs na DATA DE REFERÊNCIA (padrão: última disponível). A série pode não
+    // ter a data exata escolhida (fim de semana, feriado, série mensal), então
+    // usa o último ponto <= a data.
+    const datas=rows.map(r=>r[0]);
+    const idxAte=d=>{let k=-1;for(let i=0;i<datas.length;i++){if(datas[i]<=d)k=i;else break;}return k;};
+    const inp=document.getElementById('refDate');
+    inp.min=datas[0]; inp.max=datas[datas.length-1];
+    let ri=refDate?idxAte(refDate):rows.length-1;
+    if(ri<0) ri=rows.length-1;                 // data antes do início da série
+    inp.value=datas[ri];
+    const ref=rows[ri], ehUltima=ri===rows.length-1;
     document.getElementById('kpis').innerHTML=[
-      [fant?'Último índice':'Última cotação',fmt.num(last[1]),fmt.br(last[0]),''],
-      ['% Dia',fmt.pct(last[2]),'',cls(last[2])],
-      ['% MTD',fmt.pct(last[3]),'',cls(last[3])],
-      ['% QTD',fmt.pct(last[4]),'',cls(last[4])],
-      ['% YTD',fmt.pct(last[5]),'',cls(last[5])],
-      ['% 36M',fmt.pct(last[6]),'',cls(last[6])],
+      [fant?'Último índice':'Cotação',fmt.num(ref[1]),fmt.br(ref[0]),''],
+      ['% Dia',fmt.pct(ref[2]),'',cls(ref[2])],
+      ['% MTD',fmt.pct(ref[3]),'',cls(ref[3])],
+      ['% QTD',fmt.pct(ref[4]),'',cls(ref[4])],
+      ['% YTD',fmt.pct(ref[5]),'',cls(ref[5])],
+      ['% 36M',fmt.pct(ref[6]),'',cls(ref[6])],
     ].map(([l,v,s,c])=>`<div class="card kpi"><div class="label">${l}</div><div class="val ${c}">${v}</div><div class="delta">${s||'&nbsp;'}</div></div>`).join('');
+    document.getElementById('refLast').disabled=ehUltima;
     // nota: 36M/YTD indisponíveis por histórico curto (não é erro)
     const has36=rows.some(r=>r[6]!=null), hasYtd=rows.some(r=>r[5]!=null), ini=rows[0][0].slice(0,4);
     const notes=[];
+    if(!ehUltima) notes.push(`Indicadores em ${fmt.br(ref[0])}, não na última data disponível (${fmt.br(datas[datas.length-1])}).`);
     if(mens) notes.push(`Série mensal: % Dia não se aplica; % MTD é a variação do mês fechado.`);
     if(!has36) notes.push(`% 36M requer 36 meses de histórico — indisponível (série inicia em ${ini}).`);
     if(!hasYtd) notes.push(`% YTD indisponível para o ano de início da série.`);
     document.getElementById('indNote').textContent=notes.join(' ');
-    const s0 = zoomState? zoomState.start : (rows.length>180?(1-180/rows.length)*100:0);
-    const e0 = zoomState? zoomState.end : 100;
+    // Padrão = período completo. Antes abria nos últimos 180 pontos, o que
+    // escondia o histórico logo de cara.
+    const s0 = zoomState? zoomState.start : 0;
+    const e0 = zoomState? zoomState.end   : 100;
     const chart=mkChart(document.getElementById('chart'),Object.assign(baseOpt(),{
       legend:{show:false},grid:{left:64,right:24,top:18,bottom:64},
       dataZoom:zoom().map(z=>Object.assign(z,{start:s0,end:e0})),
@@ -205,6 +224,8 @@ function renderIndicadores(el){
     zr.on('mouseup',()=>{if(!measuring)return;measuring=false;if(!dragged){measure(winLo,winHi,'Janela');clearArea();}});
   };
   document.getElementById('ind').onchange=draw;
+  document.getElementById('refDate').onchange=e=>{refDate=e.target.value||null;draw();};
+  document.getElementById('refLast').onclick=()=>{refDate=null;draw();};
   draw();
 }
 

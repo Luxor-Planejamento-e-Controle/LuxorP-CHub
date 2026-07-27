@@ -201,3 +201,13 @@ code{background:var(--surface-2);padding:1px 6px;border-radius:5px;font-size:12p
 #hub-gate #gate-msg{margin-top:14px;font-size:12.5px;min-height:17px;color:var(--ink-2)}
 /* casca só aparece depois do porteiro liberar (evita flash do hub vazio) */
 body:not(.hub-ready) .app{visibility:hidden}
+
+/* ---- data de referência (Indicadores) ---- */
+/* color-scheme:dark faz o navegador desenhar o calendário nativo no tema escuro
+   — sem isso o ícone fica preto sobre fundo escuro e some. */
+input[type=date]{color-scheme:dark;min-width:150px}
+.btn-ghost{background:transparent;border:1px solid var(--line);color:var(--ink-2);
+  height:var(--ctl-h);box-sizing:border-box;padding:0 14px;border-radius:var(--r-sm);
+  font:inherit;font-size:13px;cursor:pointer}
+.btn-ghost:hover:not(:disabled){border-color:var(--orange);color:var(--orange)}
+.btn-ghost:disabled{opacity:.4;cursor:default}
