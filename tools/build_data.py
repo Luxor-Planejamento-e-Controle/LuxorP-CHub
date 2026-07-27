@@ -50,7 +50,8 @@ def build_resultado_fo(bsc):
       dia = None         -> não existe variação diária nessa série
       mtd/qtr/ytd        = %_MoM / %_Quarter / %_YTD (já calculados na fonte)
       m36                = Quota[i]/Quota[i-36]-1 (só quando há 36 meses)
-    Obs: a base vem desordenada (ver docs/ARQUITETURA.md), daí o sort por Date.
+    Obs: o group_hist_data vem com as linhas fora de ordem (o mês mais recente
+    pode aparecer no topo do arquivo), daí o sort/drop_duplicates por Date.
     """
     df = read_blob(bsc, GROUP_BLOB)
     g = df[df["Segment"] == FO_SEGMENT].dropna(subset=["Date", "Quota"])

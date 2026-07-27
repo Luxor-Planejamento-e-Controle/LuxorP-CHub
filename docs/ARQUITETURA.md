@@ -20,6 +20,7 @@ Cada "assunto" vira uma página/seção do hub. Origem de dados de cada um:
 | Seção | ETL / fonte do código | Saída hoje | Sensibilidade |
 |-------|-----------------------|-----------|---------------|
 | **Indicadores Financeiros** | `FinancialIndicators` (Container App Job) | Azure Blob `azblobstoragebz` / container `luxor-planejamento-e-controle` (xlsx) | interno, agregado |
+| ↳ ticker **Resultado FO** | `LuxorMonthlyFORoutines` → `group_returns_report_builder.py` | mesmo container, `LuxorControlDatabase/parquet/group_hist_data.parquet` (`Segment == Resultado_FO`) | financeiro interno |
 | **DRE — Orçado × Realizado / YTD** | `LuxorMonthlyP-CRoutines` → `DRE Data/LxDREdataExtractor.py` | Google Drive `DRE_Historico.xlsx` | financeiro interno |
 | **Fluxo de Caixa** | `LuxorMonthlyP-CRoutines` → `FCDataExtractor` | Google Drive (parquet/xlsx) | financeiro interno |
 | **Participações** | `LuxorMonthlyP-CRoutines` → `PBI Luxor participações` | Google Drive | financeiro interno |
