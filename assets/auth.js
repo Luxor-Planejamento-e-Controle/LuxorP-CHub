@@ -50,9 +50,13 @@ function sendLink(){
   const msg = document.getElementById('gate-msg');
   if(!/^[^@\s]+@luxor\.com\.br$/.test(email)){ msg.textContent='Use um e-mail @luxor.com.br.'; return; }
   msg.textContent = 'Enviando...';
-  window.HUB.sb.auth.signInWithOtp({ email, options:{ emailRedirectTo: location.origin + '/' } })
-    .then(r => { msg.textContent = r.error ? ('Erro: '+r.error.message)
-                                           : 'Link enviado. Abra o e-mail e clique para entrar.'; });
+  // shouldCreateUser:false — o hub é invite-only; magic-link não cria conta.
+  window.HUB.sb.auth.signInWithOtp({ email, options:{ shouldCreateUser:false,
+                                                      emailRedirectTo: location.origin + '/' } })
+    .then(r => { msg.textContent = !r.error ? 'Link enviado. Abra o e-mail e clique para entrar.'
+               : /not allowed|not found/i.test(r.error.message)
+                 ? 'E-mail não liberado no hub. Fale com o Arthur Martins.'
+                 : ('Erro: ' + r.error.message); });
 }
 
 /* ---------- permissões ---------- */

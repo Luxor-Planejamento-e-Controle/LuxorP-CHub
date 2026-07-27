@@ -1034,7 +1034,7 @@ Reduzir atividades manuais"></textarea>
     if (!c) { byId("auth-msg").textContent = "Config do Supabase ausente."; return; }
     if (!/@luxor\.com\.br$/i.test(email)) { byId("auth-msg").textContent = "Use um e-mail @luxor.com.br."; return; }
     byId("auth-msg").textContent = "Enviando...";
-    c.auth.signInWithOtp({ email: email, options: { emailRedirectTo: window.location.origin + "/" } })
+    c.auth.signInWithOtp({ email: email, options: { shouldCreateUser: false, emailRedirectTo: window.location.origin + "/" } })
       .then(function (res) {
         byId("auth-msg").textContent = res.error
           ? ("Erro: " + res.error.message)

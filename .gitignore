@@ -8,3 +8,6 @@ assets/inadimplencia/
 __pycache__/
 *.pyc
 .env
+
+# seeds com e-mails reais — a allowlist vive no Supabase, nao no Git
+sql/*.local.sql
