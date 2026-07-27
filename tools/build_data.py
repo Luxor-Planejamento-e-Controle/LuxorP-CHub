@@ -17,7 +17,23 @@ FIN_ENV = Path(r"C:/Users/Arthur/repos/FinancialIndicators/.env")
 CONTAINER = "luxor-planejamento-e-controle"
 IND_BLOB = "LuxorControlDatabase/Indicadores_financeiros.parquet"
 GROUP_BLOB = "LuxorControlDatabase/parquet/group_hist_data.parquet"   # pipeline do FO
-FO_SEGMENT, FO_LABEL = "Resultado_FO", "Resultado FO"
+
+# Segmentos do group_hist_data que viram série de cota no Indicadores.
+# O arquivo tem 46 segmentos, a maioria linha contábil interna (Ir_Retido,
+# Despesas_Escritório, Cashburn...), cuja "Quota" não é cota de fundo. Aqui só
+# os veículos e os resultados. Pra ver a lista toda com período e nº de meses:
+#     python tools/build_data.py --segmentos
+SEGMENTOS = [
+    ("Resultado_FO",                    "Resultado FO"),
+    ("Luxor_Investimentos_Financeiros", "Luxor Investimentos Financeiros"),
+    ("Luxor_Agro",                      "Luxor Agro"),
+    ("Luxor_Manga",                     "Luxor Manga"),
+    ("Luxor_Mangalarga_I",              "Luxor Mangalarga I"),
+    ("Luxor_Mangalarga_Ii",             "Luxor Mangalarga II"),
+    ("Luxor_Participações",             "Luxor Participações"),
+    ("Net_Result",                      "Resultado Líquido"),
+    ("Resultado_Patrimonial",           "Resultado Patrimonial"),
+]
 
 
 def azure_conn():
