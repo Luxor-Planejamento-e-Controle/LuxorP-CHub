@@ -21,6 +21,14 @@ def azure_conn():
     return dotenv_values(FIN_ENV)["AZURE_STORAGE_CONNECTION_STRING"]
 
 
+def write(name, var, payload):
+    """Grava os dois formatos: .json (produção, vai pro bucket privado via
+    publish_hub.py) e .js (demo offline em file://, que não faz fetch)."""
+    blob = json.dumps(payload, ensure_ascii=False)
+    (OUT / f"{name}.json").write_text(blob, encoding="utf-8")
+    (OUT / f"{name}.js").write_text(f"window.{var}={blob};", encoding="utf-8")
+
+
 def build_indicadores():
     from azure.storage.blob import BlobServiceClient
     b = BlobServiceClient.from_connection_string(azure_conn())
@@ -63,9 +71,8 @@ def build_indicadores():
     indices = sorted(out.keys())
     payload = {"indices": indices, "rows": out, "fantasy": sorted(fantasy),
                "cols": ["data", "px", "dia", "mtd", "qtr", "ytd", "m36"]}
-    (OUT / "indicadores.js").write_text(
-        "window.IND_DATA=" + json.dumps(payload, ensure_ascii=False) + ";", encoding="utf-8")
-    print(f"[indicadores] {len(indices)} índices ({len(fantasy)} fantasia), {len(df)} linhas -> indicadores.js")
+    write("indicadores", "IND_DATA", payload)
+    print(f"[indicadores] {len(indices)} índices ({len(fantasy)} fantasia), {len(df)} linhas -> indicadores.json/.js")
 
 
 def _nat_order(df):
@@ -106,9 +113,8 @@ def build_dre():
         "ytd": {"cols": ["modelo", "cc", "acumulado", "natureza", "ano", "cenario", "valor"], "rows": ytd_rows},
         "geral": {"cols": ["modelo", "cc", "natureza", "data", "orcado", "realizado"], "rows": ger_rows},
     }
-    (OUT / "dre.js").write_text(
-        "window.DRE_DATA=" + json.dumps(payload, ensure_ascii=False) + ";", encoding="utf-8")
-    print(f"[dre] ytd={len(ytd_rows)} geral={len(ger_rows)} naturezas={len(payload['naturezas'])} -> dre.js")
+    write("dre", "DRE_DATA", payload)
+    print(f"[dre] ytd={len(ytd_rows)} geral={len(ger_rows)} naturezas={len(payload['naturezas'])} -> dre.json/.js")
 
 
 if __name__ == "__main__":

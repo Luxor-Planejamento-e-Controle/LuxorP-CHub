@@ -1021,17 +1021,11 @@ Reduzir atividades manuais"></textarea>
     if (msg) byId("auth-msg").textContent = msg;
   }
   function hideLogin() { var o = byId("auth-gate"); if (o) o.style.display = "none"; }
-  function authRedirectUrl() {
-    var origin = window.location.origin;
-    if (!origin || origin === "null") return window.location.href.split("#")[0];
-    return origin + "/assets/projetos/index.html?hubReturn=1";
-  }
-  function shouldReturnToHub() {
-    return window.top === window.self &&
-      /(?:^|[?&])hubReturn=1(?:&|$)/.test(window.location.search);
-  }
-  function returnToHubProjects() {
-    if (!shouldReturnToHub()) return false;
+  // Aberto fora do hub (URL direta): manda de volta pra aba do hub.
+  // Dentro do iframe fica onde está — a sessão vem do porteiro do hub.
+  function returnToHub() {
+    if (window.top !== window.self) return false;
+    if (!window.location.origin || window.location.origin === "null") return false;
     window.location.replace(window.location.origin + "/#/projetos");
     return true;
   }
@@ -1040,7 +1034,7 @@ Reduzir atividades manuais"></textarea>
     if (!c) { byId("auth-msg").textContent = "Config do Supabase ausente."; return; }
     if (!/@luxor\.com\.br$/i.test(email)) { byId("auth-msg").textContent = "Use um e-mail @luxor.com.br."; return; }
     byId("auth-msg").textContent = "Enviando...";
-    c.auth.signInWithOtp({ email: email, options: { emailRedirectTo: authRedirectUrl() } })
+    c.auth.signInWithOtp({ email: email, options: { emailRedirectTo: window.location.origin + "/" } })
       .then(function (res) {
         byId("auth-msg").textContent = res.error
           ? ("Erro: " + res.error.message)
@@ -1061,10 +1055,10 @@ Reduzir atividades manuais"></textarea>
     var c = sbc();
     if (!c) { showLogin("Config do Supabase ausente (config.js)."); return; }
     c.auth.getSession().then(function (res) {
-      if (res.data && res.data.session) { if (!returnToHubProjects()) bootData(); } else showLogin();
+      if (res.data && res.data.session) { if (!returnToHub()) bootData(); } else showLogin();
     });
     c.auth.onAuthStateChange(function (ev, session) {
-      if (session) { if (!returnToHubProjects()) bootData(); } else showLogin();
+      if (session) { if (!returnToHub()) bootData(); } else showLogin();
     });
   }
   boot();

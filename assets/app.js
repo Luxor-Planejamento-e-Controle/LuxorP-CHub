@@ -50,14 +50,24 @@ const ROUTES = [
   {id:'', title:'Início', sub:'Hub de Planejamento & Controle', icon:'home', render:renderHome},
   {id:'indicadores', title:'Indicadores Financeiros', sub:'Cotações e variações por índice', icon:'ind', render:renderIndicadores},
   {id:'dre', title:'DRE — Orçado × Realizado', sub:'Comparativo orçado vs realizado', icon:'dre', render:renderDRE},
-  {id:'inadimplencia', title:'Controle de Inadimplência', sub:'', icon:'inad', render:renderInad},
+  // staged: a tela existe, mas o dado tem PII e ainda não é publicado no hub —
+  // fica fora da nav até o desenho LGPD/RBAC da seção 5 estar de pé.
+  {id:'inadimplencia', title:'Controle de Inadimplência', sub:'', icon:'inad', render:renderInad, staged:true},
   {id:'projetos', title:'Projetos', sub:'Controle de projetos de automação/BI', icon:'proj', render:renderProjetos},
 ];
-const byId = id => ROUTES.find(r=>r.id===id) || ROUTES[0];
+// Rotas que o usuário logado pode abrir (Início sempre). Fora da allowlist a
+// aba nem aparece — e o dado dela nem foi baixado (ver assets/auth.js).
+function allowed(){
+  const hub = window.HUB || {};
+  const ok = hub.dashboards || [];
+  // offline (file://) mostra a tela staged; em produção ela fica fora.
+  return ROUTES.filter(r => !r.id || (ok.includes(r.id) && (hub.offline || !r.staged)));
+}
+const byId = id => allowed().find(r=>r.id===id) || ROUTES[0];
 
 function buildNav(){
   const nav=document.getElementById('nav'); nav.innerHTML='';
-  for(const r of ROUTES){
+  for(const r of allowed()){
     const a=document.createElement('a'); a.href='#/'+r.id; a.className=r.soon?'locked':'';
     a.innerHTML=`<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="${ICON[r.icon]}"/></svg><span>${r.title}</span>`;
     nav.appendChild(a);
@@ -82,7 +92,7 @@ const segVal=id=>document.querySelector('#'+id+' button.on').dataset.v;
 
 /* ---- Início ---- */
 function renderHome(el){
-  const cards=ROUTES.filter(r=>r.id).map(r=>{
+  const cards=allowed().filter(r=>r.id).map(r=>{
     return `<a class="card hover" href="#/${r.id}">
       <div class="card-title"><svg class="ico" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="${C.orange}" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="${ICON[r.icon]}"/></svg><h3 style="margin:0">${r.title}</h3></div>
       <div class="desc">${r.sub}</div></a>`;
@@ -390,6 +400,21 @@ function renderProjetos(el){
     charts.forEach(c=>c.resize());};
 })();
 
-buildNav();
-window.addEventListener('hashchange',router);
-router();
+/* ---- boot: chamado pelo porteiro (assets/auth.js) depois da sessão ---- */
+let booted=false;
+window.hubBoot=function(){
+  document.body.classList.add('hub-ready');
+  if(booted){ buildNav(); router(); return; }
+  booted=true;
+  const chip=document.getElementById('userChip'), out=document.getElementById('signOut');
+  if(window.HUB && window.HUB.email){
+    const nome=window.HUB.nome || window.HUB.email.split('@')[0];
+    document.getElementById('userName').textContent=nome;
+    document.getElementById('userAvatar').textContent=
+      nome.split(/[\s.]+/).slice(0,2).map(s=>s[0]||'').join('').toUpperCase();
+    chip.hidden=false; out.hidden=false; out.onclick=window.hubSignOut;
+  }
+  buildNav();
+  window.addEventListener('hashchange',router);
+  router();
+};

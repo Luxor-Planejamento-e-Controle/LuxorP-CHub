@@ -4,9 +4,12 @@ Hub web de dashboards do Planejamento & Controle. Guarda-chuva que reúne, num
 único site com login e tema Luxor, os relatórios hoje espalhados em vários
 `.pbix` e num app avulso (controle-de-projetos).
 
-Status: **MVP estático**. A casca do Hub existe e a aba **Projetos** já embute
-o app `controle-de-projetos` com o mesmo Supabase. As demais telas ainda seguem
-o desenho abaixo até migrarem para dados publicados no Supabase.
+Status: **MVP em produção**. Front estático (sem build ainda), auth por
+magic-link + allowlist + RBAC na casca (`assets/auth.js` + `sql/hub_schema.sql`),
+Indicadores e DRE lendo snapshots do bucket privado `hub-data`, e o
+`controle-de-projetos` absorvido em `assets/projetos/` (mesmo Supabase, sessão
+compartilhada). Inadimplência fora do ar até o desenho da seção 5. O restante
+segue o desenho abaixo.
 
 ---
 
@@ -193,13 +196,18 @@ Os `publish_hub.py` ficam nos repos de ETL (perto da fonte), não aqui.
 
 ## 7. Fases de entrega
 
-1. **Substituição inicial do link** — Hub estático no Netlify, com a aba Projetos
-   embutindo o app atual e preservando o Supabase existente.
-2. **Auth global do Hub** — sessão única na casca do Hub, allowlist e RBAC.
-3. **Indicadores** — fonte mais mapeada (Azure). Valida o ciclo ETL→publish→web.
-4. **DRE** — Orçado×Realizado + Comparativo YTD.
-5. **Fluxo de Caixa + Participações + Plantel/Vendas**.
-6. **Inadimplência** — com o desenho LGPD completo (seção 5).
+1. ✔ **Substituição do link** — Hub estático no Netlify no lugar do
+   controle-de-projetos, que virou a aba Projetos (mesmo Supabase, `_redirects`
+   preservando os bookmarks antigos).
+2. ✔ **Auth global do Hub** — sessão única na casca (magic-link PKCE), allowlist
+   `allowed_users` + RBAC `user_dashboard_access`, dado em bucket privado.
+3. ✔ **Indicadores** — Azure → `build_data.py` → `publish_hub.py` → bucket.
+   Fecha o ciclo ETL→publish→web.
+4. ✔ **DRE** — Orçado×Realizado + Comparativo YTD.
+5. **Painel de administração** — admin gere allowlist e permissões pela UI
+   (hoje é SQL no Supabase).
+6. **Fluxo de Caixa + Participações + Plantel/Vendas**.
+7. **Inadimplência** — com o desenho LGPD completo (seção 5).
 
 ---
 

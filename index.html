@@ -17,7 +17,7 @@
     </div>
     <nav class="nav" id="nav"></nav>
     <div class="foot">
-      Hub P&amp;C · Projetos online<br>© Luxor · Planejamento &amp; Controle
+      © Luxor · Planejamento &amp; Controle
     </div>
   </aside>
   <main class="main">
@@ -30,15 +30,19 @@
         <div class="sub" id="pageSub"></div>
       </div>
       <div class="spacer"></div>
-      <span class="chip"><span class="dot"></span>Online</span>
-      <span class="chip">Arthur Martins <span class="avatar">AM</span></span>
+      <span class="chip" id="userChip" hidden><span id="userName"></span> <span class="avatar" id="userAvatar"></span></span>
+      <button class="chip chip-btn" id="signOut" type="button" hidden>Sair</button>
     </header>
     <div class="content" id="content"></div>
   </main>
 </div>
 <script src="assets/vendor/echarts.min.js"></script>
-<script src="assets/data/indicadores.js"></script>
-<script src="assets/data/dre.js"></script>
+<script src="assets/vendor/supabase.min.js"></script>
+<script src="assets/config.js"></script>
+<!-- dados locais da demo offline; em produção vêm do bucket privado (assets/auth.js) -->
+<script src="assets/data/indicadores.js" onerror="void 0"></script>
+<script src="assets/data/dre.js" onerror="void 0"></script>
 <script src="assets/app.js"></script>
+<script src="assets/auth.js"></script>
 </body>
 </html>

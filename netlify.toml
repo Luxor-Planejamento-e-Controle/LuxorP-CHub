@@ -1,0 +1,18 @@
+[build]
+  publish = "."
+  command = ""
+
+# Site interno: não indexar e não vazar referrer pra fora.
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "same-origin"
+    X-Robots-Tag = "noindex, nofollow"
+    Permissions-Policy = "geolocation=(), camera=(), microphone=()"
+
+# A aba Projetos roda em iframe do próprio hub — nunca de outro site.
+[[headers]]
+  for = "/assets/projetos/*"
+  [headers.values]
+    Content-Security-Policy = "frame-ancestors 'self'"
