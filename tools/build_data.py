@@ -5,7 +5,7 @@ Uso: python tools/build_data.py
 Requer: pandas, pyarrow, azure-storage-blob, python-dotenv e a conn do Azure
 (pega do .env do FinancialIndicators).
 """
-import io, os, json, sys
+import io, os, json, sys, unicodedata
 from pathlib import Path
 import pandas as pd
 
@@ -58,9 +58,16 @@ def read_blob(bsc, path):
     return pd.read_parquet(io.BytesIO(bc.download_blob().readall()))
 
 
-def build_resultado_fo(bsc):
-    """Resultado_FO do group_hist_data (pipeline mensal do FO) como se fosse um
-    índice da lista de tickers. Série MENSAL (fechamento de mês), então:
+def _sem_acento(s):
+    """Compara nome de segmento sem depender de acento/caixa — os nomes vêm
+    do pipeline do FO e já mudaram de grafia antes."""
+    return "".join(c for c in unicodedata.normalize("NFKD", str(s))
+                   if not unicodedata.combining(c)).lower()
+
+
+def build_segmento(gdf, segmento):
+    """Um segmento do group_hist_data vira série de cota, como se fosse um
+    ticker. Série MENSAL (fechamento de mês), então:
       px  = Quota * 100  -> índice base 100 (Quota é acumulado contínuo, não
             reinicia por ano; conferido na base)
       dia = None         -> não existe variação diária nessa série
@@ -69,11 +76,11 @@ def build_resultado_fo(bsc):
     Obs: o group_hist_data vem com as linhas fora de ordem (o mês mais recente
     pode aparecer no topo do arquivo), daí o sort/drop_duplicates por Date.
     """
-    df = read_blob(bsc, GROUP_BLOB)
-    g = df[df["Segment"] == FO_SEGMENT].dropna(subset=["Date", "Quota"])
+    alvo = _sem_acento(segmento)
+    g = gdf[gdf["Segment"].map(_sem_acento) == alvo].dropna(subset=["Date", "Quota"])
     g = (g.sort_values("Date").drop_duplicates("Date", keep="last").reset_index(drop=True))
     if g.empty:
-        raise ValueError(f"segmento {FO_SEGMENT} vazio em {GROUP_BLOB}")
+        raise ValueError(f"segmento '{segmento}' não existe ou está sem Quota")
     q = g["Quota"].astype(float)
     rows = []
     for i in range(len(g)):
@@ -83,6 +90,19 @@ def build_resultado_fo(bsc):
                      pc(g["%_MoM"].iloc[i]), pc(g["%_Quarter"].iloc[i]),
                      pc(g["%_YTD"].iloc[i]), pc(m36)])
     return rows
+
+
+def listar_segmentos():
+    """Imprime os segmentos disponíveis, p/ ajustar a lista SEGMENTOS."""
+    from azure.storage.blob import BlobServiceClient
+    g = read_blob(BlobServiceClient.from_connection_string(azure_conn()), GROUP_BLOB)
+    g = g.dropna(subset=["Date", "Quota"])
+    usados = {_sem_acento(s) for s, _ in SEGMENTOS}
+    print(f"{'segmento':<40} {'meses':>6}  período              no hub")
+    for seg, sub in sorted(g.groupby("Segment")):
+        ini, fim = sub["Date"].min(), sub["Date"].max()
+        marca = "sim" if _sem_acento(seg) in usados else ""
+        print(f"{seg:<40} {len(sub):>6}  {ini:%Y-%m} a {fim:%Y-%m}      {marca}")
 
 
 def build_indicadores():
@@ -119,15 +139,22 @@ def build_indicadores():
                          pc(g["QTR"].iloc[i]), pc(g["YTD"].iloc[i]), pc(g["36 Meses"].iloc[i])])
         out[idx] = rows
 
-    # Resultado FO entra na mesma lista (outra fonte). Falha aqui não derruba o resto.
+    # Cotas do group_hist_data entram na mesma lista (outra fonte, série mensal).
+    # Falha num segmento não derruba o resto — o painel sobe sem ele.
     monthly = []
     try:
-        out[FO_LABEL] = build_resultado_fo(b)
-        fantasy.append(FO_LABEL)      # índice sintético (não tem preço de mercado)
-        monthly.append(FO_LABEL)
-        print(f"[indicadores] {FO_LABEL}: {len(out[FO_LABEL])} meses ({out[FO_LABEL][0][0]} a {out[FO_LABEL][-1][0]})")
+        gdf = read_blob(b, GROUP_BLOB)
+        for seg, label in SEGMENTOS:
+            try:
+                out[label] = build_segmento(gdf, seg)
+                fantasy.append(label)     # cota, não preço de mercado
+                monthly.append(label)
+                print(f"[indicadores] {label}: {len(out[label])} meses "
+                      f"({out[label][0][0]} a {out[label][-1][0]})")
+            except Exception as e:
+                print(f"[indicadores] {label} ignorado:", e, file=sys.stderr)
     except Exception as e:
-        print(f"[indicadores] {FO_LABEL} ignorado:", e, file=sys.stderr)
+        print("[indicadores] group_hist_data indisponível:", e, file=sys.stderr)
 
     indices = sorted(out.keys())
     payload = {"indices": indices, "rows": out, "fantasy": sorted(fantasy),
@@ -180,6 +207,9 @@ def build_dre():
 
 
 if __name__ == "__main__":
+    if "--segmentos" in sys.argv:            # só lista, não gera nada
+        listar_segmentos()
+        sys.exit(0)
     try:
         build_indicadores()
     except Exception as e:
