@@ -24,15 +24,7 @@ GROUP_BLOB = "LuxorControlDatabase/parquet/group_hist_data.parquet"   # pipeline
 # os veículos e os resultados. Pra ver a lista toda com período e nº de meses:
 #     python tools/build_data.py --segmentos
 SEGMENTOS = [
-    ("Resultado_FO",                    "Resultado FO"),
-    ("Luxor_Investimentos_Financeiros", "Luxor Investimentos Financeiros"),
-    ("Luxor_Agro",                      "Luxor Agro"),
-    ("Luxor_Manga",                     "Luxor Manga"),
-    ("Luxor_Mangalarga_I",              "Luxor Mangalarga I"),
-    ("Luxor_Mangalarga_Ii",             "Luxor Mangalarga II"),
-    ("Luxor_Participações",             "Luxor Participações"),
-    ("Net_Result",                      "Resultado Líquido"),
-    ("Resultado_Patrimonial",           "Resultado Patrimonial"),
+    ("Resultado_FO", "Resultado FO"),
 ]
 
 
