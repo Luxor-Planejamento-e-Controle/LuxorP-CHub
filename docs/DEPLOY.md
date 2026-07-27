@@ -11,7 +11,7 @@ e o Projetos para pra todo mundo.
 | Coisa | Onde acha |
 | --- | --- |
 | Projeto Supabase | `hjducsxcolbspbkpflom` — [dashboard](https://supabase.com/dashboard/project/hjducsxcolbspbkpflom) |
-| Nome do site no Netlify | app.netlify.com → o site que hoje serve o controle-de-projetos. Anote a URL (`algo.netlify.app`) — vou chamar de `SEU-SITE` daqui pra frente |
+| Site no Netlify | `lxplanejamentoecontrole` — <https://lxplanejamentoecontrole.netlify.app/> (hoje serve o controle-de-projetos) |
 | Repo | `Luxor-Planejamento-e-Controle/LuxorP-CHub` |
 | Terminal | aberto em `C:\Users\Arthur\repos\LuxorP&CHub` |
 
@@ -226,16 +226,67 @@ depois pedir o magic-link direto no hub — o que importa é a conta existir.
 
 **Checkpoint:** rodar a query de novo, todos com `tem_conta = true`.
 
+### 1.3b SMTP próprio — obrigatório
+
+O serviço de e-mail embutido do Supabase é **só pra desenvolvimento**:
+**2 e-mails por hora no projeto inteiro**, e a própria Supabase avisa que não
+tem garantia de entrega. Com 8 pessoas entrando, isso trava no primeiro dia:
+
+```json
+{"code":429,"error_code":"over_email_send_rate_limit","msg":"email rate limit exceeded"}
+```
+
+O erro aparece no **Console do navegador (F12)** — a tela mostra a mensagem
+genérica de propósito.
+
+**Project Settings** → **Authentication** → seção **SMTP Settings** →
+**Enable Custom SMTP**. Preencher host, porta, usuário, senha, e o remetente
+(`Sender email` / `Sender name`).
+
+Opções, da mais simples pra mais robusta:
+
+| Serviço | Host / porta | Observação |
+| --- | --- | --- |
+| Microsoft 365 | `smtp.office365.com` : 587 | Já é o e-mail da Luxor. Precisa de uma conta de envio e senha de app / SMTP AUTH habilitado no tenant |
+| Google Workspace | `smtp.gmail.com` : 587 | Idem, com senha de app |
+| Resend | `smtp.resend.com` : 587 | Grátis até 3k/mês, 5 min pra configurar, exige verificar o domínio |
+| Brevo / SendGrid | ver painel do serviço | Equivalentes |
+
+Se usar SMTP do próprio domínio, o remetente tem que ser um endereço real de
+`@luxor.com.br` — senão SPF/DKIM reprovam e cai em spam.
+
+Depois de ligar o SMTP: **Authentication** → **Rate Limits** → subir
+`Rate limit for sending emails` (o padrão baixo existe por causa do SMTP
+embutido; com SMTP próprio pode subir).
+
+**Testar:** pedir o link no hub e ver se chega. Se ainda der 429, esperou menos
+de 1h desde o último estouro — o contador é por hora.
+
+#### Escape hatch: entrar sem e-mail
+
+Enquanto o SMTP não está de pé (ou se ele cair depois), dá pra gerar o link
+direto pela Admin API:
+
+```bash
+python tools/login_link.py <seu-email>@luxor.com.br
+```
+
+Imprime um link de **uso único**, válido ~1h. Abrir no navegador e pronto,
+está logado. Precisa do `.env` com a `service_role` (passo 1.5).
+
+Tratar o link como senha: quem tiver ele entra como aquela pessoa. Não mandar
+por grupo de WhatsApp nem colar em chat.
+
 ### 1.4 URLs de redirect
 
 Sem isso o link do e-mail cai em `localhost` ou dá "invalid request".
 
 1. **Authentication** → **URL Configuration**
-2. **Site URL**: `https://SEU-SITE.netlify.app`
+2. **Site URL**: `https://lxplanejamentoecontrole.netlify.app`
 3. **Redirect URLs** → **Add URL**, uma por vez:
-   - `https://SEU-SITE.netlify.app/**`
+   - `https://lxplanejamentoecontrole.netlify.app/**`
    - `http://localhost:5178/**` — pra testar na sua máquina
-   - `https://deploy-preview-*--SEU-SITE.netlify.app/**` — se for testar no
+   - `https://deploy-preview-*--lxplanejamentoecontrole.netlify.app/**` — se for testar no
      preview antes de promover
 4. **Save**
 
@@ -357,10 +408,10 @@ Abrir a URL do deploy. Marcar um por um:
 - [ ] **8.** Editar um projeto → salva. Abrir em outro navegador logado →
       o realtime atualiza sozinho.
 - [ ] **9.** **O teste que mais importa:** abrir
-      `https://SEU-SITE.netlify.app/assets/data/indicadores.js` →
+      `https://lxplanejamentoecontrole.netlify.app/assets/data/indicadores.js` →
       tem que dar **404**.
       **Se der 200, pare tudo** — dado financeiro estático exposto na internet.
-- [ ] **10.** `https://SEU-SITE.netlify.app/dashboard-projetos.html` →
+- [ ] **10.** `https://lxplanejamentoecontrole.netlify.app/dashboard-projetos.html` →
       redireciona pra `#/projetos` (bookmark antigo de quem já usava).
 - [ ] **11.** Sair → volta pra tela de login, não pro hub.
 - [ ] **12.** Testar com **um usuário comum** (não admin), de outra conta:
@@ -471,7 +522,8 @@ select email, dashboard, at from access_log order by at desc limit 50;
 
 | Sintoma | Causa provável |
 | --- | --- |
-| Diz que enviou mas o e-mail não chega | e-mail sem conta em `auth.users` — falta o convite (1.3) |
+| Diz que enviou mas o e-mail não chega | (a) e-mail sem conta em `auth.users` — falta o convite (1.3); (b) rate limit do SMTP embutido — ver 1.3b. F12 → Console mostra qual |
+| Console mostra `429 over_email_send_rate_limit` | SMTP embutido estourou (2/h no projeto). Configurar SMTP próprio (1.3b) ou usar `tools/login_link.py` |
 | Link do e-mail cai em `localhost` | `Site URL` errado (1.4) |
 | Link dá "invalid request" / "otp_expired" | URL fora dos `Redirect URLs` (1.4), ou link já usado — magic-link é de uso único |
 | Loga e diz "não está liberado" | e-mail fora de `allowed_users`, ou `ativo = false` (1.2) |

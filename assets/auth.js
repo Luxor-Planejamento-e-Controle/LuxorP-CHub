@@ -15,6 +15,26 @@ const HUB_OFFLINE = location.protocol === 'file:';
 const HUB_DATASETS = { indicadores:'indicadores.json', dre:'dre.json',
                        inadimplencia:null, projetos:null };
 
+/* Erro devolvido pelo GoTrue vem na URL (hash no fluxo implícito, query no PKCE)
+   e o supabase-js limpa isso na inicialização. Capturar AGORA, antes disso,
+   senão o link falho vira "voltou pro login e não disse nada". */
+const HUB_URL_ERR = (function(){
+  const p = new URLSearchParams(location.hash.replace(/^#/,''));
+  const q = new URLSearchParams(location.search);
+  const code = p.get('error_code') || q.get('error_code');
+  const desc = p.get('error_description') || q.get('error_description')
+            || p.get('error') || q.get('error');
+  if(!code && !desc) return null;
+  return { code, desc: (desc||'').replace(/\+/g,' ') };
+})();
+
+const HUB_TRAD = {
+  otp_expired:      'Link expirado ou já usado. Peça um novo — cada link vale uma vez só.',
+  access_denied:    'Link inválido ou já usado. Peça um novo.',
+  server_error:     'O Supabase recusou o login. Confira Site URL e Redirect URLs.',
+  validation_failed:'A URL de retorno não está liberada no Supabase (Redirect URLs).',
+};
+
 /* ---------- overlay de login ---------- */
 function gateEl(){
   let o = document.getElementById('hub-gate');
@@ -38,6 +58,12 @@ function gateEl(){
 function showGate(msg, showForm){
   const o = gateEl();
   o.style.display = 'flex';
+  // Erro que veio no link tem prioridade sobre a mensagem padrão: é a única
+  // pista de por que o login não fechou.
+  if(!msg && HUB_URL_ERR){
+    msg = HUB_TRAD[HUB_URL_ERR.code] || HUB_URL_ERR.desc || 'Falha no link de acesso.';
+    console.warn('[hub] erro no link:', HUB_URL_ERR.code, '—', HUB_URL_ERR.desc);
+  }
   o.querySelector('#gate-msg').textContent = msg || '';
   const hide = showForm === false;
   o.querySelector('#gate-email').style.display = hide ? 'none' : '';
@@ -57,8 +83,16 @@ function sendLink(){
   window.HUB.sb.auth.signInWithOtp({ email, options:{ shouldCreateUser:false,
                                                       emailRedirectTo: location.origin + '/' } })
     .then(r => {
-      if(r.error && !/not allowed|not found|signups? not allowed/i.test(r.error.message))
-        console.warn('[hub] signInWithOtp:', r.error.message);
+      const e = r.error;
+      // Rate limit é do projeto inteiro, não diz nada sobre este e-mail —
+      // pode aparecer sem virar oráculo, e evita a pessoa clicar 10x achando
+      // que travou.
+      if(e && (e.status === 429 || /rate limit/i.test(e.message))){
+        msg.textContent = 'Muitos envios agora há pouco. Tente de novo em alguns minutos.';
+        return;
+      }
+      if(e && !/not allowed|not found|signups? not allowed/i.test(e.message))
+        console.warn('[hub] signInWithOtp:', e.status, e.message);
       msg.textContent = 'Se este e-mail estiver liberado, o link de acesso chegou na caixa de entrada.';
     });
 }
@@ -66,11 +100,16 @@ function sendLink(){
 /* ---------- permissões ---------- */
 async function loadAccess(email){
   const sb = window.HUB.sb;
-  const [{ data:me }, { data:acc }] = await Promise.all([
+  const [{ data:me, error:meErr }, { data:acc, error:accErr }] = await Promise.all([
     sb.from('allowed_users').select('role,ativo,nome').eq('email', email).maybeSingle(),
     sb.from('user_dashboard_access').select('dashboard').eq('email', email),
   ]);
-  if(!me || !me.ativo) return null;
+  // Consulta quebrada (tabela faltando, policy errada) não é a mesma coisa que
+  // "não está na lista" — sem separar, um erro de setup parece falta de convite.
+  if(meErr) return { erro: 'Não consegui ler a allowlist: ' + meErr.message };
+  if(accErr) return { erro: 'Não consegui ler as permissões: ' + accErr.message };
+  if(!me)       return { erro: null };                   // autenticou, mas fora da lista
+  if(!me.ativo) return { erro: null, inativo: true };
   const all = Object.keys(HUB_DATASETS);
   return { role: me.role, nome: me.nome,
            dashboards: me.role === 'admin' ? all : (acc||[]).map(r=>r.dashboard) };
@@ -113,8 +152,13 @@ async function start(){
     if(!session){ window.HUB.email=null; showGate('', true); return; }
     const email = (session.user.email||'').toLowerCase();
     const access = await loadAccess(email);
-    if(!access){
-      showGate('Seu e-mail não está liberado no hub. Fale com o Arthur Martins.', false);
+    if(access.erro){                                     // problema de setup, não de convite
+      console.error('[hub]', access.erro);
+      showGate(access.erro, false); return;
+    }
+    if(!access.role){
+      showGate(access.inativo ? 'Seu acesso ao hub está desativado.'
+                              : 'Seu e-mail não está liberado no hub.', false);
       return;
     }
     Object.assign(window.HUB, { email, role:access.role, nome:access.nome,
@@ -124,7 +168,10 @@ async function start(){
     window.hubBoot();
   }
 
-  const { data } = await sb.auth.getSession();
+  const { data, error } = await sb.auth.getSession();
+  if(error) console.error('[hub] getSession:', error.message);
+  console.info('[hub] sessão:', data.session ? data.session.user.email : 'nenhuma',
+               '| erro no link:', HUB_URL_ERR ? HUB_URL_ERR.code : 'nenhum');
   await onSession(data.session);
   sb.auth.onAuthStateChange((ev, session)=>{
     if(ev==='SIGNED_IN' || ev==='SIGNED_OUT') onSession(session);
