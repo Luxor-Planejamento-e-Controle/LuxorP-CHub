@@ -61,7 +61,7 @@ function temDado(id, hub){
   if(hub.offline) return true;
   if(id==='indicadores')   return !!window.IND_DATA;
   if(id==='dre')           return !!window.DRE_DATA;
-  if(id==='inadimplencia') return !!hub.inadUrl;
+  if(id==='inadimplencia') return !!hub.inadHtml;
   return true;                                    // Projetos lê direto do Postgres
 }
 function allowed(){
@@ -386,12 +386,20 @@ function renderDRE(el){
 }
 
 /* ---- Inadimplência (dashboard real re-skin Luxor, via iframe) ----
-   Em produção o HTML vem do bucket privado como blob (tem PII, nunca vira
-   arquivo público). Offline usa o build local. */
+   Em produção o HTML vem do bucket privado e entra por `srcdoc` — tem PII, então
+   nunca vira arquivo público. srcdoc (e não blob) porque o iframe precisa herdar
+   a base do hub: o dashboard carrega /assets/vendor/chart.umd.min.js, e numa URL
+   blob (caminho opaco) esse caminho não resolve. Offline usa o build local. */
 function renderInad(el){
   el.classList.add('flush');
-  const src=(window.HUB&&window.HUB.inadUrl)||'assets/inadimplencia/dashboard.html';
-  el.innerHTML=`<iframe class="embed" src="${src}" title="Dashboard de Inadimplência"></iframe>`;
+  const html=window.HUB&&window.HUB.inadHtml;
+  if(!html){
+    el.innerHTML=`<iframe class="embed" src="assets/inadimplencia/dashboard.html" title="Dashboard de Inadimplência"></iframe>`;
+    return;
+  }
+  const f=document.createElement('iframe');
+  f.className='embed'; f.title='Dashboard de Inadimplência'; f.srcdoc=html;
+  el.appendChild(f);
 }
 
 /* ---- Projetos (app real controle-de-projetos, via iframe) ---- */

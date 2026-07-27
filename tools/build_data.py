@@ -14,6 +14,10 @@ OUT = ROOT / "assets" / "data"
 OUT.mkdir(parents=True, exist_ok=True)
 DRE_XLSX = r"G:/Drives compartilhados/Luxor Controladoria/Ambiente de testes/DRE Data/DRE_Historico.xlsx"
 FIN_ENV = Path(r"C:/Users/Arthur/repos/FinancialIndicators/.env")
+CONTAINER = "luxor-planejamento-e-controle"
+IND_BLOB = "LuxorControlDatabase/Indicadores_financeiros.parquet"
+GROUP_BLOB = "LuxorControlDatabase/parquet/group_hist_data.parquet"   # pipeline do FO
+FO_SEGMENT, FO_LABEL = "Resultado_FO", "Resultado FO"
 
 
 def azure_conn():

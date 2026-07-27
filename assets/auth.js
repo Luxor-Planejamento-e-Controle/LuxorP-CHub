@@ -17,9 +17,9 @@ const HUB_OFFLINE = location.protocol === 'file:';
 // O nome do arquivo importa: a policy do bucket usa o prefixo antes do ponto
 // pra decidir quem pode baixar (ver sql/hub_schema.sql).
 const HUB_DATASETS = {
-  indicadores:   { file:'indicadores.json',   json:'IND_DATA' },
-  dre:           { file:'dre.json',           json:'DRE_DATA' },
-  inadimplencia: { file:'inadimplencia.html', blob:'inadUrl'  },
+  indicadores:   { file:'indicadores.json',   json:'IND_DATA'  },
+  dre:           { file:'dre.json',           json:'DRE_DATA'  },
+  inadimplencia: { file:'inadimplencia.html', html:'inadHtml'  },
   projetos:      null,
 };
 
@@ -145,9 +145,11 @@ async function loadData(dashboards){
     try {
       const txt = await data.text();
       if(spec.json) window[spec.json] = JSON.parse(txt);
-      // O HTML da inadimplência nunca vira arquivo público: fica em memória,
-      // como blob do próprio origin (caminhos /assets/... continuam resolvendo).
-      else window.HUB[spec.blob] = URL.createObjectURL(new Blob([txt], {type:'text/html'}));
+      // O HTML da inadimplência nunca vira arquivo público: fica só em memória
+      // e entra no iframe via srcdoc (ver renderInad em app.js). Nada de blob:
+      // URL de blob tem caminho OPACO, então o <script src="/assets/vendor/...">
+      // de dentro dela não resolve e o Chart.js não carrega.
+      else window.HUB[spec.html] = txt;
     } catch(e){ console.warn('[hub] snapshot inválido:', spec.file, e); }
   }));
 }
