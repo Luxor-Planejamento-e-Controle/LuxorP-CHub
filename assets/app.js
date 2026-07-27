@@ -229,7 +229,7 @@ function renderDRE(el){
       <div class="field"><label>Centro de Custo</label>${seg('cc',D.centros,defCC)}</div>
       <div class="field"><label>Acumulado</label>
         <select id="acc">${accOpts.map(a=>`<option ${a===defAcc?'selected':''}>${a}</option>`).join('')}</select></div>
-      <div class="field" style="flex:1;min-width:260px"><label>Natureza (múltipla)</label>
+      <div class="field" style="flex:1;min-width:260px"><label>Natureza</label>
         <div class="ms" id="natMs">
           <button type="button" class="ms-btn" id="natBtn"><span class="ms-txt">${NAT_ALL}</span></button>
           <div class="ms-panel" id="natPanel" hidden>

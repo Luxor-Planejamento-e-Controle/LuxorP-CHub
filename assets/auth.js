@@ -171,15 +171,25 @@ async function start(){
     window.SUPABASE_URL, window.SUPABASE_ANON_KEY,
     { auth:{ flowType:'pkce', detectSessionInUrl:true, persistSession:true, autoRefreshToken:true } });
 
+  // Quem já está montado não remonta. SIGNED_IN chega várias vezes: refresh de
+  // token e, pior, o client do iframe de Projetos avisa o client do hub (mesmo
+  // origin, mesmo storageKey). Sem essa trava vira loop — o hub remontava a
+  // rota, a rota recriava o iframe, o iframe emitia SIGNED_IN de novo.
+  let sessaoAtual = null;
   async function onSession(session){
+    const email = session ? (session.user.email||'').toLowerCase() : null;
+    if(email === sessaoAtual) return;
+    sessaoAtual = email;
     if(!session){ window.HUB.email=null; showGate('', true); return; }
-    const email = (session.user.email||'').toLowerCase();
     const access = await loadAccess(email);
+    // Falhou: libera a trava pra um próximo evento poder tentar de novo.
     if(access.erro){                                     // problema de setup, não de convite
+      sessaoAtual = null;
       console.error('[hub]', access.erro);
       showGate(access.erro, false); return;
     }
     if(!access.role){
+      sessaoAtual = null;
       showGate(access.inativo ? 'Seu acesso ao hub está desativado.'
                               : 'Seu e-mail não está liberado no hub.', false);
       return;
