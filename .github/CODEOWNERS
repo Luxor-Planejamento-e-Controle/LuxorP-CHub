@@ -1,0 +1,12 @@
+# Revisor automático de todo PR. A regra de branch já exige 1 aprovação;
+# isto garante que o pedido caia em quem conhece o hub inteiro.
+*                       @ArthurPregioni
+
+# Pontos onde um erro vaza dado ou derruba o acesso de todo mundo.
+/sql/                   @ArthurPregioni
+/assets/auth.js         @ArthurPregioni
+/assets/config.js       @ArthurPregioni
+/netlify.toml           @ArthurPregioni
+/.github/               @ArthurPregioni
+/.githooks/             @ArthurPregioni
+/tools/scan_segredos.sh @ArthurPregioni

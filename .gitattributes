@@ -1,5 +1,11 @@
-# Hooks são shell script: CRLF faz o sh falhar com "bad interpreter: ^M".
-.githooks/* text eol=lf
+# Shell script e YAML rodam no Ubuntu (GitHub Actions) e via `sh` local.
+# CRLF quebra com "bad interpreter: ^M" / "$'\r': command not found".
+# Regra nova NÃO renormaliza arquivo já commitado: precisa de
+#     git add --renormalize .
+.githooks/*   text eol=lf
+tools/*.sh    text eol=lf
+*.yml         text eol=lf
+*.yaml        text eol=lf
 
 # Bundles vendorizados: não normalizar nem tratar como texto em diff.
 assets/vendor/* binary
