@@ -1,64 +1,25 @@
 #!/bin/sh
-# Barreira do repo PÚBLICO: recusa commit com dado real, PII, e-mail ou segredo.
+# Barreira LOCAL do repo público. A regra em si mora em tools/scan_segredos.sh,
+# que é o mesmo script rodado pela Action no PR — assim não existem duas versões
+# da regra podendo divergir.
+#
 # Instalar: python tools/install_hooks.py   (ou: git config core.hooksPath .githooks)
 # Emergência: git commit --no-verify
+#
+# Este hook é opcional por clone: quem não rodar o install_hooks não o tem.
+# Quem barra de verdade é a Action, que ninguém consegue pular.
 
-fail=0
-say() { echo "pre-commit: $1" >&2; fail=1; }
+raiz=$(git rev-parse --show-toplevel)
+scan="$raiz/tools/scan_segredos.sh"
 
-# Só arquivos adicionados/modificados neste commit.
-files=$(git diff --cached --name-only --diff-filter=ACM)
-[ -z "$files" ] && exit 0
+[ -x "$scan" ] || [ -f "$scan" ] || exit 0   # script sumiu: não trava o commit
 
-# --- 1) caminhos que nunca podem entrar --------------------------------
-for f in $files; do
-  case "$f" in
-    assets/data/*|assets/inadimplencia/*|output_pbi/*)
-      say "dado real/PII: $f" ;;
-    .env|.env.*)
-      [ "$f" = ".env.example" ] || say "arquivo de segredo: $f" ;;
-    *.local.sql)
-      say "seed com dado real: $f" ;;
-    *.xlsx|*.xlsm|*.csv|*.parquet|*.pbix)
-      say "planilha/base: $f" ;;
-  esac
-done
-
-# --- 2) conteúdo: segredos e PII ---------------------------------------
-# Fora do scan: assets/vendor/ (bundles minificados batem em qualquer padrão) e
-# .githooks/ (este arquivo contém os próprios padrões e se auto-acusaria).
-scan=$(printf '%s\n' $files | grep -v -e '^assets/vendor/' -e '^\.githooks/' || true)
-[ -z "$scan" ] && { [ $fail -eq 0 ] && exit 0 || exit 1; }
-
-# JWT do Supabase com role diferente de anon (service_role vaza tudo).
-for f in $scan; do
-  git show ":$f" 2>/dev/null | grep -o 'eyJ[A-Za-z0-9_-]*\.[A-Za-z0-9_-]*' | while read -r t; do
-    body=$(printf '%s' "$t" | cut -d. -f2)
-    case "$(printf '%s==' "$body" | base64 -d 2>/dev/null)" in
-      *'"role":"service_role"'*|*'"role": "service_role"'*)
-        echo "pre-commit: service_role JWT em $f" >&2; exit 1 ;;
-    esac
-  done || fail=1
-done
-
-pat_segredo='sb_secret_[A-Za-z0-9_-]\{8,\}\|AccountKey=[A-Za-z0-9+/=]\{20,\}\|DefaultEndpointsProtocol=https;AccountName=\|-----BEGIN [A-Z ]*PRIVATE KEY-----'
-# E-mail @luxor.com.br real. Passam: placeholders de doc e o curinga SQL
-# `like '%@luxor.com.br'` (o % é do LIKE, não é parte de endereço).
-pat_email='[A-Za-z0-9._%+-]\{1,\}@luxor\.com\.br'
-placeholders="voce@\|fulano@\|exemplo@\|usuario@\|admin@exemplo\|seu-email@\|novo@\|saiu@\|alguem@\|nome@\|'%@\|\"%@\|<[a-z0-9]*>@"
-
-for f in $scan; do
-  blob=$(git show ":$f" 2>/dev/null) || continue
-  hit=$(printf '%s' "$blob" | grep -n "$pat_segredo" | head -3)
-  [ -n "$hit" ] && say "segredo em $f: $(printf '%s' "$hit" | head -1 | cut -c1-90)"
-  hit=$(printf '%s' "$blob" | grep -n "$pat_email" | grep -v "$placeholders" | head -3)
-  [ -n "$hit" ] && say "e-mail real em $f: $(printf '%s' "$hit" | head -1 | cut -c1-90)"
-done
-
-if [ $fail -ne 0 ]; then
-  echo "" >&2
-  echo "Commit barrado. Repo é público — tire o arquivo do stage (git restore --staged <arq>)" >&2
-  echo "ou confira o .gitignore. Se for falso positivo: git commit --no-verify" >&2
-  exit 1
+if sh "$scan" --staged; then
+  exit 0
 fi
-exit 0
+
+echo "" >&2
+echo "Commit barrado. Repo é público — tire o arquivo do stage" >&2
+echo "(git restore --staged <arquivo>) ou confira o .gitignore." >&2
+echo "Falso positivo: git commit --no-verify" >&2
+exit 1

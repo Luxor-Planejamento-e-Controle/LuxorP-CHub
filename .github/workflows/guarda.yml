@@ -1,0 +1,83 @@
+name: guarda
+
+# Barreira obrigatória do repo público. O hook local (.githooks/pre-commit) só
+# existe em quem rodou tools/install_hooks.py — esta Action roda sempre, em
+# todo PR, e não dá pra pular. É ela que de fato impede PII/segredo de entrar.
+#
+# Minutos de Action são gratuitos em repo público, e isto NÃO consome crédito
+# do Netlify (só o deploy de produção consome).
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  segredos:
+    name: PII e segredos
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0          # precisa do histórico p/ diffar contra a base
+
+      - name: Arquivos alterados
+        id: alterados
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            base="${{ github.event.pull_request.base.sha }}"
+            head="${{ github.event.pull_request.head.sha }}"
+          else
+            base="${{ github.event.before }}"
+            head="${{ github.sha }}"
+            # push inicial de branch vem com base zerada: cai pro commit anterior
+            git cat-file -e "$base^{commit}" 2>/dev/null || base="$head~1"
+          fi
+          arquivos=$(git diff --name-only --diff-filter=ACM "$base" "$head")
+          echo "n=$(printf '%s' "$arquivos" | grep -c . || true)" >> "$GITHUB_OUTPUT"
+          printf '%s\n' "$arquivos" > /tmp/alterados.txt
+          echo "Alterados:"; sed 's/^/  /' /tmp/alterados.txt
+
+      - name: Scan dos arquivos alterados
+        run: |
+          arquivos=$(cat /tmp/alterados.txt)
+          [ -z "$arquivos" ] && { echo "nada a checar"; exit 0; }
+          sh tools/scan_segredos.sh $arquivos
+
+      # Rede de segurança: mesmo que o diff esteja limpo, nenhum caminho
+      # proibido pode existir na árvore (ex.: entrou num commit anterior).
+      - name: Nenhum caminho proibido na árvore
+        run: |
+          proibidos=$(git ls-files \
+            'assets/data/*' 'assets/inadimplencia/*' 'output_pbi/*' \
+            '*.local.sql' '*.xlsx' '*.xlsm' '*.csv' '*.parquet' '*.pbix' \
+            '.env' '.env.*' | grep -v '^\.env\.example$' || true)
+          if [ -n "$proibidos" ]; then
+            echo "Arquivos que nunca deveriam estar versionados:" >&2
+            printf '  %s\n' $proibidos >&2
+            exit 1
+          fi
+          echo "árvore limpa"
+
+  sintaxe:
+    name: Sintaxe
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '22' }
+      - name: JS do hub
+        run: |
+          for f in assets/app.js assets/auth.js assets/config.js; do
+            [ -f "$f" ] && node --check "$f" && echo "ok $f"
+          done
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      - name: Scripts Python
+        run: |
+          for f in tools/*.py; do
+            python -m py_compile "$f" && echo "ok $f"
+          done
