@@ -39,6 +39,7 @@ header{display:none !important}
 .kpi-value{color:var(--text) !important}
 /* ordenação por coluna: seta via CSS, sem mexer no texto do cabeçalho */
 thead th{cursor:pointer;-webkit-user-select:none;user-select:none}
+th.num{text-align:right !important}
 thead th:hover{color:var(--accent) !important}
 thead th[data-dir]{color:var(--accent) !important}
 thead th[data-dir="asc"]::after{content:" ▲";font-size:9px}
@@ -96,9 +97,11 @@ MARCADOR_ORDENACAO = "Ordenacao por coluna"
 SORT_JS = r"""
 <script>
 // ---- Ordenacao por coluna (marcador: tabela-ordenavel) ----
-// Delegado no document: as tabelas sao reconstruidas via innerHTML quando os
-// filtros mudam, entao listener preso ao <th> se perderia no primeiro filtro.
+// Clique no cabecalho ordena a tabela. Delegado no document porque as tabelas
+// sao reconstruidas via innerHTML quando os filtros mudam - listener preso ao
+// <th> se perderia no primeiro filtro.
 (function () {
+  // "R$ 1.234,56" / "12,3%" / "1.234" -> numero;  "31/12/2026" -> 20261231
   function valorDe(td) {
     const s = ((td && td.textContent) || '').trim();
     if (!s || s === '-' || s === '–') return { n: null, s: '' };
@@ -109,6 +112,7 @@ SORT_JS = r"""
       ? { n: parseFloat(num), s }
       : { n: null, s: s.toLowerCase() };
   }
+  // Olha ate 10 linhas: a primeira pode estar vazia e mascarar a coluna.
   function colunaNumerica(linhas, i) {
     for (const r of linhas.slice(0, 10)) {
       const v = valorDe(r.cells[i]);
@@ -129,21 +133,50 @@ SORT_JS = r"""
     const totais = todas.filter(r => /row-total/.test(r.className));
     const dados = todas.filter(r => !/row-total/.test(r.className));
     if (dados.length < 2) return;
+    // 1o clique: numero desce (maior primeiro), texto sobe (A-Z).
     const num = colunaNumerica(dados, i);
     const padrao = num ? 'desc' : 'asc';
     const dir = th.dataset.dir === padrao ? (padrao === 'asc' ? 'desc' : 'asc') : padrao;
     dados.sort(function (a, b) {
       const x = valorDe(a.cells[i]), y = valorDe(b.cells[i]);
       if (x.n !== null && y.n !== null) return dir === 'asc' ? x.n - y.n : y.n - x.n;
-      if (x.n !== null) return -1;
+      if (x.n !== null) return -1;          // valor antes de vazio, nos dois sentidos
       if (y.n !== null) return 1;
       const r = x.s.localeCompare(y.s, 'pt-BR');
       return dir === 'asc' ? r : -r;
     });
     thead.querySelectorAll('th[data-dir]').forEach(t => t.removeAttribute('data-dir'));
-    th.dataset.dir = dir;
+    th.dataset.dir = dir;   // a seta vem do CSS, nao mexe no texto do cabecalho
     dados.concat(totais).forEach(r => tbody.appendChild(r));
   });
+
+  // Alinha cabecalho com a coluna. O gerador marca so parte das colunas com
+  // class="num" (inteiros como "Qt Titulos" ficavam a esquerda) e o <th> e'
+  // sempre text-align:left, entao cabecalho e valor nao batiam. Usa a MESMA
+  // deteccao da ordenacao, entao alinhamento e ordem nunca discordam.
+  function alinhar(table) {
+    const thead = table.tHead, tbody = table.tBodies[0];
+    if (!thead || !tbody || !thead.rows.length) return;
+    const ths = thead.rows[thead.rows.length - 1].cells;
+    const dados = [].slice.call(tbody.rows).filter(r => !/row-total/.test(r.className));
+    for (let i = 0; i < ths.length; i++) {
+      if (!colunaNumerica(dados, i)) continue;
+      ths[i].classList.add('num');
+      [].forEach.call(tbody.rows, r => { if (r.cells[i]) r.cells[i].classList.add('num'); });
+    }
+  }
+  function alinharTudo(raiz) {
+    if (raiz && raiz.querySelectorAll) raiz.querySelectorAll('table').forEach(alinhar);
+  }
+  // As tabelas sao recriadas via innerHTML a cada filtro, entao observa o DOM
+  // em vez de alinhar so no carregamento.
+  new MutationObserver(function (muts) {
+    for (const m of muts) for (const n of m.addedNodes) {
+      if (n.nodeType !== 1) continue;
+      if (n.tagName === 'TABLE') alinhar(n); else alinharTudo(n);
+    }
+  }).observe(document.body, { childList: true, subtree: true });
+  alinharTudo(document);
 })();
 </script>
 """
