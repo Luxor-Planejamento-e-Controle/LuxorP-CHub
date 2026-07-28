@@ -113,6 +113,13 @@ SORT_JS = r"""
       : { n: null, s: s.toLowerCase() };
   }
   // Olha ate 10 linhas: a primeira pode estar vazia e mascarar a coluna.
+  // Linha de total: nem toda tabela usa class="row-total" - a de "por ano" so
+  // tem o estilo inline, que e' o mesmo sinal que o CSS usa. Aceita os dois,
+  // senao o Total entra na ordenacao e some do rodape.
+  function ehTotal(r) {
+    return /row-total/.test(r.className) ||
+           /font-weight/.test(r.getAttribute('style') || '');
+  }
   function colunaNumerica(linhas, i) {
     for (const r of linhas.slice(0, 10)) {
       const v = valorDe(r.cells[i]);
@@ -130,8 +137,8 @@ SORT_JS = r"""
     if (!tbody) return;
     const i = [].indexOf.call(th.parentNode.cells, th);
     const todas = [].slice.call(tbody.rows);
-    const totais = todas.filter(r => /row-total/.test(r.className));
-    const dados = todas.filter(r => !/row-total/.test(r.className));
+    const totais = todas.filter(ehTotal);
+    const dados = todas.filter(r => !ehTotal(r));
     if (dados.length < 2) return;
     // 1o clique: numero desce (maior primeiro), texto sobe (A-Z).
     const num = colunaNumerica(dados, i);
@@ -158,7 +165,7 @@ SORT_JS = r"""
     const thead = table.tHead, tbody = table.tBodies[0];
     if (!thead || !tbody || !thead.rows.length) return;
     const ths = thead.rows[thead.rows.length - 1].cells;
-    const dados = [].slice.call(tbody.rows).filter(r => !/row-total/.test(r.className));
+    const dados = [].slice.call(tbody.rows).filter(r => !ehTotal(r));
     for (let i = 0; i < ths.length; i++) {
       if (!colunaNumerica(dados, i)) continue;
       ths[i].classList.add('num');
