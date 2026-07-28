@@ -37,11 +37,8 @@ header{display:none !important}
 .kpi-card:hover,section:hover{border-color:var(--border-2) !important}
 .kpi-label,.kpi-sub{color:var(--text-2) !important}
 .kpi-value{color:var(--text) !important}
-/* rampa de gravidade, igual à dos gráficos: branco=total/a vencer/vencidos ·
-   amarelo=não entregues · laranja=inadimplentes · vermelho=ação judicial */
-.kpi-card.yellow .kpi-value{color:#f6c000 !important}
-.kpi-card.orange .kpi-value{color:#FFA400 !important}
-.kpi-card.red    .kpi-value{color:#FF0000 !important}
+/* cores dos cards: injetadas de KPI_CSS, iguais às dos gráficos */
+KPI_CSS_AQUI
 /* scrollbars discretas (mata o quadrado branco no canto) */
 ::-webkit-scrollbar{height:9px;width:9px}
 ::-webkit-scrollbar-track{background:transparent !important}
@@ -86,22 +83,27 @@ CHART_DARK = r"""
 });</script>
 """
 
-# ── Cores por GRAVIDADE ────────────────────────────────────────────────────────
-# A cor acompanha o quão ruim é o estágio, e não a categoria em si:
-#     A Vencer  <  Não Entregues  <  Inadimplentes  <  Ação Judicial
-# Por isso o vermelho fica na Ação Judicial (o pior estágio), não em
-# Inadimplentes. Tentativa anterior foi dar um tom próprio à Judicial mantendo
-# o vermelho em Inadimplentes: não funciona. Em fundo escuro, vermelho tem
-# luminância baixa, então ganhar contraste exige clarear — e clarear vermelho
-# vai pro rosa (mais azul) ou pro laranja (mais verde, já ocupado). Tudo que
-# sobra com bom contraste tem matiz 0° do vermelho, ou seja, é outro vermelho:
-# dois vermelhos vizinhos no donut não se distinguem.
-# Só cores da paleta oficial, e nenhum par de vizinhos a menos de 17° de matiz.
+# ── Cores das categorias ───────────────────────────────────────────────────────
+# Vermelho em Inadimplentes, laranja em Ação Judicial.
+# O laranja NÃO é o #FFA400 da paleta: ele fica a 8° de matiz do amarelo
+# #f6c000 (Não Entregues) e os dois viram a mesma cor numa fatia de donut.
+# #F76707 é o mesmo laranja, mais fechado — 24° do vermelho e 23° do amarelo,
+# no meio exato dos dois vizinhos, e contraste 4.6 (o #FF0000 tem 3.5).
 A_VENCER  = "#346e79"   # teal claro   contraste 2.4
 N_ENTREG  = "#f6c000"   # amarelo      contraste 8.3
-INADIMPL  = "#FFA400"   # laranja      contraste 7.0
-JUDICIAL  = "#FF0000"   # vermelho     contraste 3.5  <- mais grave
+JUDICIAL  = "#F76707"   # laranja      contraste 4.6
+INADIMPL  = "#FF0000"   # vermelho     contraste 3.5
 VENCIDO   = "#D9D9D9"   # cinza        contraste 9.9  (só na barra)
+
+# Série "Inadimplente" da barra por ano. O gerador já acumulava `r.inad` em
+# aggregateByYear mas não plotava — corrigido no ControleInadimplencia.py.
+# Este insert cobre o HTML gerado ANTES daquela correção; depois que o gerador
+# rodar de novo a série já vem pronta e o insert não faz nada (é idempotente).
+ANCORA_VENCIDO = "return r.total>0 ? r.venc/r.total*100 : 0;})},"
+SERIE_INADIMPLENTE = (
+    "\n    {label:'Inadimplente/Total', color:'#dc2626', data: years.map(y => "
+    "{const r=byYear.get(y); return r.total>0 ? r.inad/r.total*100 : 0;})},"
+)
 
 # Correções cirúrgicas de cor NA FONTE (o gerador crava cores claras/berrantes).
 # Ordem importa: Chart.defaults.color é trocado antes do replace de '#525252'.
@@ -117,6 +119,7 @@ COLOR_FIXES = [
     ("'#525252'", "'#D9D9D9'"),                                                    # ticks dos eixos
     # --- barra "% do total por ano": cada série tem cor cravada no JS ---
     ("color:'#9e9e9e'", f"color:'{VENCIDO}'"),                                     # Vencido
+    ("color:'#dc2626'", f"color:'{INADIMPL}'"),                                    # Inadimplente
     ("color:'#1a237e'", f"color:'{JUDICIAL}'"),                                    # Ação Judicial
     ("color:'#e65100'", f"color:'{N_ENTREG}'"),                                    # Não Entregue
     # --- donut: lê de DATA.palette[categoria] ---
@@ -128,11 +131,16 @@ COLOR_FIXES = [
 
 # Cor do KPI por rótulo (sobrescreve a classe original do gerador).
 # '' = neutro (branco). yellow = atenção/vencido. red = ação judicial.
-# Mesma rampa de gravidade dos gráficos: card e fatia do donut na mesma cor.
+# Card na MESMA cor da fatia do donut / série da barra.
 KPI_COLOR = [
     ("Total em Aberto", ""), ("Vencidos", ""), ("A Vencer", ""),
-    ("Inadimplentes", "orange"), ("Judicial", "red"), ("Entregues", "yellow"),
+    ("Inadimplentes", "red"), ("Judicial", "orange"), ("Entregues", "yellow"),
 ]
+# CSS gerado a partir das constantes acima — não repetir hex à mão, senão card
+# e gráfico saem de sincronia (já aconteceu).
+KPI_CSS = "\n".join(f".kpi-card.{cls} .kpi-value{{color:{cor} !important}}"
+                    for cls, cor in (("red", INADIMPL), ("orange", JUDICIAL),
+                                     ("yellow", N_ENTREG)))
 
 # Renome de rótulos
 LABEL_FIXES = [
@@ -154,6 +162,15 @@ def run():
     # 2) neutraliza @import do Google Fonts (offline)
     h = re.sub(r"@import url\('https://fonts\.googleapis[^']*'\);", "", h)
 
+    # 2a) série Inadimplente na barra por ano, se o gerador ainda não a emitir.
+    #     Roda ANTES das cores, pra série nova passar pelo mesmo COLOR_FIXES.
+    if "r.inad/r.total" not in h:
+        if ANCORA_VENCIDO not in h:
+            raise RuntimeError("âncora da série Vencido não encontrada — o gerador mudou. "
+                               "Conferir pctSeries no ControleInadimplencia.py.")
+        h = h.replace(ANCORA_VENCIDO, ANCORA_VENCIDO + SERIE_INADIMPLENTE, 1)
+        print("[inadimplencia] série Inadimplente inserida na barra")
+
     # 2b) cores dos gráficos -> paleta Luxor (cirúrgico, na ordem definida)
     for a, b in COLOR_FIXES:
         h = h.replace(a, b)
@@ -168,8 +185,8 @@ def run():
         pat = r'class="kpi-card[^"]*"((?:(?!kpi-card).)*?kpi-label">[^<]*?' + re.escape(label) + r')'
         h = re.sub(pat, lambda m, nc=newc: f'class="{nc}"' + m.group(1), h, count=1, flags=re.S)
 
-    # 3) injeta override Luxor antes de </head>
-    h = h.replace("</head>", LUXOR_OVERRIDE + "</head>", 1)
+    # 3) injeta override Luxor antes de </head> (KPI_CSS é montado das constantes)
+    h = h.replace("</head>", LUXOR_OVERRIDE.replace("KPI_CSS_AQUI", KPI_CSS) + "</head>", 1)
 
     # 4) logo Luxor no header
     h = h.replace("<header>", '<header><img class="lx-logo" src="../luxor-logo.png" alt="Luxor">', 1)
