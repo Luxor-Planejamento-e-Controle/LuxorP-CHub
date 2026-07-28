@@ -1,6 +1,13 @@
 [build]
   publish = "."
   command = ""
+  # O plano cobra 15 créditos por DEPLOY DE PRODUÇÃO, não por minuto de build —
+  # 300 créditos/mês = 20 deploys. No 1º ciclo, 17 dos 28 deploys só mexeram em
+  # script/doc/SQL e republicaram um site idêntico: 255 créditos à toa.
+  # `git diff --quiet` sai 0 quando NÃO há diferença, e o Netlify cancela o
+  # build nesse caso. Sem CACHED_COMMIT_REF (1º build) o comando falha e o
+  # build acontece — que é o lado seguro de errar.
+  ignore = "git diff --quiet $CACHED_COMMIT_REF $COMMIT_REF -- . ':(exclude)tools' ':(exclude)docs' ':(exclude)sql' ':(exclude)*.md' ':(exclude).githooks' ':(exclude).gitignore' ':(exclude).gitattributes'"
 
 # Site interno: não indexar e não vazar referrer pra fora.
 [[headers]]
