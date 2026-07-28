@@ -37,6 +37,12 @@ header{display:none !important}
 .kpi-card:hover,section:hover{border-color:var(--border-2) !important}
 .kpi-label,.kpi-sub{color:var(--text-2) !important}
 .kpi-value{color:var(--text) !important}
+/* ordenação por coluna: seta via CSS, sem mexer no texto do cabeçalho */
+thead th{cursor:pointer;-webkit-user-select:none;user-select:none}
+thead th:hover{color:var(--accent) !important}
+thead th[data-dir]{color:var(--accent) !important}
+thead th[data-dir="asc"]::after{content:" ▲";font-size:9px}
+thead th[data-dir="desc"]::after{content:" ▼";font-size:9px}
 /* cores dos cards: injetadas de KPI_CSS, iguais às dos gráficos */
 KPI_CSS_AQUI
 /* scrollbars discretas (mata o quadrado branco no canto) */
@@ -81,6 +87,65 @@ CHART_DARK = r"""
   if(m['A Vencer']&&m['Vencidos']&&m['A Vencer'].parentNode)
     m['A Vencer'].parentNode.insertBefore(m['Vencidos'],m['A Vencer'].nextSibling);
 });</script>
+"""
+
+# Ordenação por coluna. Cópia do que foi adicionado ao ControleInadimplencia.py
+# (lá é a fonte). Serve o HTML gerado ANTES daquela correção; depois que o
+# gerador rodar de novo, o marcador já existe e este bloco não é injetado.
+MARCADOR_ORDENACAO = "Ordenacao por coluna"
+SORT_JS = r"""
+<script>
+// ---- Ordenacao por coluna (marcador: tabela-ordenavel) ----
+// Delegado no document: as tabelas sao reconstruidas via innerHTML quando os
+// filtros mudam, entao listener preso ao <th> se perderia no primeiro filtro.
+(function () {
+  function valorDe(td) {
+    const s = ((td && td.textContent) || '').trim();
+    if (!s || s === '-' || s === '–') return { n: null, s: '' };
+    const d = s.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+    if (d) return { n: +(d[3] + d[2] + d[1]), s };
+    const num = s.replace(/[R$\s%]/g, '').replace(/\./g, '').replace(',', '.');
+    return /^-?\d+(\.\d+)?$/.test(num)
+      ? { n: parseFloat(num), s }
+      : { n: null, s: s.toLowerCase() };
+  }
+  function colunaNumerica(linhas, i) {
+    for (const r of linhas.slice(0, 10)) {
+      const v = valorDe(r.cells[i]);
+      if (v.n !== null) return true;
+      if (v.s) return false;
+    }
+    return false;
+  }
+  document.addEventListener('click', function (e) {
+    const th = e.target.closest && e.target.closest('th');
+    if (!th) return;
+    const thead = th.closest('thead');
+    const table = thead && thead.closest('table');
+    const tbody = table && table.tBodies[0];
+    if (!tbody) return;
+    const i = [].indexOf.call(th.parentNode.cells, th);
+    const todas = [].slice.call(tbody.rows);
+    const totais = todas.filter(r => /row-total/.test(r.className));
+    const dados = todas.filter(r => !/row-total/.test(r.className));
+    if (dados.length < 2) return;
+    const num = colunaNumerica(dados, i);
+    const padrao = num ? 'desc' : 'asc';
+    const dir = th.dataset.dir === padrao ? (padrao === 'asc' ? 'desc' : 'asc') : padrao;
+    dados.sort(function (a, b) {
+      const x = valorDe(a.cells[i]), y = valorDe(b.cells[i]);
+      if (x.n !== null && y.n !== null) return dir === 'asc' ? x.n - y.n : y.n - x.n;
+      if (x.n !== null) return -1;
+      if (y.n !== null) return 1;
+      const r = x.s.localeCompare(y.s, 'pt-BR');
+      return dir === 'asc' ? r : -r;
+    });
+    thead.querySelectorAll('th[data-dir]').forEach(t => t.removeAttribute('data-dir'));
+    th.dataset.dir = dir;
+    dados.concat(totais).forEach(r => tbody.appendChild(r));
+  });
+})();
+</script>
 """
 
 # ── Cores das categorias ───────────────────────────────────────────────────────
@@ -199,6 +264,11 @@ def run():
                           ("../fonts.css", "/assets/fonts.css"),
                           ("../luxor-logo.png", "/assets/luxor-logo.png")):
         h = h.replace(rel, absolute)
+
+    # 6) ordenação por coluna, se o gerador ainda não a trouxer
+    if MARCADOR_ORDENACAO not in h:
+        h = h.replace("</body>", SORT_JS + "</body>", 1)
+        print("[inadimplencia] ordenação por coluna injetada")
 
     OUT.write_text(h, encoding="utf-8")
     print(f"[inadimplencia] {len(h)//1024} KB -> {OUT.relative_to(ROOT)}")

@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8"><title>teste ordenação</title>
+<style>
+ body{margin:0;font:13px system-ui;background:#0A1B20;color:#eee}
+ pre{margin:0;padding:10px;font-size:12px;background:#12303A;white-space:pre-wrap}
+ iframe{width:100%;height:70vh;border:0;background:#0A1B20}
+ .ok{color:#54C983} .bad{color:#F0705A}
+</style></head><body>
+<pre id="log">carregando...</pre>
+<iframe id="f"></iframe>
+<script>
+const log = m => document.getElementById('log').innerHTML += '\n' + m;
+const ok  = (c,m) => log((c?'<span class=ok>OK  </span>':'<span class=bad>FALHA</span>')+' '+m);
+(async () => {
+  document.getElementById('log').textContent = 'carregando dashboard...';
+  const html = await (await fetch('/assets/inadimplencia/dashboard.html')).text();
+  const f = document.getElementById('f');
+  f.onload = () => setTimeout(() => {
+    const d = f.contentDocument;
+    const tabs = [...d.querySelectorAll('table')].filter(t => t.tBodies[0] && t.tBodies[0].rows.length > 2);
+    log(`tabelas com dados: ${tabs.length}`);
+    tabs.forEach((t, ti) => {
+      const ths = t.tHead.rows[0].cells, tb = t.tBodies[0];
+      // testa a ULTIMA coluna numerica e a PRIMEIRA (texto)
+      [0, ths.length - 1].forEach(ci => {
+        const th = ths[ci];
+        const antes = [...tb.rows].map(r => (r.cells[ci]||{}).textContent);
+        th.click();
+        const dep1 = [...tb.rows].map(r => (r.cells[ci]||{}).textContent);
+        th.click();
+        const dep2 = [...tb.rows].map(r => (r.cells[ci]||{}).textContent);
+        const nome = th.textContent.trim().slice(0,18);
+        ok(dep1.join('|') !== antes.join('|') || antes.length < 3,
+           `tab${ti+1} col "${nome}": 1o clique reordenou`);
+        ok(dep1.join('|') !== dep2.join('|') || antes.length < 3,
+           `tab${ti+1} col "${nome}": 2o clique inverteu`);
+        ok(th.getAttribute('data-dir') !== null, `tab${ti+1} col "${nome}": seta marcada`);
+        // linha de total continua no fim?
+        const rt = [...tb.rows].findIndex(r => /row-total/.test(r.className));
+        if (rt >= 0) ok(rt === tb.rows.length-1, `tab${ti+1}: linha de total ficou no fim`);
+      });
+    });
+    log('\nfim.');
+  }, 700);
+  f.srcdoc = html;
+})();
+</script>
+</body></html>
