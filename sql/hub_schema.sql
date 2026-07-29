@@ -120,18 +120,12 @@ create policy hub_data_read on storage.objects
   );
 
 -- ---------------------------------------------------------------------
--- 6) Projetos: fecha a tabela existente na allowlist (era domínio aberto
---    @luxor.com.br). RODAR SÓ DEPOIS de semear allowed_users, senão
+-- 6) Projetos (app_state): saiu daqui — está em `sql/projetos_schema.sql`,
+--    que cria a tabela, liga o realtime e troca as policies antigas
+--    (domínio aberto @luxor.com.br) pelas do hub, em hub_can('projetos').
+--    Rodar DEPOIS deste arquivo e DEPOIS de semear allowed_users, senão
 --    ninguém entra no Projetos.
 -- ---------------------------------------------------------------------
--- drop policy if exists "luxor_select" on app_state;
--- create policy hub_projetos_select on app_state
---   for select to authenticated using ( public.hub_can('projetos') );
---
--- drop policy if exists "luxor_update" on app_state;
--- create policy hub_projetos_update on app_state
---   for update to authenticated
---   using ( public.hub_can('projetos') ) with check ( public.hub_can('projetos') );
 
 -- ---------------------------------------------------------------------
 -- 7) Auditoria de acesso (exigência LGPD p/ inadimplência; já serve p/ tudo).

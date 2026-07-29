@@ -429,22 +429,17 @@ Só com 1–12 passando.
 ## Parte 3 — Fechar o Projetos na allowlist
 
 **Só depois do checklist inteiro passando.** Hoje o `app_state` (dado do
-Projetos) aceita qualquer `@luxor.com.br` autenticado. Isto troca pra allowlist:
+Projetos) aceita qualquer `@luxor.com.br` autenticado — inclusive por fora do
+hub, pela URL avulsa do antigo `controle-de-projetos`, que aponta pro mesmo
+projeto Supabase. Isto troca pra allowlist e fecha essa porta:
 
-SQL Editor → **+ New query**:
+SQL Editor → **+ New query** → abrir
+[`sql/projetos_schema.sql`](../sql/projetos_schema.sql), **Ctrl+A**, colar, **Run**.
 
-```sql
-drop policy if exists "luxor_select" on app_state;
-create policy hub_projetos_select on app_state
-  for select to authenticated using ( public.hub_can('projetos') );
-
-drop policy if exists "luxor_update" on app_state;
-create policy hub_projetos_update on app_state
-  for update to authenticated
-  using ( public.hub_can('projetos') ) with check ( public.hub_can('projetos') );
-```
-
-(É o bloco 6 do [`hub_schema.sql`](../sql/hub_schema.sql), descomentado.)
+Além das policies, esse arquivo é o schema canônico do Projetos: cria
+`app_state`, liga a RLS e adiciona a tabela à publication do realtime — o que
+antes só existia no repo `controle-de-projetos` e faltava aqui num rebuild
+do zero. É idempotente, pode rodar de novo sem efeito colateral.
 
 **Testar logo depois:** abrir o hub, aba Projetos, editar e salvar. Se salvar,
 funcionou. Se der erro de permissão, rollback:
