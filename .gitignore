@@ -25,9 +25,26 @@ sql/*.local.sql
 *.pem
 *.key
 
+# fontes comerciais (licença OurType) — NÃO redistribuir em repo público.
+# O site usa subset woff embutido em assets/fonts.css; os arquivos originais
+# ficam fora do repo (Downloads\luxor_fontes).
+luxor_fontes/
+*.otf
+*.ttf
+*.woff
+*.woff2
+*.eot
+
 # ambientes
 .venv/
 __pycache__/
 *.pyc
 node_modules/
 .netlify/
+
+# lixo de sistema
+__MACOSX/
+.DS_Store
+._*
+Thumbs.db
+desktop.ini

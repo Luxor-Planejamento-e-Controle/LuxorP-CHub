@@ -42,6 +42,13 @@ for f in "$@"; do
       say "seed com dado real: $f" ;;
     *.xlsx|*.xlsm|*.csv|*.parquet|*.pbix)
       say "planilha/base: $f" ;;
+    # Fonte comercial (Fakt Pro/Slab, licença OurType) não pode ser
+    # redistribuída num repo público. O site usa subset woff embutido em
+    # assets/fonts.css — arquivo de fonte solto aqui é sempre engano.
+    *.otf|*.ttf|*.woff|*.woff2|*.eot)
+      say "fonte licenciada solta (usar o subset em assets/fonts.css): $f" ;;
+    *__MACOSX/*|*/.DS_Store|.DS_Store|*/Thumbs.db|*/desktop.ini)
+      say "lixo de sistema: $f" ;;
   esac
 done
 
