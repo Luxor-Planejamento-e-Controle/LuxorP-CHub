@@ -56,6 +56,11 @@ section h2,.chart-box h2{color:var(--text) !important;border-bottom-color:var(--
 /* status / avisos */
 .status-bar{background:var(--accent-soft) !important;color:var(--accent) !important;
   border:1px solid rgba(255,164,0,.4) !important}
+/* variação vs. referência anterior. "melhorou" NÃO usa o --ok verde: verde está
+   fora da paleta Luxor. Teal claro (#346e79 é o mesmo do A Vencer, aqui um tom
+   acima pra ler como texto). */
+.delta.bom{color:#5fa9b4 !important}
+.delta.ruim{color:INADIMPL_AQUI !important}
 /* controle de desconto */
 .desconto-control{background:var(--accent-soft) !important;border-color:rgba(255,164,0,.4) !important;color:var(--text-2) !important}
 /* tabelas */
@@ -291,7 +296,10 @@ def run():
         h = re.sub(pat, lambda m, nc=newc: f'class="{nc}"' + m.group(1), h, count=1, flags=re.S)
 
     # 3) injeta override Luxor antes de </head> (KPI_CSS é montado das constantes)
-    h = h.replace("</head>", LUXOR_OVERRIDE.replace("KPI_CSS_AQUI", KPI_CSS) + "</head>", 1)
+    override = (LUXOR_OVERRIDE
+                .replace("KPI_CSS_AQUI", KPI_CSS)
+                .replace("INADIMPL_AQUI", INADIMPL))
+    h = h.replace("</head>", override + "</head>", 1)
 
     # 4) logo Luxor no header
     h = h.replace("<header>", '<header><img class="lx-logo" src="../luxor-logo.png" alt="Luxor">', 1)
