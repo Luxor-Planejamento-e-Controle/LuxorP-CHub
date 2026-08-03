@@ -1,6 +1,6 @@
 """Migra o dashboard de Vendas x Valor no Plantel (gerado por LxVendasVsValor.py,
 no repo LuxorMonthlyP-CRoutines) para a identidade visual Luxor, SEM reescrever a
-lógica. A fonte já é escura (navy/dourado do Haras Pão Grande) e todo o CSS sai de
+lógica. A fonte já é escura (navy/dourado do Haras Pao Grande) e todo o CSS sai de
 variáveis no `:root`, então basta redefinir o `:root` + poucos overrides pontuais.
 
 Diferente da inadimplência, aqui não há CDN pra vendorizar: o HTML é autocontido
@@ -25,7 +25,7 @@ OUT = OUTDIR / "dashboard.html"
 LUXOR_OVERRIDE = """
 <link rel="stylesheet" href="/assets/fonts.css">
 <style>
-/* ===== Identidade Luxor (override do tema Haras Pão Grande da fonte) ===== */
+/* ===== Identidade Luxor (override do tema Haras Pao Grande da fonte) ===== */
 /* A fonte usa navy #04223B + dourado #CA9703; aqui vale a paleta do hub. Só o
    :root muda — o resto do CSS original já lê tudo daqui. */
 :root{

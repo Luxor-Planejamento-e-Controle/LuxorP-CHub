@@ -113,7 +113,7 @@ python tools/publish_hub.py vendas           # explícito, por causa da PII
 ```
 
 Pega o `dashboard_vendas.html` (gerado pelo `LxVendasVsValor.py`, no repo
-`LuxorMonthlyP-CRoutines/Controle de vendas HPG/`) e troca o tema Haras Pão Grande
+`LuxorMonthlyP-CRoutines/Controle de vendas HPG/`) e troca o tema Haras Pao Grande
 pelo Luxor. A fonte é autocontida — logo em `data:` URI, gráficos em SVG inline,
 zero CDN — e o build **falha** se aparecer referência externa, porque em produção o
 HTML é servido por `srcdoc` e um asset externo não carregaria.

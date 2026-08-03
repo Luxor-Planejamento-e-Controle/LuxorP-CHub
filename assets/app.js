@@ -52,7 +52,7 @@ const ROUTES = [
   {id:'indicadores', title:'Indicadores Financeiros', sub:'Cotações e variações por índice', icon:'ind', render:renderIndicadores},
   {id:'dre', title:'DRE — Orçado × Realizado', sub:'Comparativo orçado vs realizado', icon:'dre', render:renderDRE},
   {id:'inadimplencia', title:'Controle de Inadimplência', sub:'', icon:'inad', render:renderInad},
-  {id:'vendas', title:'Controle de Vendas HPG', sub:'Venda × valor no plantel — Haras Pão Grande', icon:'vendas', render:renderVendas},
+  {id:'vendas', title:'Controle de Vendas HPG', sub:'Venda × valor no plantel — Haras Pao Grande', icon:'vendas', render:renderVendas},
   {id:'projetos', title:'Projetos', sub:'Controle de projetos de automação/BI', icon:'proj', render:renderProjetos},
 ];
 // Rotas que o usuário logado pode abrir (Início sempre). Fora da allowlist a
