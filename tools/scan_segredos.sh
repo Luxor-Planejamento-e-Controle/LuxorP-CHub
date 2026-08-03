@@ -13,10 +13,17 @@
 # Sai 0 = limpo. Sai 1 = achou problema (mensagens no stderr).
 
 modo_staged=0
+rev=""
 if [ "$1" = "--staged" ]; then
   modo_staged=1
   shift
   set -- $(git diff --cached --name-only --diff-filter=ACM)
+elif [ "$1" = "--rev" ]; then
+  # Conteúdo vem de um COMMIT, não do disco nem do índice. É o que o pre-push
+  # precisa: o commit pode ter sido criado por outra ferramenta (ou com
+  # --no-verify) e o arquivo já não estar no disco.
+  rev="$2"
+  shift 2
 fi
 
 [ $# -eq 0 ] && exit 0
@@ -26,7 +33,8 @@ say() { echo "  ✗ $1" >&2; fail=1; }
 
 # Lê o conteúdo do arquivo conforme o modo.
 ler() {
-  if [ "$modo_staged" = "1" ]; then git show ":$1" 2>/dev/null
+  if [ -n "$rev" ]; then git show "$rev:$1" 2>/dev/null
+  elif [ "$modo_staged" = "1" ]; then git show ":$1" 2>/dev/null
   else [ -f "$1" ] && cat "$1" 2>/dev/null
   fi
 }

@@ -1,0 +1,65 @@
+#!/bin/sh
+# Segunda barreira LOCAL, e a que fecha o caso real: commit criado por OUTRA
+# ferramenta (agente de IDE, script, `--no-verify`) que o pre-commit não viu, e
+# que só é descoberto na hora de empurrar.
+#
+# Por que isso importa aqui: a `main` tem branch protection + ruleset exigindo PR,
+# mas com bypass de admin (`enforce_admins:false`, `bypass_actors: RepositoryRole 5`).
+# Push direto de admin não passa por PR nenhum, então a Action `guarda` só avisa
+# DEPOIS — CI não desfaz push. Antes do push, quem barra é este hook.
+#
+# Regra: a mesma de sempre, tools/scan_segredos.sh — uma fonte só.
+# Instalar: python tools/install_hooks.py
+# Emergência: git push --no-verify
+#
+# stdin do pre-push: <ref local> <sha local> <ref remoto> <sha remoto>
+
+raiz=$(git rev-parse --show-toplevel)
+scan="$raiz/tools/scan_segredos.sh"
+[ -f "$scan" ] || exit 0                      # script sumiu: não trava o push
+
+vazio=0000000000000000000000000000000000000000
+fail=0
+
+while read -r _ref_local sha_local _ref_remoto sha_remoto; do
+  # Deleção de branch (sha local zerado) não manda conteúdo.
+  [ "$sha_local" = "$vazio" ] && continue
+
+  if [ "$sha_remoto" = "$vazio" ]; then
+    # Branch nova no remoto: confere tudo que ela tem e o remoto ainda não.
+    faixa=$(git rev-list "$sha_local" --not --remotes | tail -1)
+    if [ -n "$faixa" ]; then
+      base="$faixa^"
+      git cat-file -e "$base" 2>/dev/null || base=""
+    else
+      base=""
+    fi
+  else
+    base="$sha_remoto"
+  fi
+
+  # Arquivos adicionados/copiados/modificados no que está subindo. Sem base
+  # (repo novo, história órfã), olha a árvore inteira do commit.
+  if [ -n "$base" ]; then
+    arquivos=$(git diff --name-only --diff-filter=ACM "$base" "$sha_local")
+  else
+    arquivos=$(git ls-tree -r --name-only "$sha_local")
+  fi
+
+  [ -z "$arquivos" ] && continue
+
+  # Conteúdo lido do COMMIT (--rev), não do disco: o arquivo pode nem existir
+  # mais na working tree e ainda assim estar indo pro GitHub.
+  # shellcheck disable=SC2086
+  sh "$scan" --rev "$sha_local" $arquivos || fail=1
+done
+
+[ "$fail" = "0" ] && exit 0
+
+echo "" >&2
+echo "Push barrado. O repo é PÚBLICO e o que está subindo tem dado que não pode" >&2
+echo "sair — inclusive de commit que outra ferramenta criou sem passar pelo" >&2
+echo "pre-commit. Tire o arquivo da história antes (ex.: git reset --soft" >&2
+echo "origin/main, depois recommit sem ele) e confira o .gitignore." >&2
+echo "Falso positivo: git push --no-verify" >&2
+exit 1
