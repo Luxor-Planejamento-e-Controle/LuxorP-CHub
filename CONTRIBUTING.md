@@ -14,11 +14,19 @@ no `.gitignore`, e há duas barreiras automáticas:
 
 | Barreira | Onde roda | Dá pra pular? |
 | --- | --- | --- |
-| `.githooks/pre-commit` | sua máquina | sim (`--no-verify`), e só existe se você instalar |
-| `.github/workflows/guarda.yml` | em todo PR | não |
+| `.githooks/pre-commit` | sua máquina, no commit | sim (`--no-verify`), e só existe se você instalar |
+| `.githooks/pre-push` | sua máquina, no push | idem — mas pega commit que **outra ferramenta** criou sem passar pelo pre-commit |
+| `.github/workflows/guarda.yml` | em todo PR, e em push na `main` | no PR não; em push direto ela só **avisa depois** |
 
-As duas usam o mesmo script, `tools/scan_segredos.sh`. Instale o hook uma vez
-por clone para descobrir o problema antes do push:
+O `pre-push` existe por um caso real: um agente de IDE commitou um dashboard com
+nome de cliente antes de a regra do `.gitignore` cobrir a pasta. O `pre-commit`
+tinha rodado e passado, porque a regra do scanner ainda não olhava
+`assets/*/dashboard.html`. Ele lê o conteúdo do **commit** (`--rev`), não do disco,
+então pega arquivo que já saiu da working tree e continua indo pro GitHub.
+
+As três usam o mesmo script, `tools/scan_segredos.sh`. Instale os hooks uma vez
+por clone — sem isso, num push direto **não existe barreira nenhuma** antes do
+GitHub:
 
 ```bash
 python tools/install_hooks.py
@@ -26,7 +34,14 @@ python tools/install_hooks.py
 
 ## Fluxo
 
-`main` é protegida: exige Pull Request com 1 aprovação. Ninguém publica direto.
+`main` é protegida: exige Pull Request com 1 aprovação e o check `guarda` verde.
+
+**Menos para admin.** A proteção clássica está com `enforce_admins: false` e o
+ruleset "protege main" tem `bypass_actors: RepositoryRole 5 (admin), always` — é
+intencional, para o dono do repo não depender de PR para um ajuste de uma linha.
+Consequência a ter em mente: no push direto de admin não há PR, não há review e a
+Action só reporta **depois**. Nesse caminho, os hooks locais são a única barreira —
+por isso rodar `install_hooks.py` não é opcional na máquina de quem tem bypass.
 
 1. Branch a partir da `main`: `git switch -c dash/nome-do-painel`
 2. Desenvolva. Para ver com dado real na sua máquina, gere os arquivos locais
