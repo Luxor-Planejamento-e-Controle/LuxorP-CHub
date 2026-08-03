@@ -34,8 +34,14 @@ ler() {
 # --- 1) caminhos que nunca podem entrar ---------------------------------
 for f in "$@"; do
   case "$f" in
-    assets/data/*|assets/inadimplencia/*|output_pbi/*)
+    assets/data/*|assets/inadimplencia/*|assets/vendas/*|output_pbi/*)
       say "dado real/PII: $f" ;;
+    # Saída dos build_*.py: assets/<aba>/dashboard.html é SEMPRE artefato gerado
+    # com dado real. Regra por PADRÃO e não por nome de pasta: aba nova nasce
+    # protegida mesmo que se esqueça de listá-la acima — foi assim que o
+    # dashboard de vendas (nome de cliente) entrou num commit local.
+    assets/*/dashboard.html)
+      say "dashboard gerado (dado real): $f" ;;
     .env|.env.*)
       [ "$f" = ".env.example" ] || say "arquivo de segredo: $f" ;;
     *.local.sql)
