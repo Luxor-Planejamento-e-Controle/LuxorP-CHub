@@ -36,10 +36,18 @@ create trigger allowed_users_lower before insert or update on allowed_users
 create table if not exists user_dashboard_access (
   email      text not null references allowed_users(email) on update cascade on delete cascade,
   dashboard  text not null check (dashboard in
-               ('indicadores','dre','inadimplencia','projetos','fluxo','participacoes','plantel')),
+               ('indicadores','dre','inadimplencia','vendas','projetos','fluxo','participacoes','plantel')),
   granted_at timestamptz not null default now(),
   primary key (email, dashboard)
 );
+
+-- A check acima só vale na CRIAÇÃO: `create table if not exists` não altera tabela
+-- que já existe. Dashboard novo (foi o caso de 'vendas') precisa da constraint
+-- recriada, senão o insert do admin volta como violação de check.
+alter table user_dashboard_access drop constraint if exists user_dashboard_access_dashboard_check;
+alter table user_dashboard_access add constraint user_dashboard_access_dashboard_check
+  check (dashboard in
+          ('indicadores','dre','inadimplencia','vendas','projetos','fluxo','participacoes','plantel'));
 
 -- ---------------------------------------------------------------------
 -- 3) Helpers. SECURITY DEFINER para as policies não recursarem na própria
@@ -103,7 +111,9 @@ create policy uda_admin_write on user_dashboard_access
 
 -- ---------------------------------------------------------------------
 -- 5) Storage: bucket PRIVADO com os snapshots publicados pelos ETLs.
---    Nome do arquivo = <dashboard>.json (indicadores.json, dre.json).
+--    Nome do arquivo = <dashboard>.<ext> (indicadores.json, dre.json,
+--    inadimplencia.html, vendas.html) — a policy usa o prefixo antes do ponto,
+--    então dashboard novo não precisa de policy nova, só do nome certo.
 --    Leitura liberada por dashboard; escrita só pela service_role
 --    (o publisher), que ignora RLS — por isso não há policy de insert.
 -- ---------------------------------------------------------------------

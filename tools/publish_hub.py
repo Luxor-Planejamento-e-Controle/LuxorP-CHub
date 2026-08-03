@@ -29,8 +29,17 @@ DATASETS = {
     # PII: sai do bucket privado direto pro navegador de quem tem
     # `hub_can('inadimplencia')`. Nunca vira arquivo estático no Netlify.
     "inadimplencia": (ROOT / "assets/inadimplencia/dashboard.html", "inadimplencia.html", "text/html; charset=utf-8"),
+    # PII tambem (nome de cliente na tabela de detalhe das vendas).
+    "vendas":        (ROOT / "assets/vendas/dashboard.html",        "vendas.html",        "text/html; charset=utf-8"),
 }
-# Padrão do publish sem argumento. Inadimplência é explícita por causa da PII.
+# Quem gera cada arquivo local, pra mensagem de erro apontar o build certo.
+GERADOR = {
+    "inadimplencia": "tools/build_inadimplencia.py",
+    "vendas": "tools/build_vendas.py",
+}
+# Datasets com PII: ficam fora do padrão e saem com aviso.
+COM_PII = ("inadimplencia", "vendas")
+# Padrão do publish sem argumento. Os com PII são explícitos.
 PADRAO = ["indicadores", "dre"]
 
 
@@ -46,7 +55,7 @@ def env():
 def upload(url, key, name):
     src, dest, ctype = DATASETS[name]
     if not src.exists():
-        gerador = "tools/build_inadimplencia.py" if name == "inadimplencia" else "tools/build_data.py"
+        gerador = GERADOR.get(name, "tools/build_data.py")
         print(f"[skip] {src.name} não existe — rode {gerador} antes.")
         return False
     body = src.read_bytes()
@@ -73,9 +82,10 @@ def main():
     if desconhecido:
         sys.exit(f"Dataset não publicável: {', '.join(desconhecido)}. "
                  f"Válidos: {', '.join(DATASETS)}")
-    if "inadimplencia" in alvos:
-        print("[aviso] inadimplencia contém PII. Vai pro bucket PRIVADO, visível só "
-              "para quem tem hub_can('inadimplencia').")
+    for nome in alvos:
+        if nome in COM_PII:
+            print(f"[aviso] {nome} contém PII. Vai pro bucket PRIVADO, visível só "
+                  f"para quem tem hub_can('{nome}').")
     falhou = [n for n in alvos if not upload(url, key, n)]
     if falhou:
         sys.exit(f"Falha ao publicar: {', '.join(falhou)}")

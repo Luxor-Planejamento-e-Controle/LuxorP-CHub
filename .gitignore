@@ -8,6 +8,8 @@ assets/data/
 
 # dashboard de inadimplência (PII de devedores) — nunca versionar
 assets/inadimplencia/
+# dashboard de vendas HPG (nome de cliente na tabela de detalhe) — idem
+assets/vendas/
 output_pbi/
 *.xlsx
 *.xlsm

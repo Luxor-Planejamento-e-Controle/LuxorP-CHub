@@ -95,9 +95,42 @@ Pega o `dashboard_conferencia.html` (gerado pelo `ControleInadimplencia.py`) e
 aplica a identidade Luxor sem mexer na lógica (re-skin via `:root` + Chart.js
 vendorizado) → `assets/inadimplencia/dashboard.html`.
 
-**Contém PII.** Fica no `.gitignore`, não é publicado e a aba está marcada
-`staged` no `assets/app.js` — fora da navegação em produção até o desenho
-LGPD/RBAC da seção 5 da arquitetura estar de pé. Só aparece na demo offline.
+**Contém PII** (nome de devedor). Fica no `.gitignore` e **nunca** vira arquivo
+público no Netlify: vai pro bucket privado e entra por `srcdoc` no iframe.
+
+```bash
+python tools/publish_hub.py inadimplencia    # explícito, por causa da PII
+```
+
+Quem vê: só quem tem `hub_can('inadimplencia')` (linha em `user_dashboard_access`,
+ou `role = 'admin'`).
+
+## Vendas HPG
+
+```bash
+python tools/build_vendas.py
+python tools/publish_hub.py vendas           # explícito, por causa da PII
+```
+
+Pega o `dashboard_vendas.html` (gerado pelo `LxVendasVsValor.py`, no repo
+`LuxorMonthlyP-CRoutines/Controle de vendas HPG/`) e troca o tema Haras Pão Grande
+pelo Luxor. A fonte é autocontida — logo em `data:` URI, gráficos em SVG inline,
+zero CDN — e o build **falha** se aparecer referência externa, porque em produção o
+HTML é servido por `srcdoc` e um asset externo não carregaria.
+
+**Contém PII** (coluna Cliente na tabela de detalhe das vendas). Mesmo tratamento da
+inadimplência: `.gitignore`, bucket privado, `hub_can('vendas')`.
+
+### Dashboard novo no hub, o que precisa mexer
+
+1. `tools/build_<nome>.py` — re-skin → `assets/<nome>/dashboard.html`
+2. `tools/publish_hub.py` — entrada em `DATASETS` (+ `COM_PII` e `GERADOR` se for o caso)
+3. `assets/auth.js` — entrada em `HUB_DATASETS` (o nome do arquivo no bucket é o que
+   a policy usa: `<nome>.<ext>`)
+4. `assets/app.js` — `ICON`, `ROUTES`, `temDado` e o `render<Nome>`
+5. `sql/hub_schema.sql` — nome na check de `user_dashboard_access` **e rodar o
+   `alter constraint`** no Supabase (a check não muda sozinha em tabela existente)
+6. `.gitignore` se tiver PII
 
 ## Próximos passos
 

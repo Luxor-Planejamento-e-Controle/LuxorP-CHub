@@ -44,13 +44,15 @@ const ICON = {
   home:'M3 11l9-8 9 8M5 10v10h5v-6h4v6h5V10', ind:'M3 3v18h18M7 15l3-4 3 3 5-7',
   dre:'M4 20V10M10 20V4M16 20v-7M22 20H2', fluxo:'M3 12h18M3 6h18M3 18h12',
   part:'M12 2a10 10 0 100 20 10 10 0 000-20zM12 12l7-4', plantel:'M4 20V8l8-5 8 5v12M9 20v-6h6v6',
-  inad:'M12 3l9 4v6c0 5-4 8-9 9-5-1-9-4-9-9V7z M12 8v4M12 15h.01', proj:'M9 11l3 3 8-8M20 12v7H4V5h11'
+  inad:'M12 3l9 4v6c0 5-4 8-9 9-5-1-9-4-9-9V7z M12 8v4M12 15h.01', proj:'M9 11l3 3 8-8M20 12v7H4V5h11',
+  vendas:'M3 10.5V4h6.5L21 15.5 14.5 22 3 10.5z M7 7h.01'
 };
 const ROUTES = [
   {id:'', title:'Início', sub:'Hub de Planejamento & Controle', icon:'home', render:renderHome},
   {id:'indicadores', title:'Indicadores Financeiros', sub:'Cotações e variações por índice', icon:'ind', render:renderIndicadores},
   {id:'dre', title:'DRE — Orçado × Realizado', sub:'Comparativo orçado vs realizado', icon:'dre', render:renderDRE},
   {id:'inadimplencia', title:'Controle de Inadimplência', sub:'', icon:'inad', render:renderInad},
+  {id:'vendas', title:'Controle de Vendas HPG', sub:'Venda × valor no plantel — Haras Pão Grande', icon:'vendas', render:renderVendas},
   {id:'projetos', title:'Projetos', sub:'Controle de projetos de automação/BI', icon:'proj', render:renderProjetos},
 ];
 // Rotas que o usuário logado pode abrir (Início sempre). Fora da allowlist a
@@ -62,6 +64,7 @@ function temDado(id, hub){
   if(id==='indicadores')   return !!window.IND_DATA;
   if(id==='dre')           return !!window.DRE_DATA;
   if(id==='inadimplencia') return !!hub.inadHtml;
+  if(id==='vendas')        return !!hub.vendasHtml;
   return true;                                    // Projetos lê direto do Postgres
 }
 function allowed(){
@@ -430,6 +433,22 @@ function renderInad(el){
   }
   const f=document.createElement('iframe');
   f.className='embed'; f.title='Dashboard de Inadimplência'; f.srcdoc=html;
+  el.appendChild(f);
+}
+
+/* ---- Vendas HPG (dashboard do LxVendasVsValor re-skin Luxor, via iframe) ----
+   Mesmo esquema da inadimplência: tem nome de cliente na tabela de detalhe, então
+   em produção vem do bucket privado por `srcdoc` e nunca é arquivo público.
+   Offline (file://) usa o build local. */
+function renderVendas(el){
+  el.classList.add('flush');
+  const html=window.HUB&&window.HUB.vendasHtml;
+  if(!html){
+    el.innerHTML=`<iframe class="embed" src="assets/vendas/dashboard.html" title="Controle de Vendas HPG"></iframe>`;
+    return;
+  }
+  const f=document.createElement('iframe');
+  f.className='embed'; f.title='Controle de Vendas HPG'; f.srcdoc=html;
   el.appendChild(f);
 }
 
