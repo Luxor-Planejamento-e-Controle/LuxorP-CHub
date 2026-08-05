@@ -15,7 +15,7 @@ OUT.mkdir(parents=True, exist_ok=True)
 DRE_XLSX = r"G:/Drives compartilhados/Luxor Controladoria/Ambiente de testes/DRE Data/DRE_Historico.xlsx"
 FIN_ENV = Path(r"C:/Users/Arthur/repos/FinancialIndicators/.env")
 CONTAINER = "luxor-planejamento-e-controle"
-IND_BLOB = "LuxorControlDatabase/Indicadores_financeiros.parquet"
+IND_BLOB = "LuxorControlDatabase/parquet/Indicadores_financeiros.parquet"
 GROUP_BLOB = "LuxorControlDatabase/parquet/group_hist_data.parquet"   # pipeline do FO
 
 # Segmentos do group_hist_data que viram série de cota no Indicadores.

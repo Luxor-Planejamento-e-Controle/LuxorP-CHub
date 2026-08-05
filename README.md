@@ -63,7 +63,7 @@ python tools/publish_hub.py    # sobe os .json para o bucket privado hub-data
 Fontes:
 
 - **Indicadores** — parquet no Azure Blob (`luxor-planejamento-e-controle`,
-  `LuxorControlDatabase/Indicadores_financeiros.parquet`). 14 índices
+  `LuxorControlDatabase/parquet/Indicadores_financeiros.parquet`). 14 índices
   (Dólar, Mangalarga, Lipizzaner, IPCA, CDI, CHF, CPI, IGP-M, S&P/SOFR, …),
   histórico 2020→2026. Colunas Cotação, %Dia/MTD/QTD/YTD/36M.
 - **DRE** — `DRE Data/DRE_Historico.xlsx` no Drive (Base YTD Unpivot + Base DRE
