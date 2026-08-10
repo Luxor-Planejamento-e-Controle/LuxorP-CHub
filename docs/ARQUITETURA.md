@@ -86,6 +86,15 @@ Dois scripts (decidido):
   transforma nas séries prontas pro gráfico e faz **upsert** no Supabase.
   Pode rodar sozinho, sem re-rodar os ETLs (re-publicar quando quiser).
 
+**Já implementado — fatia "indicadores"**: `tools/run_etl_indicadores.py` roda, na
+ordem, `FinancialIndicators/Scripts/azure_monthly_pipeline.py` (modo Blob),
+o `cvm.py` das cotas, `build_data.py indicadores` e `publish_hub.py indicadores`.
+A ordem é obrigatória: o `cvm.py` monta a cota USD com o dólar que lê do
+`Indicadores_financeiros.xlsx` do Drive. O **Resultado FO** (`group_hist_data`,
+pipeline do FO) fica fora de propósito — fechamento ainda provisório, roda à parte.
+No modo Blob o Blob é a cópia autoritativa e o xlsx/parquet do Drive é espelho
+(pull antes de calcular, push depois).
+
 Uso normal = rodar `run_all_etls` e responder "sim" pra atualizar os dashboards
 num fluxo só. Agendado: Container App Job / GitHub Action roda os dois em
 sequência (padrão que o `FinancialIndicators` já usa hoje) — diário p/

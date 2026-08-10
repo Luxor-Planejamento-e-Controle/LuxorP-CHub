@@ -1,7 +1,8 @@
 """Extrai dados reais (Indicadores no Azure + DRE no Drive) e gera JS embutido
 para a versão offline do hub (file:// não faz fetch, então vira window.*).
 
-Uso: python tools/build_data.py
+Uso: python tools/build_data.py [indicadores|dre ...]
+     (sem argumento = os dois)
 Requer: pandas, pyarrow, azure-storage-blob, python-dotenv e a conn do Azure
 (pega do .env do FinancialIndicators).
 """
@@ -274,8 +275,16 @@ if __name__ == "__main__":
     if "--segmentos" in sys.argv:            # só lista, não gera nada
         listar_segmentos()
         sys.exit(0)
-    try:
-        build_indicadores()
-    except Exception as e:
-        print("[indicadores] ERRO:", e, file=sys.stderr)
-    build_dre()
+    # Sem argumento = os dois, como sempre foi. Com argumento, só o pedido —
+    # o run_etl_indicadores.py atualiza indicadores sem mexer no dre.json.
+    alvos = [a for a in sys.argv[1:] if not a.startswith("-")] or ["indicadores", "dre"]
+    desconhecido = [a for a in alvos if a not in ("indicadores", "dre")]
+    if desconhecido:
+        sys.exit(f"Dataset inválido: {', '.join(desconhecido)}. Use indicadores e/ou dre.")
+    if "indicadores" in alvos:
+        try:
+            build_indicadores()
+        except Exception as e:
+            print("[indicadores] ERRO:", e, file=sys.stderr)
+    if "dre" in alvos:
+        build_dre()
