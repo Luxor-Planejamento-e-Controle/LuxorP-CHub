@@ -31,10 +31,15 @@ republicação do hub à atualização dos indicadores: o job só mexe no Blob, 
 painel lê o snapshot `indicadores.json` do bucket `hub-data`. Comando de registro
 em FinancialIndicators/DEPLOY.md.
 
+Sai sem fazer nada quando o mês já está completo no state do Blob, as cotas já
+cobrem o fim do mês e o snapshot publicado saiu desse mesmo dado — caso da maioria
+dos dias da janela de agendamento, em que nada foi liberado. `--force` ignora essa
+checagem. Qualquer incerteza (erro de rede, marcador ausente) roda normalmente.
+
 Uso:
     python tools/run_etl_indicadores.py                 # último mês fechado
     python tools/run_etl_indicadores.py 07/2026         # mês específico
-    python tools/run_etl_indicadores.py --force         # reprocessa sem novidade
+    python tools/run_etl_indicadores.py --force         # roda mesmo sem novidade
     python tools/run_etl_indicadores.py --dry-run       # só mostra o plano
     python tools/run_etl_indicadores.py --skip-publish   # build sem publicar
     python tools/run_etl_indicadores.py --exigir-cotas   # aborta se a CVM não tem o mês
@@ -70,6 +75,12 @@ BLOB_PREFIX = "LuxorControlDatabase"
 IND_BLOB = f"{BLOB_PREFIX}/parquet/Indicadores_financeiros.parquet"
 QUOTAS_BLOB = f"{BLOB_PREFIX}/parquet/funds_quotas_historico.parquet"
 GROUP_BLOB = f"{BLOB_PREFIX}/parquet/group_hist_data.parquet"
+STATE_BLOB = f"{BLOB_PREFIX}/pipeline_state.json"
+
+# Assinatura do dado que gerou o snapshot publicado. Fica em assets/data/, que é
+# gitignored. Serve pra distinguir "mês completo e já publicado" (não roda) de
+# "mês completo mas o snapshot é de antes" (roda).
+MARCADOR = ROOT / "assets/data/.etl_indicadores_publicado.json"
 
 
 def log(msg=""):
@@ -171,6 +182,91 @@ def roda_script_hub(nome, *args):
     return subprocess.run(cmd, cwd=ROOT, env=env).returncode == 0
 
 
+# --- Curto-circuito: mês completo e já publicado ----------------------------
+
+def _blob_bytes(bsc, path):
+    bc = bsc.get_blob_client(BLOB_CONTAINER, path)
+    return bc.download_blob().readall() if bc.exists() else None
+
+
+def _assinatura(tag, ind_bytes, cotas_bytes):
+    """Identidade do dado: o mês + o hash dos dois parquets.
+
+    Hash do CONTEÚDO, não `last_modified`: o orquestrador sobe o parquet até em
+    run no-op, então a data de modificação muda todo dia e nunca casaria. md5
+    aqui é só detecção de mudança, não tem papel de segurança.
+    """
+    import hashlib
+    return {
+        "mes": tag,
+        "indicadores": hashlib.md5(ind_bytes).hexdigest(),
+        "cotas": hashlib.md5(cotas_bytes).hexdigest(),
+    }
+
+
+def nada_a_fazer(conn, ano, mes):
+    """Motivo do skip, ou None se tem trabalho.
+
+    Os dias de execução são uma JANELA (o CPI sai entre o dia 10 e o 13, o IPCA
+    entre 9 e 11, as cotas a partir do 5º dia útil), então a maioria dos runs cai
+    num dia em que nada foi liberado. Sem essa checagem eles reconstroem e
+    republicam um snapshot idêntico.
+
+    Só pula quando as três coisas valem: o mês está `complete` no state do Blob,
+    as cotas já cobrem o fim do mês, e o snapshot publicado saiu exatamente
+    desses dois parquets. Qualquer dúvida (erro de rede, marcador ausente) roda.
+    """
+    import json
+    tag = f"{mes:02d}/{ano}"
+    try:
+        import pandas as pd
+        from azure.storage.blob import BlobServiceClient
+        bsc = BlobServiceClient.from_connection_string(conn)
+
+        state = json.loads(
+            bsc.get_blob_client(BLOB_CONTAINER, STATE_BLOB).download_blob().readall())
+        minfo = state.get("months", {}).get(tag) or {}
+        if not minfo.get("complete"):
+            return None   # ainda falta indicador: roda
+
+        ind_bytes = _blob_bytes(bsc, IND_BLOB)
+        cotas_bytes = _blob_bytes(bsc, QUOTAS_BLOB)
+        if ind_bytes is None or cotas_bytes is None:
+            return None
+
+        dfq = pd.read_parquet(io.BytesIO(cotas_bytes))
+        cobertura_cotas = pd.to_datetime(dfq["DATA"], errors="coerce").max()
+        if pd.isna(cobertura_cotas) or cobertura_cotas.date() < fim_do_mes(ano, mes):
+            return None
+
+        if not MARCADOR.exists():
+            return None
+        atual = _assinatura(tag, ind_bytes, cotas_bytes)
+        if json.loads(MARCADOR.read_text(encoding="utf-8")) != atual:
+            return None
+        return (f"{tag} está completo no Blob, as cotas cobrem o mês e o snapshot "
+                f"publicado saiu desse mesmo dado (indicadores "
+                f"{atual['indicadores'][:12]}, cotas {atual['cotas'][:12]}).")
+    except Exception as e:
+        log(f"!! Não deu pra checar se há novidade ({e}). Vai rodar por garantia.")
+        return None
+
+
+def grava_marcador(conn, ano, mes):
+    """Registra de qual dado saiu o snapshot que acabou de ser publicado."""
+    import json
+    try:
+        from azure.storage.blob import BlobServiceClient
+        atual = _assinatura(BlobServiceClient.from_connection_string(conn), ano, mes)
+        if atual is None:
+            return
+        MARCADOR.parent.mkdir(parents=True, exist_ok=True)
+        MARCADOR.write_text(json.dumps(atual, ensure_ascii=False, indent=2),
+                            encoding="utf-8")
+    except Exception as e:
+        log(f"!! AVISO: não gravei o marcador ({e}). O próximo run republica.")
+
+
 # --- Relatório de cobertura -------------------------------------------------
 
 def cobertura(conn):
@@ -222,10 +318,20 @@ def main():
     log(f"    xlsx (espelho do Blob): {INDICADORES_XLSX}")
     log(f"    cotas CVM:              {COTAS_DIR / 'cotas' / 'cvm.py'}")
     log("    Resultado FO: NÃO roda aqui (fechamento provisório, rodar à parte).")
+    motivo_skip = None if force else nada_a_fazer(conn, ano, mes)
+
     if dry:
-        log("\n[dry-run] rodaria: indicadores -> cotas CVM -> build_data indicadores"
-            + ("" if skip_publish else " -> publish_hub indicadores"))
+        if motivo_skip:
+            log(f"\n[dry-run] NÃO rodaria: {motivo_skip}")
+        else:
+            log("\n[dry-run] rodaria: indicadores -> cotas CVM -> build_data indicadores"
+                + ("" if skip_publish else " -> publish_hub indicadores"))
         cobertura(conn)
+        return 0
+
+    if motivo_skip:
+        log(f"\n>>> Nada a fazer: {motivo_skip}")
+        log(">>> Nenhum passo executado. Use --force pra republicar de qualquer jeito.")
         return 0
 
     passo(1, f"Índices de mercado ({tag})")
@@ -256,6 +362,10 @@ def main():
     if not roda_script_hub("publish_hub.py", "indicadores"):
         log("\n!! publish_hub falhou. O hub continua com o snapshot anterior.")
         return 1
+    if cotas_ok:
+        # Só marca quando o mês saiu inteiro: sem as cotas o run seguinte tem
+        # trabalho de verdade e não pode ser pulado.
+        grava_marcador(conn, ano, mes)
 
     log(f"\n>>> Concluído para {tag}."
         + ("" if cotas_ok else " ATENÇÃO: sem as cotas CVM do mês."))
