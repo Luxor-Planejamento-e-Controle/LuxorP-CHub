@@ -257,12 +257,17 @@ def grava_marcador(conn, ano, mes):
     import json
     try:
         from azure.storage.blob import BlobServiceClient
-        atual = _assinatura(BlobServiceClient.from_connection_string(conn), ano, mes)
-        if atual is None:
+        bsc = BlobServiceClient.from_connection_string(conn)
+        ind_bytes = _blob_bytes(bsc, IND_BLOB)
+        cotas_bytes = _blob_bytes(bsc, QUOTAS_BLOB)
+        if ind_bytes is None or cotas_bytes is None:
             return
+        atual = _assinatura(f"{mes:02d}/{ano}", ind_bytes, cotas_bytes)
         MARCADOR.parent.mkdir(parents=True, exist_ok=True)
         MARCADOR.write_text(json.dumps(atual, ensure_ascii=False, indent=2),
                             encoding="utf-8")
+        log(f">>> Marcador gravado: {MARCADOR.name} "
+            f"(indicadores {atual['indicadores'][:12]}, cotas {atual['cotas'][:12]}).")
     except Exception as e:
         log(f"!! AVISO: não gravei o marcador ({e}). O próximo run republica.")
 
