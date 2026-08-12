@@ -1,4 +1,11 @@
-<?xml version="1.0" encoding="UTF-8"?>
+<?xml version="1.0"?>
+<!--
+  Sem atributo encoding de propósito: o Register-ScheduledTask recebe o XML como
+  string UTF-16 do PowerShell, e uma declaração encoding="UTF-8" faz o parser
+  abortar com "não é possível alternar codificação". Sem o atributo, funciona
+  pelos dois caminhos.
+-->
+
 <!--
   Tarefa "Luxor - ETL Indicadores (hub)".
 
@@ -49,13 +56,11 @@
       </ScheduleByMonth>
     </CalendarTrigger>
   </Triggers>
-  <Principals>
-    <Principal id="Author">
-      <UserId>Arthur</UserId>
-      <LogonType>InteractiveToken</LogonType>
-      <RunLevel>LeastPrivilege</RunLevel>
-    </Principal>
-  </Principals>
+  <!--
+    Sem bloco <Principals> de propósito: quem define o usuário é o parâmetro
+    -User do Register-ScheduledTask. Um <UserId> aqui conflita com ele e o
+    registro falha com "Parâmetro incorreto (UserId)".
+  -->
   <Settings>
     <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
     <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
@@ -71,7 +76,7 @@
     <ExecutionTimeLimit>PT2H</ExecutionTimeLimit>
     <Priority>7</Priority>
   </Settings>
-  <Actions Context="Author">
+  <Actions>
     <Exec>
       <Command>C:\Users\Arthur\repos\LuxorP&amp;CHub\tools\run_etl_indicadores_agendado.cmd</Command>
     </Exec>
