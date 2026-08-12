@@ -19,8 +19,10 @@
   08:30 BRT fica 30 min depois do Container App Job (cron 11:00 UTC), então a
   republicação do hub sempre pega o Blob já atualizado.
 
-  Registrar / substituir:
-    schtasks /Create /TN "Luxor - ETL Indicadores (hub)" /XML "C:\Users\Arthur\repos\LuxorP&amp;CHub\tools\etl_indicadores_task.xml" /F
+  Registrar / substituir (pelo PowerShell — o schtasks /XML exige arquivo
+  UTF-16, e este fica UTF-8 pra ser legível no git):
+    $xml = Get-Content 'C:\Users\Arthur\repos\LuxorP&amp;CHub\tools\etl_indicadores_task.xml' -Raw
+    Register-ScheduledTask -TaskName 'Luxor - ETL Indicadores (hub)' -Xml $xml -User "$env:USERNAME" -Force
 -->
 <Task version="1.4" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
   <RegistrationInfo>
