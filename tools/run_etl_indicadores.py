@@ -23,11 +23,13 @@ NÃO entra aqui: roda à parte porque o fechamento ainda é provisório. O passo
 lê o que estiver publicado no Blob.
 
 Agendamento: `run_etl_indicadores_agendado.cmd` (wrapper com log) + tarefa
-"Luxor - ETL Indicadores (hub)", dias 1-20 às 08:30 BRT — 30 min depois do
-Container App Job (cron 11:00 UTC). É o que amarra a republicação do hub à
-atualização dos indicadores: o job só mexe no Blob, e o painel lê o snapshot
-`indicadores.json` do bucket `hub-data`. Comando de criação em
-FinancialIndicators/DEPLOY.md.
+"Luxor - ETL Indicadores (hub)", definida em `etl_indicadores_task.xml` — dias
+1-3 e 5-16 às 08:30 BRT, 30 min depois do Container App Job (cron 11:00 UTC).
+Só esses dias porque é quando índice é liberado: 1-3 fecha o mês (dólar e as
+diárias), 5-16 cobre cotas CVM (5º dia útil), IPCA e CPI. É o que amarra a
+republicação do hub à atualização dos indicadores: o job só mexe no Blob, e o
+painel lê o snapshot `indicadores.json` do bucket `hub-data`. Comando de registro
+em FinancialIndicators/DEPLOY.md.
 
 Uso:
     python tools/run_etl_indicadores.py                 # último mês fechado
