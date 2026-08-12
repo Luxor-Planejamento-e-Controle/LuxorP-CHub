@@ -22,6 +22,13 @@ O Resultado FO (`group_hist_data.parquet`, pipeline do LuxorMonthlyFORoutines)
 NÃO entra aqui: roda à parte porque o fechamento ainda é provisório. O passo 3
 lê o que estiver publicado no Blob.
 
+Agendamento: `run_etl_indicadores_agendado.cmd` (wrapper com log) + tarefa
+"Luxor - ETL Indicadores (hub)", dias 1-20 às 08:30 BRT — 30 min depois do
+Container App Job (cron 11:00 UTC). É o que amarra a republicação do hub à
+atualização dos indicadores: o job só mexe no Blob, e o painel lê o snapshot
+`indicadores.json` do bucket `hub-data`. Comando de criação em
+FinancialIndicators/DEPLOY.md.
+
 Uso:
     python tools/run_etl_indicadores.py                 # último mês fechado
     python tools/run_etl_indicadores.py 07/2026         # mês específico
