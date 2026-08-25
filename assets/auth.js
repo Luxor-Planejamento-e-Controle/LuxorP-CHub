@@ -117,6 +117,17 @@ function sendLink(){
 }
 
 /* ---------- permissões ---------- */
+// Erro de TOKEN (sessão salva inválida) não é erro de setup: acontece com token
+// expirado, JWT secret rotacionado, ou "issued at future" — iat do access_token à
+// frente do relógio que valida (PostgREST). Sem separar os dois, a sessão ruim
+// ficava salva e o gate aparecia SEM formulário: recarregar repetia o mesmo erro
+// pra sempre, sem caminho de saída.
+function _erroDeToken(msg, status){
+  if(status === 401) return true;
+  return /jwt|issued at future|token (is )?expired|invalid (claim|token)|PGRST30[13]/i
+         .test(msg || '');
+}
+
 async function loadAccess(email){
   const sb = window.HUB.sb;
   const [{ data:me, error:meErr }, { data:acc, error:accErr }] = await Promise.all([
@@ -125,6 +136,9 @@ async function loadAccess(email){
   ]);
   // Consulta quebrada (tabela faltando, policy errada) não é a mesma coisa que
   // "não está na lista" — sem separar, um erro de setup parece falta de convite.
+  const falha = meErr || accErr;
+  if(falha && _erroDeToken(falha.message, falha.status || falha.code))
+    return { erro: falha.message, tokenRuim: true };
   if(meErr) return { erro: 'Não consegui ler a allowlist: ' + meErr.message };
   if(accErr) return { erro: 'Não consegui ler as permissões: ' + accErr.message };
   if(!me)       return { erro: null };                   // autenticou, mas fora da lista
@@ -192,6 +206,16 @@ async function start(){
       const access = await loadAccess(email);
       // Falhou: volta pra "estado desconhecido" (undefined, não null) pra um
       // próximo evento poder tentar de novo — inclusive um SIGNED_OUT.
+      // Token ruim: descarta a sessão salva e devolve o formulário, senão a
+      // pessoa fica presa numa tela de erro que recarregar não resolve.
+      if(access.tokenRuim){
+        sessaoAtual = undefined;
+        console.error('[hub] sessão inválida:', access.erro);
+        try { await sb.auth.signOut({ scope:'local' }); } catch(e){ /* já era */ }
+        window.HUB.email = null;
+        showGate('Sua sessão não é mais válida. Peça um novo link de acesso.', true);
+        return;
+      }
       if(access.erro){                                   // problema de setup, não de convite
         sessaoAtual = undefined;
         console.error('[hub]', access.erro);
