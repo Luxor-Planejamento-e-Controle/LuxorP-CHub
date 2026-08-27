@@ -1,0 +1,49 @@
+name: publica
+
+# Decide QUANDO a Netlify realmente publica. Antes, todo `git push` pro main
+# virava um deploy de produção (15 créditos no plano Free — 300/mês = 20
+# deploys), e sessão de trabalho normal empilha vários pushes no mesmo dia.
+# Em 24/08/2026, por exemplo, 3 pushes em horas diferentes geraram 3 deploys
+# do mesmo dia de trabalho.
+#
+# Agora a Netlify observa `live`, não `main` (netlify.toml não muda — o
+# `ignore` continua valendo como segunda rede, caso este workflow rode fora
+# de hora). `main` fica livre para quantos pushes o dia pedir, sem custar
+# nada. Este job roda 1x/dia e avança `live` até onde `main` estiver — todos
+# os pushes do dia viram UM deploy só.
+#
+# Fast-forward simples: se `live` já está em cima de `main`, não há o que
+# empurrar e o job termina sem acionar nada — dia sem mudança não gasta
+# crédito nenhum, nem o 1 deploy diário.
+
+on:
+  schedule:
+    - cron: '0 21 * * *'   # ~18h em Brasília (UTC-3), fim do dia de trabalho
+  workflow_dispatch:        # botão "Run workflow" no GitHub — publica na hora, sem esperar o cron
+
+permissions:
+  contents: write
+
+jobs:
+  publica:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Avança live até main
+        run: |
+          git fetch origin live
+          if git merge-base --is-ancestor origin/live main; then
+            if [ "$(git rev-parse origin/live)" = "$(git rev-parse main)" ]; then
+              echo "live já está em dia — nada a publicar"
+            else
+              git push origin main:live
+              echo "live avançado — deploy da Netlify vai disparar"
+            fi
+          else
+            echo "::error::live tem commit que main não tem — não é fast-forward, publique manualmente"
+            exit 1
+          fi

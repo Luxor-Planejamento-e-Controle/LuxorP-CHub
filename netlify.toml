@@ -7,6 +7,13 @@
   # `git diff --quiet` sai 0 quando NÃO há diferença, e o Netlify cancela o
   # build nesse caso. Sem CACHED_COMMIT_REF (1º build) o comando falha e o
   # build acontece — que é o lado seguro de errar.
+  #
+  # Esse filtro não resolve tudo: 1 deploy nesse site em 20/08/2026 (aba Controle
+  # de Vendas HPG) foi mudança real, sem nada a filtrar. Somado ao HubHPG, o ciclo
+  # gastou 105 dos 300 créditos em só 7 dias. Por isso a Netlify não observa mais
+  # `main` — observa `live`. O workflow `publica.yml` avança `live` até `main` 1x/dia
+  # (ou sob demanda, via "Run workflow"), então todos os pushes do dia em `main`
+  # viram UM deploy só. Push em `main` continua livre e frequente.
   ignore = "git diff --quiet $CACHED_COMMIT_REF $COMMIT_REF -- . ':(exclude)tools' ':(exclude)docs' ':(exclude)sql' ':(exclude)*.md' ':(exclude).githooks' ':(exclude).gitignore' ':(exclude).gitattributes'"
 
 # Site interno: não indexar e não vazar referrer pra fora.
