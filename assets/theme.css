@@ -127,7 +127,13 @@ select:focus,input:focus{border-color:var(--orange)}
 @media(max-width:1300px){.g-6{grid-template-columns:repeat(3,1fr)}}
 @media(max-width:1100px){.g-4{grid-template-columns:repeat(2,1fr)}.g-3{grid-template-columns:repeat(2,1fr)}}
 @media(max-width:760px){
-  .g-6,.g-4,.g-3,.g-2{grid-template-columns:repeat(2,1fr)}
+  /* auto-fit/minmax em vez de um número fixo de colunas: cada card pede um
+     mínimo de 150px e o navegador encaixa quantos couberem, sozinho. Antes
+     era um corte rígido em 420px (2 colunas acima, 1 abaixo) — Galaxy S20
+     Ultra (412px, cai abaixo) e iPhone 15 Pro Max (430px, fica acima) viravam
+     duas experiências bem diferentes por 18px de diferença de tela. Isto
+     escala liso pra qualquer largura real de aparelho, sem essa loteria. */
+  .g-6,.g-4,.g-3,.g-2{grid-template-columns:repeat(auto-fit,minmax(150px,1fr))}
   .topbar{gap:10px;padding:12px 16px}
   .topbar h1{font-size:17px}
   .topbar .sub{flex-basis:100%}
@@ -139,7 +145,6 @@ select:focus,input:focus{border-color:var(--orange)}
   .chart.tall{height:300px}
   .toolbar{gap:10px}
 }
-@media(max-width:420px){.g-6,.g-4,.g-3,.g-2{grid-template-columns:1fr}}
 /* table.data em mobile: table-layout:fixed + width:100% espremia toda coluna
    igual, cortando número em "5,..." ilegível — o .tbl-wrap já tinha
    overflow-x:auto, só nunca tinha o que rolar porque a tabela obedecia o
