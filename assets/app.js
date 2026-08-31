@@ -458,13 +458,40 @@ function renderProjetos(el){
   el.innerHTML=`<iframe class="embed" src="assets/projetos/index.html" title="Controle de Projetos"></iframe>`;
 }
 
-/* ---- sidebar recolhível ---- */
+/* ---- sidebar: desktop colapsa pra ícone, mobile vira drawer ----
+   Mesmo botão (#collapseBtn), comportamento diferente por breakpoint: em
+   ≤760px a sidebar sai do grid (CSS) e vira overlay fixo, então "colapsar" não
+   faz sentido — o botão abre/fecha o drawer por cima do conteúdo, com um scrim
+   pra fechar tocando fora e fechamento automático ao navegar. */
 (function collapse(){
   const btn=document.getElementById('collapseBtn'), app=document.querySelector('.app');
-  if(localStorage.getItem('pc-collapsed')==='1')app.classList.add('collapsed');
-  btn.onclick=()=>{app.classList.toggle('collapsed');
-    localStorage.setItem('pc-collapsed',app.classList.contains('collapsed')?'1':'0');
-    charts.forEach(c=>c.resize());};
+  const mq=window.matchMedia('(max-width:760px)');
+  const scrim=document.createElement('div');
+  scrim.className='nav-scrim';
+  app.appendChild(scrim);
+  const closeDrawer=()=>{app.classList.remove('nav-open');document.body.style.overflow='';};
+  const openDrawer=()=>{app.classList.add('nav-open');document.body.style.overflow='hidden';};
+  const collapsedSalvo=()=>localStorage.getItem('pc-collapsed')==='1';
+  if(!mq.matches && collapsedSalvo())app.classList.add('collapsed');
+  btn.onclick=()=>{
+    if(mq.matches){
+      app.classList.contains('nav-open')?closeDrawer():openDrawer();
+    }else{
+      app.classList.toggle('collapsed');
+      localStorage.setItem('pc-collapsed',app.classList.contains('collapsed')?'1':'0');
+    }
+    charts.forEach(c=>c.resize());
+  };
+  scrim.onclick=closeDrawer;
+  document.getElementById('navCloseBtn').onclick=closeDrawer;
+  // #nav é recriado a cada buildNav() — delegação no container pega os links novos também
+  document.getElementById('nav').addEventListener('click',e=>{if(e.target.closest('a'))closeDrawer();});
+  // atravessar o breakpoint (girar o celular, redimensionar janela) tem de sair
+  // do estado do modo anterior: drawer aberto não pode sobreviver virando desktop
+  mq.addEventListener('change',e=>{
+    closeDrawer();
+    app.classList.toggle('collapsed',!e.matches && collapsedSalvo());
+  });
 })();
 
 /* ---- boot: chamado pelo porteiro (assets/auth.js) depois da sessão ---- */

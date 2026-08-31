@@ -38,6 +38,9 @@ a{color:inherit;text-decoration:none}
 .brand .mark{flex:0 0 auto;width:auto}
 .brand .txt{display:flex;flex-direction:column;line-height:1;border-left:1px solid var(--line);padding-left:12px}
 .brand .txt span{font-size:11px;letter-spacing:.26em;color:var(--ink-2);font-weight:600}
+.nav-close{display:none;margin-left:auto;background:transparent;border:0;color:var(--ink-2);
+  width:34px;height:34px;border-radius:8px;cursor:pointer;flex:0 0 auto}
+.nav-close:hover{background:var(--surface-2);color:var(--ink)}
 .nav-label{font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--ink-3);padding:14px 10px 6px}
 .nav a{
   display:flex;align-items:center;gap:11px;padding:9px 11px;border-radius:var(--r-sm);
@@ -63,15 +66,27 @@ a{color:inherit;text-decoration:none}
 .app.collapsed .nav-label,.app.collapsed .foot{display:none}
 .app.collapsed .nav a{justify-content:center;padding:11px 0}
 .app.collapsed .nav a.active::before{left:-8px}
-/* sidebar sempre em modo ícone em mobile, independente do estado salvo (collapsed manual) */
+/* mobile: nada de sidebar-encolhida-pra-caber — isso ainda é "página de
+   computador espremida". A sidebar vira um DRAWER de verdade: some da tela por
+   padrão (fora do grid, sem tomar espaço do conteúdo) e desliza por cima quando
+   o botão de menu abre (JS em app.js reaproveita o #collapseBtn: no desktop ele
+   colapsa pra ícone, em mobile ele abre/fecha este drawer — ver initCollapse). */
 @media(max-width:760px){
-  .app{grid-template-columns:66px 1fr}
-  .sidebar{padding:22px 8px}
-  .brand{justify-content:center;padding:2px 0 20px}
-  .brand .txt,.nav a span,.nav a .badge,
-  .nav-label,.sidebar .foot{display:none}
-  .nav a{justify-content:center;padding:11px 0}
-  .nav a.active::before{left:-8px}
+  .app{grid-template-columns:1fr}
+  .sidebar{
+    position:fixed;top:0;left:0;bottom:0;height:auto;width:min(80vw,290px);
+    transform:translateX(-100%);transition:transform .22s ease;
+    z-index:60;box-shadow:4px 0 32px rgba(0,0,0,.55);
+  }
+  .app.nav-open .sidebar{transform:translateX(0)}
+  .nav-scrim{
+    display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:50;
+    -webkit-tap-highlight-color:transparent;
+  }
+  .app.nav-open .nav-scrim{display:block}
+  .nav a{padding:12px 12px;font-size:15px}           /* alvo de toque maior que no desktop */
+  .collapse-btn{width:42px;height:42px}
+  .nav-close{display:grid;place-items:center}
 }
 .topbar{
   display:flex;flex-wrap:wrap;align-items:center;gap:16px;padding:16px 26px;border-bottom:1px solid var(--line);
@@ -114,8 +129,17 @@ select:focus,input:focus{border-color:var(--orange)}
 @media(max-width:760px){
   .g-6,.g-4,.g-3,.g-2{grid-template-columns:repeat(2,1fr)}
   .topbar{gap:10px;padding:12px 16px}
+  .topbar h1{font-size:17px}
   .topbar .sub{flex-basis:100%}
+  .content{padding:16px 16px 36px}
+  .hero{margin-bottom:18px}
+  .hero h1{font-size:22px}
+  .card{padding:14px}
+  .chart{height:260px}
+  .chart.tall{height:300px}
+  .toolbar{gap:10px}
 }
+@media(max-width:420px){.g-6,.g-4,.g-3,.g-2{grid-template-columns:1fr}}
 .card{
   background:var(--surface);border:1px solid var(--line);border-radius:var(--r);
   box-shadow:var(--shadow-card);padding:18px;transition:.15s;
