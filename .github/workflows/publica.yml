@@ -9,16 +9,20 @@ name: publica
 # Agora a Netlify observa `live`, não `main` (netlify.toml não muda — o
 # `ignore` continua valendo como segunda rede, caso este workflow rode fora
 # de hora). `main` fica livre para quantos pushes o dia pedir, sem custar
-# nada. Este job roda 1x/dia e avança `live` até onde `main` estiver — todos
-# os pushes do dia viram UM deploy só.
+# nada. Este job avança `live` até onde `main` estiver — todos os pushes do
+# período viram UM deploy só.
 #
 # Fast-forward simples: se `live` já está em cima de `main`, não há o que
-# empurrar e o job termina sem acionar nada — dia sem mudança não gasta
-# crédito nenhum, nem o 1 deploy diário.
+# empurrar e o job termina sem acionar nada — período sem mudança não gasta
+# crédito nenhum, nem o deploy semanal.
+#
+# Era diário; virou semanal em 31/08/2026 a pedido do Arthur — deploy diário
+# publicava trabalho em andamento com frequência maior do que precisava.
+# Urgência real usa o "Run workflow" (workflow_dispatch), publica na hora.
 
 on:
   schedule:
-    - cron: '0 21 * * *'   # ~18h em Brasília (UTC-3), fim do dia de trabalho
+    - cron: '0 21 * * 5'   # sexta ~18h em Brasília (UTC-3) — mesmo dia do fechamento semanal do HPG
   workflow_dispatch:        # botão "Run workflow" no GitHub — publica na hora, sem esperar o cron
 
 permissions:

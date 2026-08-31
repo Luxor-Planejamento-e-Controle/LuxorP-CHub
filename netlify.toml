@@ -14,7 +14,17 @@
   # `main` — observa `live`. O workflow `publica.yml` avança `live` até `main` 1x/dia
   # (ou sob demanda, via "Run workflow"), então todos os pushes do dia em `main`
   # viram UM deploy só. Push em `main` continua livre e frequente.
-  ignore = "git diff --quiet $CACHED_COMMIT_REF $COMMIT_REF -- . ':(exclude)tools' ':(exclude)docs' ':(exclude)sql' ':(exclude)*.md' ':(exclude).githooks' ':(exclude).gitignore' ':(exclude).gitattributes'"
+  #
+  # BUG achado em 31/08/2026, site preso na versão de 20/08 (11 dias sem publicar
+  # nada, TODO deploy cancelado calado): aquele deploy de 20/08 foi um `netlify
+  # deploy --prod` MANUAL via CLI (contornando o teto de crédito estourado então),
+  # sem commit_ref nenhum. Todo build git seguinte comparou contra
+  # $CACHED_COMMIT_REF VAZIO — e "sem CACHED_COMMIT_REF o comando falha" (comentário
+  # de cima) estava ERRADO: bash com variável vazia simplesmente OMITE o argumento,
+  # então virava `git diff --quiet $COMMIT_REF -- ...`, um diff de UM ref só contra
+  # a própria árvore que o build acabou de dar checkout — vazio por definição, sempre
+  # "sem mudança". Guarda explícita agora: sem CACHED_COMMIT_REF, força build.
+  ignore = "[ -z \"$CACHED_COMMIT_REF\" ] && exit 1; git diff --quiet $CACHED_COMMIT_REF $COMMIT_REF -- . ':(exclude)tools' ':(exclude)docs' ':(exclude)sql' ':(exclude)*.md' ':(exclude).githooks' ':(exclude).gitignore' ':(exclude).gitattributes'"
 
 # Site interno: não indexar e não vazar referrer pra fora.
 [[headers]]
