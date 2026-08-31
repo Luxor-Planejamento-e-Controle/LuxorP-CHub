@@ -140,6 +140,22 @@ select:focus,input:focus{border-color:var(--orange)}
   .toolbar{gap:10px}
 }
 @media(max-width:420px){.g-6,.g-4,.g-3,.g-2{grid-template-columns:1fr}}
+/* table.data em mobile: table-layout:fixed + width:100% espremia toda coluna
+   igual, cortando número em "5,..." ilegível — o .tbl-wrap já tinha
+   overflow-x:auto, só nunca tinha o que rolar porque a tabela obedecia o
+   container. Solta a largura (max-content) pra ela crescer pelo conteúdo real
+   e o scroll horizontal passar a valer pra alguma coisa. */
+@media(max-width:760px){
+  /* !important: essa regra fica ANTES de "table.data{width:100%;table-layout:
+     fixed}" (mais abaixo no arquivo) — mesma especificidade, quem vem depois
+     no CSS ganha empate, e sem !important a base voltava a vencer mesmo aqui
+     dentro do media query. Confirmado com Playwright: sem isto a tabela ficava
+     presa em 320px e nada rolava. */
+  table.data{table-layout:auto !important;width:max-content !important;min-width:100% !important}
+  table.data th,table.data td{overflow:visible !important;text-overflow:clip !important;white-space:nowrap !important}
+  table.data th:nth-child(1),table.data td:nth-child(1),
+  table.data th:nth-child(2),table.data td:nth-child(2){width:auto !important}
+}
 .card{
   background:var(--surface);border:1px solid var(--line);border-radius:var(--r);
   box-shadow:var(--shadow-card);padding:18px;transition:.15s;
