@@ -44,7 +44,13 @@ Uso:
     python tools/run_etl_indicadores.py --skip-publish   # build sem publicar
     python tools/run_etl_indicadores.py --exigir-cotas   # aborta se a CVM não tem o mês
 
-Exit codes: 0 = ok, 1 = falha em algum passo.
+Passo 1 interrompido não segura mais o painel: se o Blob já cobre o fim do mês
+(o Container App Job escreve os índices lá), o pipeline pula as cotas e ainda
+republica o snapshot — e sai 1 para o resultado da tarefa denunciar o passo
+que morreu. Sem cobertura no Blob, aborta como antes.
+
+Exit codes: 0 = ok, 1 = falha em algum passo (painel pode ter sido republicado
+mesmo assim — a última linha do log diz).
 """
 import datetime as dt
 import io
@@ -252,6 +258,28 @@ def nada_a_fazer(conn, ano, mes):
         return None
 
 
+def blob_cobre_mes(conn, ano, mes) -> bool:
+    """O parquet de indicadores no Blob já alcança o fim do mês alvo?
+
+    Serve para decidir se vale republicar o snapshot mesmo com o passo 1 falhado:
+    o build/publish lê o Blob, que é a cópia autoritativa. Em caso de dúvida
+    devolve False — republicar com dado velho é pior que não republicar.
+    """
+    try:
+        import pandas as pd
+        from azure.storage.blob import BlobServiceClient
+        bsc = BlobServiceClient.from_connection_string(conn)
+        ind_bytes = _blob_bytes(bsc, IND_BLOB)
+        if ind_bytes is None:
+            return False
+        df = pd.read_parquet(io.BytesIO(ind_bytes))
+        fim = pd.to_datetime(df["Data"], errors="coerce").max()
+        return pd.notna(fim) and fim.date() >= fim_do_mes(ano, mes)
+    except Exception as e:
+        log(f"!! Não deu pra checar a cobertura do Blob ({e}).")
+        return False
+
+
 def grava_marcador(conn, ano, mes):
     """Registra de qual dado saiu o snapshot que acabou de ser publicado."""
     import json
@@ -340,12 +368,29 @@ def main():
         return 0
 
     passo(1, f"Índices de mercado ({tag})")
-    if not roda_indicadores(tag, conn, force):
-        log("\n!! Passo 1 falhou. Abortando: as cotas USD dependem do dólar desse xlsx.")
-        return 1
+    passo1_ok = roda_indicadores(tag, conn, force)
+    if not passo1_ok:
+        # Pode ter morrido por interrupção (janela do agendador fechada) sem
+        # que faltasse dado: o Container App Job já escreve os índices no Blob.
+        # Nesse caso o painel PODE ser republicado — build/publish leem o Blob,
+        # não o xlsx do Drive. As cotas ficam de fora porque a cota USD divide
+        # pelo dólar do xlsx espelho, que sem o passo 1 pode estar atrasado.
+        if not blob_cobre_mes(conn, ano, mes):
+            log("\n!! Passo 1 falhou e o Blob não cobre o fim do mês. "
+                "Abortando: sem o dólar do fechamento não há o que publicar.")
+            return 1
+        log("\n!! Passo 1 falhou, MAS o Blob já cobre o fim do mês (o job "
+            "do Azure escreveu os índices). Segue e republica o painel do Blob.")
+        log("   Cotas do mês ficam de fora: a cota USD depende do dólar no xlsx "
+            "espelho, e sem o passo 1 ele pode estar atrasado.")
 
     passo(2, f"Cotas de fundos na CVM ({tag})")
-    cotas_ok = roda_cotas(ano, mes, conn)
+    if passo1_ok:
+        cotas_ok = roda_cotas(ano, mes, conn)
+    else:
+        cotas_ok = False
+        log(">>> Pulado: sem o passo 1 o dólar do xlsx espelho não é confiável, "
+            "e a cota USD sai dele.")
     if not cotas_ok:
         if exigir_cotas:
             log("\n!! Cotas indisponíveis e --exigir-cotas foi passado. Abortando.")
@@ -375,6 +420,12 @@ def main():
     log(f"\n>>> Concluído para {tag}."
         + ("" if cotas_ok else " ATENÇÃO: sem as cotas CVM do mês."))
     cobertura(conn)
+    if not passo1_ok:
+        # Painel republicado, mas um passo falhou: sai 1 para o resultado da
+        # tarefa agendada denunciar, em vez de passar por run limpo.
+        log(">>> Painel republicado a partir do Blob, mas o passo 1 falhou: "
+            "sai 1 de propósito. Rodar de novo para fechar índices e cotas.")
+        return 1
     return 0
 
 
