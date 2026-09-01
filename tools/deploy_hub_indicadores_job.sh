@@ -15,8 +15,9 @@
 #
 # Uso:  bash tools/deploy_hub_indicadores_job.sh
 #
-# Idempotente: se o az morrer com ConnectionReset no meio (acontece nesta rede),
-# rodar de novo e seguro - ele checa se o job existe antes e vira update.
+# Idempotente: se algo falhar no meio, rodar de novo é seguro — ele checa se o
+# job existe antes e vira update.
+#
 # Pré:  az login feito, e a imagem já no ACR:
 #         az acr build --registry luxoracr --image hub-indicadores:latest \
 #           --file tools/Dockerfile .
@@ -29,8 +30,38 @@ JOB_IRMAO=financial-indicators-job   # de onde sai o ID do environment
 IMAGE=luxoracr.azurecr.io/hub-indicadores:latest
 CRON="30 11 1-3,5-16 * *"
 
+# Sem isso o az CLI no Windows quebra com UnicodeEncodeError (cp1252) ao imprimir
+# log/erro com acento, e o erro real se perde.
+export PYTHONIOENCODING=utf-8
+export PYTHONUTF8=1
+export AZURE_CORE_NO_COLOR=true
+
 HUB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 FIN_ENV="${FIN_ENV:-$HUB_DIR/../FinancialIndicators/.env}"
+ERRO_TMP="$(mktemp)"
+trap 'rm -f "$ERRO_TMP"' EXIT
+
+# Chamadas ARM nesta rede tomam ConnectionReset de vez em quando (o
+# `containerapp env list` falha reproduzível). Retry e, se esgotar, MOSTRA o
+# stderr — a versão anterior deste script suprimia e morria calada no set -e.
+az_try() {
+  local tentativa=0 saida rc
+  while :; do
+    tentativa=$((tentativa + 1))
+    if saida="$(az "$@" 2>"$ERRO_TMP")"; then
+      printf '%s' "$saida"
+      return 0
+    fi
+    rc=$?
+    if [ "$tentativa" -ge 3 ]; then
+      echo "!! 'az $1 $2' falhou (rc=$rc) após $tentativa tentativas:" >&2
+      sed 's/^/     /' "$ERRO_TMP" >&2
+      return "$rc"
+    fi
+    echo "   (tentativa $tentativa falhou; repetindo em 5s)" >&2
+    sleep 5
+  done
+}
 
 le_env() {   # le_env <arquivo> <chave>
   grep -m1 "^$2=" "$1" | cut -d= -f2- | tr -d '\r"'
@@ -45,30 +76,33 @@ for par in "CONN:$CONN" "SUPA_URL:$SUPA_URL" "SUPA_KEY:$SUPA_KEY"; do
 done
 echo ">>> Credenciais lidas (conn ${#CONN}, url ${#SUPA_URL}, key ${#SUPA_KEY} chars)."
 
-ACR_PW="$(az acr credential show -n luxoracr --query 'passwords[0].value' -o tsv | tr -d '\r')"
+echo ">>> Senha do ACR..."
+ACR_PW="$(az_try acr credential show -n luxoracr --query 'passwords[0].value' -o tsv | tr -d '\r')"
 
-# Environment pelo ID COMPLETO, nao pelo nome: o create resolvendo nome -> ID
-# falha com "does not exist" quando a chamada de lookup toma ConnectionReset
-# (acontece nesta rede). O ID sai do job irmao, que ja roda no mesmo
-# environment - assim tambem nao ha subscription cravada no script.
-ENV_ID="$(az containerapp job show -n "$JOB_IRMAO" -g "$RG" \
-            --query properties.environmentId -o tsv 2>/dev/null | tr -d '\r')"
+# Environment pelo ID COMPLETO, não pelo nome: o create resolvendo nome -> ID já
+# devolveu "does not exist" quando o lookup tomou ConnectionReset. O ID sai do
+# job irmão, que roda no mesmo environment — sem subscription cravada aqui.
+echo ">>> Environment (via $JOB_IRMAO)..."
+ENV_ID="$(az_try containerapp job show -n "$JOB_IRMAO" -g "$RG" \
+            --query properties.environmentId -o tsv | tr -d '\r')" || ENV_ID=""
 if [ -z "$ENV_ID" ]; then
-  echo ">>> Nao deu pra ler o environment do $JOB_IRMAO; caindo pro nome '$ENV_NOME'."
+  echo ">>> Não deu pra ler o environment do $JOB_IRMAO; caindo pro nome '$ENV_NOME'."
   ENV_ID="$ENV_NOME"
 else
-  echo ">>> Environment: ${ENV_ID##*/}"
+  echo "    ${ENV_ID##*/}"
 fi
 
 if az containerapp job show -n "$JOB" -g "$RG" >/dev/null 2>&1; then
   echo ">>> Job existe: atualizando imagem, cron e secrets."
-  az containerapp job secret set -n "$JOB" -g "$RG" \
+  az_try containerapp job secret set -n "$JOB" -g "$RG" \
     --secrets azure-conn="$CONN" supa-url="$SUPA_URL" supa-key="$SUPA_KEY" -o none
-  az containerapp job update -n "$JOB" -g "$RG" \
+  az_try containerapp job update -n "$JOB" -g "$RG" \
     --image "$IMAGE" --cron-expression "$CRON" -o none
 else
   echo ">>> Criando o job."
-  az containerapp job create -n "$JOB" -g "$RG" \
+  # --parallelism/--replica-completion-count explícitos: sem eles esta versão do
+  # CLI manda 0 e o ARM recusa com InvalidTriggerAttribute.
+  az_try containerapp job create -n "$JOB" -g "$RG" \
     --environment "$ENV_ID" \
     --trigger-type Schedule \
     --cron-expression "$CRON" \
@@ -89,13 +123,14 @@ else
     -o none
 fi
 
-# Confere o que ficou de fato no Azure: um create que morreu no meio pode
-# deixar o job sem cron ou sem parallelism.
-echo ">>> Configuracao final no Azure:"
-az containerapp job show -n "$JOB" -g "$RG" \
-  --query "{nome:name, imagem:properties.template.containers[0].image, cron:properties.configuration.scheduleTriggerConfig.cronExpression, paralelismo:properties.configuration.parallelism, estado:properties.provisioningState}" -o yaml
+# Confere o que ficou de fato no Azure: um create que morre no meio pode deixar
+# o job sem cron ou sem parallelism.
+echo ">>> Configuração final no Azure:"
+az_try containerapp job show -n "$JOB" -g "$RG" \
+  --query "{nome:name, imagem:properties.template.containers[0].image, cron:properties.configuration.scheduleTriggerConfig.cronExpression, paralelismo:properties.configuration.parallelism, estado:properties.provisioningState}" \
+  -o yaml
 
-echo ">>> Pronto. Teste seco (roda agora, fora do cron):"
+echo ">>> Teste seco (roda agora, fora do cron):"
 echo "      az containerapp job start -n $JOB -g $RG"
 echo ">>> Execuções e status:"
 echo "      az containerapp job execution list -n $JOB -g $RG -o table"
