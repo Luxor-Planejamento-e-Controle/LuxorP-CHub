@@ -74,6 +74,8 @@ else
     --cron-expression "$CRON" \
     --replica-timeout 900 \
     --replica-retry-limit 1 \
+    --parallelism 1 \
+    --replica-completion-count 1 \
     --cpu 0.5 --memory 1Gi \
     --image "$IMAGE" \
     --registry-server luxoracr.azurecr.io \
@@ -86,6 +88,12 @@ else
       SUPABASE_SERVICE_ROLE_KEY=secretref:supa-key \
     -o none
 fi
+
+# Confere o que ficou de fato no Azure: um create que morreu no meio pode
+# deixar o job sem cron ou sem parallelism.
+echo ">>> Configuracao final no Azure:"
+az containerapp job show -n "$JOB" -g "$RG" \
+  --query "{nome:name, imagem:properties.template.containers[0].image, cron:properties.configuration.scheduleTriggerConfig.cronExpression, paralelismo:properties.configuration.parallelism, estado:properties.provisioningState}" -o yaml
 
 echo ">>> Pronto. Teste seco (roda agora, fora do cron):"
 echo "      az containerapp job start -n $JOB -g $RG"
