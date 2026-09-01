@@ -154,7 +154,12 @@ async function loadData(dashboards){
   await Promise.all(dashboards.map(async d => {
     const spec = HUB_DATASETS[d];
     if(!spec) return;
-    if(spec.json && window[spec.json]) return;          // já veio do build local
+    // Snapshot local (assets/data/*.js) vale SO offline. Online o bucket manda:
+    // deploy manual com --dir . carrega esses .js (gitignored, mas estao na pasta)
+    // e um snapshot velho embutido vencia o dado novo do bucket - foi o que
+    // deixou o painel de Indicadores parado em 31/07 com o bucket ja em 31/08.
+    // Se o download falhar, o valor embutido continua valendo (fallback).
+    if(spec.json && window[spec.json] && HUB_OFFLINE) return;
     const { data, error } = await sb.storage.from(bucket).download(spec.file);
     if(error){ console.warn('[hub] snapshot ausente:', spec.file, error.message); return; }
     try {
