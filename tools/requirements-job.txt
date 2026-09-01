@@ -1,0 +1,8 @@
+# Deps do Container App Job que republica o snapshot do painel Indicadores
+# (tools/build_data.py indicadores -> tools/publish_hub.py indicadores).
+# Enxuto de propósito: o job só lê parquet do Blob e faz POST no Supabase.
+pandas>=2.0
+pyarrow>=14.0          # read_parquet
+azure-storage-blob>=12.0
+requests>=2.28
+python-dotenv>=1.0     # os scripts caem no .env quando rodam fora do job

@@ -95,6 +95,14 @@ pipeline do FO) fica fora de propósito — fechamento ainda provisório, roda �
 No modo Blob o Blob é a cópia autoritativa e o xlsx/parquet do Drive é espelho
 (pull antes de calcular, push depois).
 
+**Onde cada pedaço roda (set/2026)**: os índices são do `financial-indicators-job`
+no Azure (cron 11:00 UTC) e a republicação do snapshot é do `hub-indicadores-job`
+(cron 11:30 UTC, imagem em `tools/Dockerfile`, deploy em
+`tools/deploy_hub_indicadores_job.sh`). Nenhum dos dois depende de máquina ligada.
+Só as **cotas CVM** seguem na tarefa agendada do Windows, porque o `cvm.py` mora
+no Drive — se ela falhar, as séries de fundo atrasam e o resto do painel continua
+atualizado.
+
 Uso normal = rodar `run_all_etls` e responder "sim" pra atualizar os dashboards
 num fluxo só. Agendado: Container App Job / GitHub Action roda os dois em
 sequência (padrão que o `FinancialIndicators` já usa hoje) — diário p/

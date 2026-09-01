@@ -1,0 +1,8 @@
+# O job usa só tools/build_data.py e tools/publish_hub.py. Todo o resto fica fora
+# do contexto de build: menos upload pro ACR e, principalmente, nada de dado do
+# site subir junto — assets/vendas e assets/inadimplencia têm PII.
+*
+!tools/build_data.py
+!tools/publish_hub.py
+!tools/requirements-job.txt
+!tools/Dockerfile

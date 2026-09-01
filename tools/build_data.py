@@ -53,8 +53,22 @@ PREFIXOS_VIA_CVM = ("Mangalarga", "Lipizzaner")
 
 
 def azure_conn():
+    """Connection string do Blob. Ambiente primeiro, .env local depois.
+
+    A ordem importa: rodando como Container App Job no Azure não existe .env nem
+    o disco desta máquina — a conn vem de secret em variável de ambiente. Na
+    máquina do dia a dia o .env continua valendo.
+    """
+    conn = os.environ.get("AZURE_STORAGE_CONNECTION_STRING")
+    if conn:
+        return conn
     from dotenv import dotenv_values
-    return dotenv_values(FIN_ENV)["AZURE_STORAGE_CONNECTION_STRING"]
+    if FIN_ENV.exists():
+        conn = dotenv_values(FIN_ENV).get("AZURE_STORAGE_CONNECTION_STRING")
+    if not conn:
+        sys.exit("Falta AZURE_STORAGE_CONNECTION_STRING (ambiente ou "
+                 f"{FIN_ENV}).")
+    return conn
 
 
 def write(name, var, payload):
@@ -281,10 +295,21 @@ if __name__ == "__main__":
     desconhecido = [a for a in alvos if a not in ("indicadores", "dre")]
     if desconhecido:
         sys.exit(f"Dataset inválido: {', '.join(desconhecido)}. Use indicadores e/ou dre.")
+    # Falha de um dataset nao impede o outro, mas TEM que virar exit != 0: rodando
+    # como job, sair 0 com o build quebrado faria o publish subir snapshot velho
+    # como se fosse novo.
+    falhou = []
     if "indicadores" in alvos:
         try:
             build_indicadores()
         except Exception as e:
             print("[indicadores] ERRO:", e, file=sys.stderr)
+            falhou.append("indicadores")
     if "dre" in alvos:
-        build_dre()
+        try:
+            build_dre()
+        except Exception as e:
+            print("[dre] ERRO:", e, file=sys.stderr)
+            falhou.append("dre")
+    if falhou:
+        sys.exit(f"build_data falhou em: {', '.join(falhou)}")

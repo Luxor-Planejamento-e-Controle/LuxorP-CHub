@@ -44,11 +44,18 @@ PADRAO = ["indicadores", "dre"]
 
 
 def env():
-    cfg = dotenv_values(ROOT / ".env")
+    """URL + service_role do Supabase. Ambiente primeiro, .env da raiz depois.
+
+    Rodando como Container App Job não existe .env: as duas chaves chegam como
+    secret em variável de ambiente. Local, o .env segue sendo a fonte.
+    """
+    import os
+    cfg = {**dotenv_values(ROOT / ".env"), **os.environ}
     url = (cfg.get("SUPABASE_URL") or "").rstrip("/")
     key = cfg.get("SUPABASE_SERVICE_ROLE_KEY")
     if not url or not key:
-        sys.exit("Faltam SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY no .env da raiz do repo.")
+        sys.exit("Faltam SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY (variável de "
+                 "ambiente ou .env da raiz do repo).")
     return url, key
 
 

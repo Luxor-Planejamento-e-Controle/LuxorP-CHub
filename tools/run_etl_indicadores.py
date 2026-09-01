@@ -26,10 +26,14 @@ Agendamento: `run_etl_indicadores_agendado.cmd` (wrapper com log) + tarefa
 "Luxor - ETL Indicadores (hub)", definida em `etl_indicadores_task.xml` — dias
 1-3 e 5-16 às 08:30 BRT, 30 min depois do Container App Job (cron 11:00 UTC).
 Só esses dias porque é quando índice é liberado: 1-3 fecha o mês (dólar e as
-diárias), 5-16 cobre cotas CVM (5º dia útil), IPCA e CPI. É o que amarra a
-republicação do hub à atualização dos indicadores: o job só mexe no Blob, e o
-painel lê o snapshot `indicadores.json` do bucket `hub-data`. Comando de registro
-em FinancialIndicators/DEPLOY.md.
+diárias), 5-16 cobre cotas CVM (5º dia útil), IPCA e CPI.
+
+Esta tarefa NÃO é mais o caminho crítico do painel. Quem republica o snapshot de
+forma confiável é o `hub-indicadores-job` no Azure (build_data + publish_hub, 30
+min depois do job de índices) — ver tools/deploy_hub_indicadores_job.sh e
+FinancialIndicators/DEPLOY.md. O que só existe aqui são as **cotas CVM**: o
+cotas/cvm.py mora no Drive e a cota USD depende do dólar do xlsx espelho. Se esta
+tarefa falhar, as séries de fundo atrasam; dólar e índices seguem publicados.
 
 Sai sem fazer nada quando o mês já está completo no state do Blob, as cotas já
 cobrem o fim do mês e o snapshot publicado saiu desse mesmo dado — caso da maioria
