@@ -14,6 +14,9 @@
 # gravadas como secret do job e referenciadas por secretref.
 #
 # Uso:  bash tools/deploy_hub_indicadores_job.sh
+#
+# Idempotente: se o az morrer com ConnectionReset no meio (acontece nesta rede),
+# rodar de novo e seguro - ele checa se o job existe antes e vira update.
 # Pré:  az login feito, e a imagem já no ACR:
 #         az acr build --registry luxoracr --image hub-indicadores:latest \
 #           --file tools/Dockerfile .
@@ -21,7 +24,8 @@ set -euo pipefail
 
 JOB=hub-indicadores-job
 RG=rg-luxor
-ENVIRONMENT=luxor-env
+ENV_NOME=luxor-env
+JOB_IRMAO=financial-indicators-job   # de onde sai o ID do environment
 IMAGE=luxoracr.azurecr.io/hub-indicadores:latest
 CRON="30 11 1-3,5-16 * *"
 
@@ -43,6 +47,19 @@ echo ">>> Credenciais lidas (conn ${#CONN}, url ${#SUPA_URL}, key ${#SUPA_KEY} c
 
 ACR_PW="$(az acr credential show -n luxoracr --query 'passwords[0].value' -o tsv | tr -d '\r')"
 
+# Environment pelo ID COMPLETO, nao pelo nome: o create resolvendo nome -> ID
+# falha com "does not exist" quando a chamada de lookup toma ConnectionReset
+# (acontece nesta rede). O ID sai do job irmao, que ja roda no mesmo
+# environment - assim tambem nao ha subscription cravada no script.
+ENV_ID="$(az containerapp job show -n "$JOB_IRMAO" -g "$RG" \
+            --query properties.environmentId -o tsv 2>/dev/null | tr -d '\r')"
+if [ -z "$ENV_ID" ]; then
+  echo ">>> Nao deu pra ler o environment do $JOB_IRMAO; caindo pro nome '$ENV_NOME'."
+  ENV_ID="$ENV_NOME"
+else
+  echo ">>> Environment: ${ENV_ID##*/}"
+fi
+
 if az containerapp job show -n "$JOB" -g "$RG" >/dev/null 2>&1; then
   echo ">>> Job existe: atualizando imagem, cron e secrets."
   az containerapp job secret set -n "$JOB" -g "$RG" \
@@ -52,7 +69,7 @@ if az containerapp job show -n "$JOB" -g "$RG" >/dev/null 2>&1; then
 else
   echo ">>> Criando o job."
   az containerapp job create -n "$JOB" -g "$RG" \
-    --environment "$ENVIRONMENT" \
+    --environment "$ENV_ID" \
     --trigger-type Schedule \
     --cron-expression "$CRON" \
     --replica-timeout 900 \
