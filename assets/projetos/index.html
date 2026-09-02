@@ -457,9 +457,23 @@ Reduzir atividades manuais"></textarea>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="config.js"></script>
 <script>
-  window.__sbclient = (window.supabase && window.SUPABASE_URL)
-    ? window.supabase.createClient(window.SUPABASE_URL, window.SUPABASE_ANON_KEY)
-    : null;
+  /* Reusa o cliente do hub quando esta página está no iframe dele (mesma
+     origem). Criar um cliente PRÓPRIO aqui era a causa do "F5 desloga": dois
+     clientes com o MESMO storageKey na mesma origem disputam o mesmo refresh
+     token, e o Supabase ROTACIONA esse token a cada renovação — quando o
+     cliente deste iframe renovava, o token guardado pelo hub virava inválido e
+     o carregamento seguinte caía no formulário de login. Sintoma intermitente
+     porque depende de qual dos dois renovou por último.
+     Aberto direto (fora do iframe), cria o seu, com persistência normal. */
+  window.__sbclient = (function () {
+    try {
+      if (window.parent !== window && window.parent.HUB && window.parent.HUB.sb)
+        return window.parent.HUB.sb;
+    } catch (e) { /* origem diferente: segue pro cliente próprio */ }
+    return (window.supabase && window.SUPABASE_URL)
+      ? window.supabase.createClient(window.SUPABASE_URL, window.SUPABASE_ANON_KEY)
+      : null;
+  })();
 </script>
 <style>
   #auth-gate { position: fixed; inset: 0; z-index: 9999; display: none; align-items: center; justify-content: center; background: rgba(10,27,32,.96); }
