@@ -128,17 +128,45 @@ function _erroDeToken(msg, status){
          .test(msg || '');
 }
 
-async function loadAccess(email){
+async function _consultaAcesso(email){
   const sb = window.HUB.sb;
   const [{ data:me, error:meErr }, { data:acc, error:accErr }] = await Promise.all([
     sb.from('allowed_users').select('role,ativo,nome').eq('email', email).maybeSingle(),
     sb.from('user_dashboard_access').select('dashboard').eq('email', email),
   ]);
+  return { me, acc, meErr, accErr };
+}
+
+async function loadAccess(email){
+  const sb = window.HUB.sb;
+  let r = await _consultaAcesso(email);
+  let falha = r.meErr || r.accErr;
+
+  /* Token VENCIDO não é sessão perdida: o access_token vale 1 hora e a aba que
+     ficou aberta ou dormiu volta com ele velho, com o refresh_token ainda bom.
+     Antes daqui, um único PGRST301 ("JWT expired") caía direto no signOut local
+     e exigia link novo por e-mail — era o "desloga o tempo todo". Agora renova
+     e repete a consulta; só desiste se o próprio refresh falhar. */
+  if(falha && _erroDeToken(falha.message, falha.status || falha.code)){
+    let refErr = null;
+    try {
+      const res = await sb.auth.refreshSession();
+      refErr = res.error;
+      if(!refErr && res.data && res.data.session){
+        r = await _consultaAcesso(email);
+        falha = r.meErr || r.accErr;
+      }
+    } catch(e){ refErr = e; }
+    if(falha && _erroDeToken(falha.message, falha.status || falha.code)){
+      console.warn('[hub] token vencido e refresh não resolveu:',
+                   (refErr && refErr.message) || falha.message);
+      return { erro: (refErr && refErr.message) || falha.message, tokenRuim: true };
+    }
+  }
+
+  const { me, acc, meErr, accErr } = r;
   // Consulta quebrada (tabela faltando, policy errada) não é a mesma coisa que
   // "não está na lista" — sem separar, um erro de setup parece falta de convite.
-  const falha = meErr || accErr;
-  if(falha && _erroDeToken(falha.message, falha.status || falha.code))
-    return { erro: falha.message, tokenRuim: true };
   if(meErr) return { erro: 'Não consegui ler a allowlist: ' + meErr.message };
   if(accErr) return { erro: 'Não consegui ler as permissões: ' + accErr.message };
   if(!me)       return { erro: null };                   // autenticou, mas fora da lista
