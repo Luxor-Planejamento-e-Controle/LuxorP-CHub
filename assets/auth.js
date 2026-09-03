@@ -67,16 +67,22 @@ function gateEl(){
       '<p>Entre com seu e-mail corporativo. Enviamos um link de acesso.</p>'+
       '<input id="gate-email" type="email" placeholder="voce@luxor.com.br" autocomplete="email">'+
       '<button id="gate-send" type="button">Enviar link</button>'+
+      '<button id="gate-retry" type="button" style="display:none">Tentar de novo</button>'+
       '<div id="gate-msg"></div>'+
     '</div>';
   document.body.appendChild(o);
   o.querySelector('#gate-send').addEventListener('click', sendLink);
+  o.querySelector('#gate-retry').addEventListener('click', ()=>location.reload());
   o.querySelector('#gate-email').addEventListener('keydown', e=>{ if(e.key==='Enter') sendLink(); });
   return o;
 }
-function showGate(msg, showForm){
+/* `retry` é o caso em que a sessão salva CONTINUA boa e só o servidor não
+   respondeu: mostrar o formulário ali faria a pessoa pedir link novo sem
+   precisar de nenhum. */
+function showGate(msg, showForm, retry){
   const o = gateEl();
   o.style.display = 'flex';
+  o.querySelector('#gate-retry').style.display = retry ? '' : 'none';
   // Erro que veio no link tem prioridade sobre a mensagem padrão: é a única
   // pista de por que o login não fechou.
   if(!msg && HUB_URL_ERR){
@@ -122,6 +128,22 @@ function sendLink(){
 // frente do relógio que valida (PostgREST). Sem separar os dois, a sessão ruim
 // ficava salva e o gate aparecia SEM formulário: recarregar repetia o mesmo erro
 // pra sempre, sem caminho de saída.
+/* Falha de REDE (offline, 502 da Supabase, timeout) não é credencial ruim. Sem
+   separar as duas, um soluço do servidor apagava a sessão salva e cobrava link
+   novo por e-mail — o mesmo logout que incomodava todo dia. */
+function _falhaDeRede(err){
+  if(!err) return false;
+  const st = err.status || 0;
+  if(st >= 500 || st === 0 || st === 408 || st === 429) return true;
+  return /failed to fetch|networkerror|network error|load failed|timeout|abort/i.test(err.message || '');
+}
+function _sessaoSalva(){
+  try {
+    const ref = (window.SUPABASE_URL || '').replace(/^https?:\/\//, '').split('.')[0];
+    return ref ? !!localStorage.getItem('sb-' + ref + '-auth-token') : false;
+  } catch(e){ return false; }
+}
+
 function _erroDeToken(msg, status){
   if(status === 401) return true;
   return /jwt|issued at future|token (is )?expired|invalid (claim|token)|PGRST30[13]/i
@@ -158,9 +180,13 @@ async function loadAccess(email){
       }
     } catch(e){ refErr = e; }
     if(falha && _erroDeToken(falha.message, falha.status || falha.code)){
-      console.warn('[hub] token vencido e refresh não resolveu:',
-                   (refErr && refErr.message) || falha.message);
-      return { erro: (refErr && refErr.message) || falha.message, tokenRuim: true };
+      const msg = (refErr && refErr.message) || falha.message;
+      if(_falhaDeRede(refErr) || _falhaDeRede(falha)){
+        console.warn('[hub] servidor não respondeu ao renovar; sessão mantida:', msg);
+        return { erro: msg, semRede: true };
+      }
+      console.warn('[hub] token vencido e refresh não resolveu:', msg);
+      return { erro: msg, tokenRuim: true };
     }
   }
 
@@ -241,6 +267,14 @@ async function start(){
       // próximo evento poder tentar de novo — inclusive um SIGNED_OUT.
       // Token ruim: descarta a sessão salva e devolve o formulário, senão a
       // pessoa fica presa numa tela de erro que recarregar não resolve.
+      /* Servidor fora do ar: a sessão fica salva e a pessoa recarrega quando
+         voltar. Nada de signOut aqui. */
+      if(access.semRede){
+        sessaoAtual = undefined;
+        showGate('Não consegui falar com o servidor agora. Seu acesso continua válido.',
+                 false, true);
+        return;
+      }
       if(access.tokenRuim){
         sessaoAtual = undefined;
         console.error('[hub] sessão inválida:', access.erro);
@@ -281,8 +315,19 @@ async function start(){
     if(setErr) console.error('[hub] setSession:', setErr.message);
   }
 
-  const { data, error } = await sb.auth.getSession();
+  /* O getSession tenta renovar o token e faz retry com espera crescente. Sem
+     nada na tela nesse meio-tempo, o hub ficava EM BRANCO — nem gate, nem app —
+     e recarregar repetia a mesma tela vazia. Aviso depois de 800ms, e nada de
+     formulário: a sessão salva não tem problema nenhum. */
+  const avisoLento = setTimeout(()=>showGate('Conectando…', false), 800);
+  const res = await sb.auth.getSession();
+  clearTimeout(avisoLento);
+  const data = res.data || {}, error = res.error;
   if(error) console.error('[hub] getSession:', error.message);
+  if(error && !data.session && _sessaoSalva()){
+    showGate('Não consegui falar com o servidor agora. Seu acesso continua válido.', false, true);
+    return;
+  }
   console.info('[hub] sessão:', data.session ? data.session.user.email : 'nenhuma',
                '| erro no link:', HUB_URL_ERR ? HUB_URL_ERR.code : 'nenhum');
   await onSession(data.session);
