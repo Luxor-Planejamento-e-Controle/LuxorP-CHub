@@ -6,3 +6,4 @@ pyarrow>=14.0          # read_parquet
 azure-storage-blob>=12.0
 requests>=2.28
 python-dotenv>=1.0     # os scripts caem no .env quando rodam fora do job
+holidays>=0.50        # guarda de dia util (tools/dia_util.py) no CMD do job

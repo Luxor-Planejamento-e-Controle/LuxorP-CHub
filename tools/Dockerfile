@@ -15,12 +15,18 @@ COPY tools/requirements-job.txt tools/
 RUN pip install --no-cache-dir -r tools/requirements-job.txt
 
 # Só os dois scripts: build lê o Blob, publish sobe pro bucket. Nada do site.
-COPY tools/build_data.py tools/publish_hub.py tools/
+# O dia_util vai junto porque é a guarda de dia útil do CMD lá embaixo.
+COPY tools/build_data.py tools/publish_hub.py tools/dia_util.py tools/
 
 # build_data grava em <raiz>/assets/data; o publish lê de lá.
 RUN mkdir -p assets/data
 
 # Credenciais chegam por secret em variável de ambiente (sem .env na imagem):
 #   AZURE_STORAGE_CONNECTION_STRING, SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
-# Encadeado com && : publish só roda se o build gerou snapshot novo.
-CMD ["sh", "-c", "python tools/build_data.py indicadores && python tools/publish_hub.py indicadores"]
+#
+# dia_util.py é a guarda: sai 1 em fim de semana/feriado e o `|| exit 0`
+# encerra a execução COM SUCESSO — dia sem pregão não tem índice novo para
+# republicar, e execução marcada como falha viraria alarme falso. O cron do
+# Azure não sabe o que é feriado, por isso a guarda vive aqui.
+# Depois disso, encadeado com && : publish só roda se o build gerou snapshot novo.
+CMD ["sh", "-c", "python tools/dia_util.py || exit 0; python tools/build_data.py indicadores && python tools/publish_hub.py indicadores"]

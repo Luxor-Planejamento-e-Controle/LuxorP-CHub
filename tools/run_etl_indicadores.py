@@ -40,6 +40,10 @@ cobrem o fim do mês e o snapshot publicado saiu desse mesmo dado — caso da ma
 dos dias da janela de agendamento, em que nada foi liberado. `--force` ignora essa
 checagem. Qualquer incerteza (erro de rede, marcador ausente) roda normalmente.
 
+Sai cedo também em dia sem pregão (fim de semana, feriado nacional, Carnaval,
+Corpus Christi): sem pregão não há cota CVM nem índice novo, e o Task Scheduler
+não sabe o que é feriado. Mês explícito, `--force` e `--dry-run` passam direto.
+
 Uso:
     python tools/run_etl_indicadores.py                 # último mês fechado
     python tools/run_etl_indicadores.py 07/2026         # mês específico
@@ -62,6 +66,9 @@ import os
 import subprocess
 import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import dia_util
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -349,6 +356,16 @@ def main():
     exigir_cotas = "--exigir-cotas" in argv
     ano, mes = mes_alvo(argv)
     tag = f"{mes:02d}/{ano}"
+
+    # Guarda de dia útil. A tarefa agendada dispara nos dias 1-3 e 5-16 sem
+    # saber o que é fim de semana ou feriado, e em dia sem pregão não há cota
+    # CVM nem índice novo. Mês explícito, --force e --dry-run passam direto:
+    # aí é alguém rodando na mão.
+    mes_explicito = [a for a in argv if not a.startswith("--")]
+    if not (force or dry or mes_explicito) and not dia_util.eh_dia_util():
+        log(f">>> {dt.date.today():%d/%m/%Y} não é dia útil — nada a fazer, saindo.")
+        return 0
+
     conn = azure_conn()
 
     log(f">>> Pipeline Indicadores — mês alvo {tag}")
