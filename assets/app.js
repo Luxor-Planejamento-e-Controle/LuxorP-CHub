@@ -288,7 +288,8 @@ function indComparar(el,D){
       <div id="cmpChart" class="chart tall"></div>
     </div>
     <div class="card" style="margin-top:16px">
-      <div class="card-title"><h2>Histórico</h2><span class="muted" id="cmpCount"></span></div>
+      <div class="card-title"><h2>Histórico</h2><span class="muted" id="cmpCount"></span>
+        <span style="margin-left:auto">${seg('cmpGrao',['Diária','Mensal'],'Diária')}</span></div>
       <div class="tbl-wrap" style="max-height:520px"><table class="data" id="cmpTbl" style="table-layout:auto"></table></div>
     </div>`;
 
@@ -327,14 +328,27 @@ function indComparar(el,D){
     // combinação de pares. Em pontos percentuais: é diferença entre duas
     // variações, não variação de variação.
     const difBase=series[0];
-    document.getElementById('cmpKpis').innerHTML=series.map((s,i)=>{
-      const dif=(i>0&&s.varPct!=null&&difBase.varPct!=null)?s.varPct-difBase.varPct:null;
+    // Com DUAS séries a diferença ganha card próprio, com as duas parcelas à
+    // vista. Com três ou mais isso viraria um card por par, então cada série
+    // carrega a sua contra a base dentro do próprio card.
+    const par=series.length===2&&series.every(s=>s.varPct!=null);
+    const cards=series.map((s,i)=>{
+      const dif=(!par&&i>0&&s.varPct!=null&&difBase.varPct!=null)?s.varPct-difBase.varPct:null;
       return `<div class="card kpi">
       <div class="label"><i class="dot" style="color:${s.cor}"></i> ${s.nome}</div>
       <div class="val ${cls(s.varPct)}">${fmt.pct(s.varPct)}</div>
       <div class="delta">${s.pts.length?fmt.br(s.pts[0][0])+' → '+fmt.br(s.pts[s.pts.length-1][0])+' · '+s.pts.length+' pts':'sem dado no período'}</div>
       ${dif==null?'':`<div class="delta ${cls(dif)}">${fmt.pp(dif)} vs ${difBase.nome}</div>`}
-    </div>`;}).join('');
+    </div>`;});
+    if(par){
+      const d=series[1].varPct-series[0].varPct;
+      cards.push(`<div class="card kpi">
+        <div class="label">Diferença</div>
+        <div class="val ${cls(d)}">${fmt.pp(d)}</div>
+        <div class="delta">${series[1].nome} ${fmt.pct(series[1].varPct)} − ${series[0].nome} ${fmt.pct(series[0].varPct)}</div>
+      </div>`);
+    }
+    document.getElementById('cmpKpis').innerHTML=cards.join('');
     const dias=(ts(hi)-ts(lo))/864e5;
     const rotX=v=>dias<=180?fmt.br(iso(v)).slice(0,5):fmt.mesano(iso(v));
     mkChart(document.getElementById('cmpChart'),Object.assign(baseOpt(),{
@@ -370,23 +384,45 @@ function indComparar(el,D){
     // ponto naquele dia (mensal, feriado local, início mais tarde).
     const datas=[...new Set([].concat(...series.map(s=>s.pts.map(r=>r[0]))))].sort();
     const mapa=series.map(s=>{const m={};if(s.base)s.pts.forEach(r=>{m[r[0]]=r[1]/s.base*100;});return m;});
+    // Granularidade da tabela. Série mensal contra diária em linha diária deixa
+    // a coluna do mensal (e a da diferença) vazia em 29 de cada 30 linhas — é o
+    // fechamento que interessa ali. Por isso o padrão vira Mensal assim que
+    // entra uma série mensal; o seg troca à mão e a escolha manda daí em diante.
+    const temMensal=series.some(s=>monthly.has(s.nome));
+    const graoEf=grao||(temMensal?'Mensal':'Diária');
+    document.querySelectorAll('#cmpGrao button').forEach(b=>b.classList.toggle('on',b.dataset.v===graoEf));
+    // No fechamento cada série entra com o último valor até aquela data — mesma
+    // regra do tooltip. A diária cai no último pregão do mês, a mensal no
+    // próprio fechamento.
+    const valorAte=(s,d)=>{
+      if(!s.base)return null;
+      let v=null;
+      for(const r of s.pts){ if(r[0]<=d) v=r[1]; else break; }
+      return v==null?null:v/s.base*100;
+    };
+    let linhas;
+    if(graoEf==='Mensal'){
+      const fim={};
+      datas.forEach(d=>{const k=d.slice(0,7); if(!fim[k]||d>fim[k]) fim[k]=d;});
+      linhas=Object.values(fim).sort().map(d=>[d,series.map(s=>valorAte(s,d))]);
+    }else{
+      linhas=datas.map(d=>[d,mapa.map(m=>m[d]==null?null:m[d])]);
+    }
     // Coluna de diferença só com DUAS séries: com três ou mais viraria uma
-    // coluna por par. Ela some onde uma das duas não tem ponto no dia — série
-    // mensal contra diária só coincide no fechamento, e repetir o último valor
-    // inventaria um spread que não foi medido.
+    // coluna por par.
     const dif2=series.length===2;
     document.getElementById('cmpTbl').innerHTML=
       `<thead><tr><th>Data</th>${series.map(s=>`<th>${s.nome}${monthly.has(s.nome)?' <span class="ms-sub">mensal</span>':''}</th>`).join('')}`
       +`${dif2?`<th>Dif. <span class="ms-sub">${series[1].nome} − ${series[0].nome}</span></th>`:''}</tr></thead>`
-      +`<tbody>${[...datas].reverse().map(d=>{
-        const vs=mapa.map(m=>m[d]);
+      +`<tbody>${[...linhas].reverse().map(([d,vs])=>{
         const dif=dif2&&vs[0]!=null&&vs[1]!=null?vs[1]-vs[0]:null;
         return `<tr><td>${fmt.br(d)}</td>`
           +vs.map(v=>v==null?'<td>—</td>':`<td class="${cls(v-100)}">${fmt.pct(v-100)}</td>`).join('')
           +(dif2?(dif==null?'<td>—</td>':`<td class="${cls(dif)}">${fmt.pp(dif)}</td>`):'')
           +`</tr>`;}).join('')}</tbody>`;
-    document.getElementById('cmpCount').textContent=datas.length
-      ? datas.length+' datas · '+fmt.br(datas[0])+' a '+fmt.br(datas[datas.length-1])
+    document.getElementById('cmpCount').textContent=linhas.length
+      ? linhas.length+(graoEf==='Mensal'?' fechamentos · ':' datas · ')
+        +fmt.br(linhas[0][0])+' a '+fmt.br(linhas[linhas.length-1][0])
       : 'sem dado no período';
   };
 
