@@ -13,7 +13,14 @@ import pandas as pd
 ROOT = Path(__file__).resolve().parent.parent
 OUT = ROOT / "assets" / "data"
 OUT.mkdir(parents=True, exist_ok=True)
-DRE_XLSX = r"G:/Drives compartilhados/Luxor Controladoria/Ambiente de testes/DRE Data/DRE_Historico.xlsx"
+# Saída do LxDREdataExtractor, que grava AO LADO DE SI MESMO. Apontava para a
+# cópia em "Ambiente de testes" no Drive — pasta deprecated desde 26/08/2026
+# (a Controladoria migrou pros repositórios), e a cópia de lá parou em
+# 18/08/2026: o hub publicava DRE de quatro semanas atrás sem nada sinalizando,
+# porque o arquivo EXISTE — só não anda. Mesma fonte que o HubHPG já usa.
+DRE_XLSX = os.environ.get(
+    "DRE_HISTORICO",
+    r"C:/Users/Arthur/repos/LuxorMonthlyP-CRoutines/DRE Data/DRE_Historico.xlsx")
 FIN_ENV = Path(r"C:/Users/Arthur/repos/FinancialIndicators/.env")
 CONTAINER = "luxor-planejamento-e-controle"
 IND_BLOB = "LuxorControlDatabase/parquet/Indicadores_financeiros.parquet"
