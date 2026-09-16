@@ -8,9 +8,6 @@ const C = {
 };
 const fmt = {
   pct:v=>v==null?'—':(v>=0?'+':'')+v.toFixed(2).replace('.',',')+'%',
-  // diferença entre duas variações: p.p., nunca %. "+5%" e "+5 p.p." são
-  // coisas diferentes e trocar os dois é o erro clássico de leitura.
-  pp:v=>v==null?'—':(v>=0?'+':'')+v.toFixed(2).replace('.',',')+' p.p.',
   num:(v,d=4)=>v==null?'—':v.toLocaleString('pt-BR',{minimumFractionDigits:d,maximumFractionDigits:d}),
   mi:v=>(v/1e6).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2})+' Mi',
   rs:v=>'R$ '+v.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}),
@@ -329,24 +326,28 @@ function indComparar(el,D){
     // combinação de pares. Em pontos percentuais: é diferença entre duas
     // variações, não variação de variação.
     const difBase=series[0];
+    // Diferença = razão entre os dois acumulados, em %: quanto R$1 na série
+    // virou em relação a R$1 na outra. Com 123,56 contra 138,70, é
+    // 123,56/138,70-1 = -10,92%.
+    const difPct=(a,b)=>(a==null||b==null||1+b/100===0)?null:((1+a/100)/(1+b/100)-1)*100;
     // Com DUAS séries a diferença ganha card próprio, com as duas parcelas à
     // vista. Com três ou mais isso viraria um card por par, então cada série
     // carrega a sua contra a base dentro do próprio card.
     const par=series.length===2&&series.every(s=>s.varPct!=null);
     const cards=series.map((s,i)=>{
-      const dif=(!par&&i>0&&s.varPct!=null&&difBase.varPct!=null)?s.varPct-difBase.varPct:null;
+      const dif=(!par&&i>0)?difPct(s.varPct,difBase.varPct):null;
       return `<div class="card kpi">
       <div class="label"><i class="dot" style="color:${s.cor}"></i> ${s.nome}</div>
       <div class="val ${cls(s.varPct)}">${fmt.pct(s.varPct)}</div>
       <div class="delta">${s.pts.length?fmt.br(s.pts[0][0])+' → '+fmt.br(s.pts[s.pts.length-1][0])+' · '+s.pts.length+' pts':'sem dado no período'}</div>
-      ${dif==null?'':`<div class="delta ${cls(dif)}">${fmt.pp(dif)} vs ${difBase.nome}</div>`}
+      ${dif==null?'':`<div class="delta ${cls(dif)}">${fmt.pct(dif)} vs ${difBase.nome}</div>`}
     </div>`;});
     if(par){
-      const d=series[1].varPct-series[0].varPct;
+      const d=difPct(series[1].varPct,series[0].varPct);
       cards.push(`<div class="card kpi">
         <div class="label">Diferença</div>
-        <div class="val ${cls(d)}">${fmt.pp(d)}</div>
-        <div class="delta">${series[1].nome} ${fmt.pct(series[1].varPct)} − ${series[0].nome} ${fmt.pct(series[0].varPct)}</div>
+        <div class="val ${cls(d)}">${fmt.pct(d)}</div>
+        <div class="delta">${series[1].nome} ${fmt.pct(series[1].varPct)} vs ${series[0].nome} ${fmt.pct(series[0].varPct)}</div>
       </div>`);
     }
     document.getElementById('cmpKpis').innerHTML=cards.join('');
@@ -414,12 +415,14 @@ function indComparar(el,D){
     const dif2=series.length===2;
     document.getElementById('cmpTbl').innerHTML=
       `<thead><tr><th>Data</th>${series.map(s=>`<th>${s.nome}${monthly.has(s.nome)?' <span class="ms-sub">mensal</span>':''}</th>`).join('')}`
-      +`${dif2?`<th>Dif. <span class="ms-sub">${series[1].nome} − ${series[0].nome}</span></th>`:''}</tr></thead>`
+      +`${dif2?`<th>Dif. <span class="ms-sub">${series[1].nome} vs ${series[0].nome}</span></th>`:''}</tr></thead>`
       +`<tbody>${[...linhas].reverse().map(([d,vs])=>{
-        const dif=dif2&&vs[0]!=null&&vs[1]!=null?vs[1]-vs[0]:null;
+        // os valores já são índices base 100, então a razão entre eles é a
+        // própria diferença em % — mesma conta do card.
+        const dif=dif2&&vs[0]!=null&&vs[1]!=null&&vs[0]!==0?(vs[1]/vs[0]-1)*100:null;
         return `<tr><td>${fmt.br(d)}</td>`
           +vs.map(v=>v==null?'<td>—</td>':`<td class="${cls(v-100)}">${fmt.pct(v-100)}</td>`).join('')
-          +(dif2?(dif==null?'<td>—</td>':`<td class="${cls(dif)}">${fmt.pp(dif)}</td>`):'')
+          +(dif2?(dif==null?'<td>—</td>':`<td class="${cls(dif)}">${fmt.pct(dif)}</td>`):'')
           +`</tr>`;}).join('')}</tbody>`;
     document.getElementById('cmpCount').textContent=linhas.length
       ? linhas.length+(graoEf==='Mensal'?' fechamentos · ':' datas · ')
