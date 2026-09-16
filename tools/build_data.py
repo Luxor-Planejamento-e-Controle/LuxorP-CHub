@@ -140,6 +140,15 @@ def build_segmento(gdf, segmento):
     mom0 = float(g["%_MoM"].iloc[0] or 0)
     base = q.iloc[0] / (1 + mom0) if (1 + mom0) else q.iloc[0]
     rows = []
+    # A base vira PONTO no gráfico (fechamento do mês anterior ao primeiro).
+    # Sem ela a curva começa já rendida — Resultado FO abria em 101,1435 e medir
+    # a série inteira no gráfico dava +21,21% contra os +22,60% do acumulado,
+    # que parte de 100. Linha só de âncora: nenhuma variação da fonte se aplica
+    # a ela, então as métricas ficam vazias.
+    if abs(base - q.iloc[0]) > 1e-12:
+        d0 = pd.Timestamp(g["Date"].iloc[0])
+        anc = (d0.replace(day=1) - pd.Timedelta(days=1)).strftime("%Y-%m-%d")
+        rows.append([anc, round(base * 100, 4), None, None, None, None, None])
     for i in range(len(g)):
         m36 = (q.iloc[i] / q.iloc[i - 36] - 1) if i >= 36 else (q.iloc[i] / base - 1)
         rows.append([pd.Timestamp(g["Date"].iloc[i]).strftime("%Y-%m-%d"),
@@ -238,8 +247,9 @@ def build_indicadores():
                 monthly.append(label)
                 if meses < 36:            # coluna "36M" traz o acumulado do período
                     parcial36[label] = meses
-                print(f"[indicadores] {label}: {len(out[label])} meses "
-                      f"({out[label][0][0]} a {out[label][-1][0]})"
+                print(f"[indicadores] {label}: {meses} meses "
+                      f"({out[label][0][0]} a {out[label][-1][0]}, "
+                      f"{len(out[label])} pontos c/ âncora da base)"
                       + (f" — 36M mostra acumulado de {meses}m" if meses < 36 else ""))
             except Exception as e:
                 print(f"[indicadores] {label} ignorado:", e, file=sys.stderr)
