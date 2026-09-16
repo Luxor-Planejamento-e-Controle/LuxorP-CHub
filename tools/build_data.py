@@ -251,6 +251,18 @@ def build_indicadores():
         meses_hist = _meses_hist(rows)
         if meses_hist < 36 and rows[-1][6] is not None:
             parcial36[idx] = meses_hist
+            # Sendo acumulado do período, a coluna tem que bater com o que o
+            # gráfico mostra ao medir a série inteira — é a mesma pergunta. A
+            # fonte chega nele por day-count (365,25) e crava o aniversário em
+            # 31/12; o índice compõe a Variação Diária dia a dia e faz
+            # aniversário em 01/01 (o 13.07% vale exatamente 113,0701 em
+            # 01/01/2025). Dava 38,71% contra 38,70% no mesmo período. Fica o
+            # realizado do índice, regra que build_segmento já usa no acumulado
+            # parcial. Só nas séries curtas: onde há 36 meses de verdade a
+            # coluna é janela móvel, não acumulado, e vem da fonte.
+            base_px = rows[0][1]
+            for r in rows:
+                r[6] = pc(r[1] / base_px - 1) if base_px else None
 
     # Cotas do group_hist_data entram na mesma lista (outra fonte, série mensal).
     # Falha num segmento não derruba o resto — o painel sobe sem ele.
