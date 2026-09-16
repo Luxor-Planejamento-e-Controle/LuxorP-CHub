@@ -106,8 +106,7 @@ function renderHome(el){
       <div class="card-title"><svg class="ico" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="${C.orange}" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="${ICON[r.icon]}"/></svg><h3 style="margin:0">${r.title}</h3></div>
       <div class="desc">${r.sub}</div></a>`;
   }).join('');
-  el.innerHTML=`<div class="hero"><h1>Planejamento &amp; Controle</h1>
-    <p>Hub central dos dashboards do P&amp;C da Luxor. A aba Projetos já usa a base compartilhada no Supabase; os demais painéis entram por etapas.</p></div>
+  el.innerHTML=`<div class="hero"><h1>Planejamento &amp; Controle</h1></div>
     <div class="grid g-3">${cards}</div>`;
 }
 
