@@ -8,6 +8,9 @@ const C = {
 };
 const fmt = {
   pct:v=>v==null?'—':(v>=0?'+':'')+v.toFixed(2).replace('.',',')+'%',
+  // diferença entre duas variações: p.p., nunca %. "+5%" e "+5 p.p." são
+  // coisas diferentes e trocar os dois é o erro clássico de leitura.
+  pp:v=>v==null?'—':(v>=0?'+':'')+v.toFixed(2).replace('.',',')+' p.p.',
   num:(v,d=4)=>v==null?'—':v.toLocaleString('pt-BR',{minimumFractionDigits:d,maximumFractionDigits:d}),
   mi:v=>(v/1e6).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2})+' Mi',
   rs:v=>'R$ '+v.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}),
@@ -319,11 +322,19 @@ function indComparar(el,D){
         idx:base?pts.map(r=>[ts(r[0]),r[1]/base*100]):[],
         varPct:base?(pts[pts.length-1][1]/base-1)*100:null};
     });
-    document.getElementById('cmpKpis').innerHTML=series.map(s=>`<div class="card kpi">
+    // Diferença sempre contra a 1ª série escolhida — com duas, é o spread que
+    // interessa; com mais, todas leem contra a mesma base em vez de virar
+    // combinação de pares. Em pontos percentuais: é diferença entre duas
+    // variações, não variação de variação.
+    const difBase=series[0];
+    document.getElementById('cmpKpis').innerHTML=series.map((s,i)=>{
+      const dif=(i>0&&s.varPct!=null&&difBase.varPct!=null)?s.varPct-difBase.varPct:null;
+      return `<div class="card kpi">
       <div class="label"><i class="dot" style="color:${s.cor}"></i> ${s.nome}</div>
       <div class="val ${cls(s.varPct)}">${fmt.pct(s.varPct)}</div>
       <div class="delta">${s.pts.length?fmt.br(s.pts[0][0])+' → '+fmt.br(s.pts[s.pts.length-1][0])+' · '+s.pts.length+' pts':'sem dado no período'}</div>
-    </div>`).join('');
+      ${dif==null?'':`<div class="delta ${cls(dif)}">${fmt.pp(dif)} vs ${difBase.nome}</div>`}
+    </div>`;}).join('');
     const dias=(ts(hi)-ts(lo))/864e5;
     const rotX=v=>dias<=180?fmt.br(iso(v)).slice(0,5):fmt.mesano(iso(v));
     mkChart(document.getElementById('cmpChart'),Object.assign(baseOpt(),{
@@ -343,11 +354,21 @@ function indComparar(el,D){
     // ponto naquele dia (mensal, feriado local, início mais tarde).
     const datas=[...new Set([].concat(...series.map(s=>s.pts.map(r=>r[0]))))].sort();
     const mapa=series.map(s=>{const m={};if(s.base)s.pts.forEach(r=>{m[r[0]]=r[1]/s.base*100;});return m;});
+    // Coluna de diferença só com DUAS séries: com três ou mais viraria uma
+    // coluna por par. Ela some onde uma das duas não tem ponto no dia — série
+    // mensal contra diária só coincide no fechamento, e repetir o último valor
+    // inventaria um spread que não foi medido.
+    const dif2=series.length===2;
     document.getElementById('cmpTbl').innerHTML=
-      `<thead><tr><th>Data</th>${series.map(s=>`<th>${s.nome}${monthly.has(s.nome)?' <span class="ms-sub">mensal</span>':''}</th>`).join('')}</tr></thead>`
-      +`<tbody>${[...datas].reverse().map(d=>`<tr><td>${fmt.br(d)}</td>`
-        +mapa.map(m=>{const v=m[d];return v==null?'<td>—</td>':`<td class="${cls(v-100)}">${fmt.pct(v-100)}</td>`;}).join('')
-        +`</tr>`).join('')}</tbody>`;
+      `<thead><tr><th>Data</th>${series.map(s=>`<th>${s.nome}${monthly.has(s.nome)?' <span class="ms-sub">mensal</span>':''}</th>`).join('')}`
+      +`${dif2?`<th>Dif. <span class="ms-sub">${series[1].nome} − ${series[0].nome}</span></th>`:''}</tr></thead>`
+      +`<tbody>${[...datas].reverse().map(d=>{
+        const vs=mapa.map(m=>m[d]);
+        const dif=dif2&&vs[0]!=null&&vs[1]!=null?vs[1]-vs[0]:null;
+        return `<tr><td>${fmt.br(d)}</td>`
+          +vs.map(v=>v==null?'<td>—</td>':`<td class="${cls(v-100)}">${fmt.pct(v-100)}</td>`).join('')
+          +(dif2?(dif==null?'<td>—</td>':`<td class="${cls(dif)}">${fmt.pp(dif)}</td>`):'')
+          +`</tr>`;}).join('')}</tbody>`;
     document.getElementById('cmpCount').textContent=datas.length
       ? datas.length+' datas · '+fmt.br(datas[0])+' a '+fmt.br(datas[datas.length-1])
       : 'sem dado no período';
