@@ -273,6 +273,7 @@ function indComparar(el,D){
   const iniDe=p=>p==='Máx'?minD:p==='YTD'?maior(maxD.slice(0,4)+'-01-01',minD):maior(recua(maxD,PRESETS[p]),minD);
   const pref=['Dólar','CDI','IBOV','IPCA'].filter(f=>inds.includes(f));
   const sel=(pref.length>=2?pref.slice(0,2):inds.slice(0,2));
+  let grao=null;              // null = segue a seleção; 'Diária'/'Mensal' = escolha do usuário
 
   el.innerHTML=`
     <div class="toolbar">
@@ -433,6 +434,7 @@ function indComparar(el,D){
   });
   document.getElementById('cmpIni').onchange=()=>{limpaPreset();draw();};
   document.getElementById('cmpFim').onchange=()=>{limpaPreset();draw();};
+  bindSeg('cmpGrao',()=>{grao=segVal('cmpGrao');draw();});
   pintaChips(); draw();
 }
 
