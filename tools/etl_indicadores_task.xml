@@ -16,8 +16,10 @@
   A cauda até o dia 16 é margem de atraso da fonte — em 12/08/2026 o CPI de
   julho só apareceu no FRED perto do meio-dia UTC.
 
-  08:30 BRT fica 30 min depois do Container App Job (cron 11:00 UTC), então a
-  republicação do hub sempre pega o Blob já atualizado.
+  09:30 BRT: o Container App Job roda 11:00 UTC (08:00 BRT) e esta tarefa só
+  precisa vir depois dele, com folga. O horário é 09:30 e não 08:30 porque esta
+  tarefa exige a máquina do Arthur ligada e o G: montado — ele começa às 09:00,
+  então 08:30 pegava o PC desligado e a tarefa não rodava.
 
   Registrar / substituir (pelo PowerShell — o schtasks /XML exige arquivo
   UTF-16, e este fica UTF-8 pra ser legível no git):
@@ -26,12 +28,12 @@
 -->
 <Task version="1.4" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
   <RegistrationInfo>
-    <Description>Republica o painel Indicadores do hub depois do Container App Job: indices de mercado -&gt; cotas CVM -&gt; build_data -&gt; publish_hub. Dias 1-3 e 5-16, 08:30 BRT.</Description>
+    <Description>Republica o painel Indicadores do hub depois do Container App Job: indices de mercado -&gt; cotas CVM -&gt; build_data -&gt; publish_hub. Dias 1-3 e 5-16, 09:30 BRT.</Description>
     <URI>\Luxor - ETL Indicadores (hub)</URI>
   </RegistrationInfo>
   <Triggers>
     <CalendarTrigger>
-      <StartBoundary>2026-08-12T08:30:00</StartBoundary>
+      <StartBoundary>2026-08-12T09:30:00</StartBoundary>
       <Enabled>true</Enabled>
       <ScheduleByMonth>
         <DaysOfMonth>

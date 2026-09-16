@@ -24,7 +24,8 @@ lê o que estiver publicado no Blob.
 
 Agendamento: `run_etl_indicadores_agendado.cmd` (wrapper com log) + tarefa
 "Luxor - ETL Indicadores (hub)", definida em `etl_indicadores_task.xml` — dias
-1-3 e 5-16 às 08:30 BRT, 30 min depois do Container App Job (cron 11:00 UTC).
+1-3 e 5-16 às 09:30 BRT, depois do Container App Job (cron 11:00 UTC = 08:00
+BRT). 09:30 porque esta tarefa precisa da máquina ligada e do G: montado.
 Só esses dias porque é quando índice é liberado: 1-3 fecha o mês (dólar e as
 diárias), 5-16 cobre cotas CVM (5º dia útil), IPCA e CPI.
 
