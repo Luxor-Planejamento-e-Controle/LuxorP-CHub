@@ -341,8 +341,24 @@ function indComparar(el,D){
       legend:{show:false},grid:{left:56,right:24,top:18,bottom:28},
       tooltip:{trigger:'axis',backgroundColor:'#0b1f24',borderColor:C.line,textStyle:{color:C.ink},
         axisPointer:{lineStyle:{color:C.ink3}},
-        formatter:ps=>!ps.length?'':fmt.br(iso(ps[0].axisValue))+'<br>'+ps.map(p=>
-          `<span style="color:${p.color}">●</span> ${p.seriesName} <b>${fmt.pct(p.data[1]-100)}</b>`).join('<br>')},
+        // O tooltip do eixo de tempo só lista quem tem ponto NAQUELE instante —
+        // série mensal contra diária deixaria o FO de fora em 29 de cada 30
+        // dias. Aqui cada série entra com o último ponto até a data, e a data
+        // dele aparece quando é anterior à do cursor: some ninguém, e ninguém
+        // lê um valor mensal como se fosse do dia.
+        formatter:ps=>{
+          if(!ps.length)return'';
+          const t=ps[0].axisValue;
+          const linhas=series.filter(s=>s.idx.length).map(s=>{
+            let k=-1;
+            for(let i=0;i<s.idx.length;i++){ if(s.idx[i][0]<=t) k=i; else break; }
+            if(k<0)return '';
+            const [tp,v]=s.idx[k];
+            return `<span style="color:${s.cor}">●</span> ${s.nome} <b>${fmt.pct(v-100)}</b>`
+              +(tp===t?'':` <span style="color:${C.ink3}">${fmt.br(iso(tp))}</span>`);
+          }).filter(Boolean);
+          return fmt.br(iso(t))+'<br>'+linhas.join('<br>');
+        }},
       xAxis:axis({type:'time',axisLabel:{color:C.ink3,formatter:rotX}}),
       yAxis:axis({type:'value',scale:true,axisLabel:{color:C.ink3,formatter:v=>v.toFixed(0)}}),
       series:series.filter(s=>s.idx.length).map((s,i)=>({name:s.nome,type:'line',smooth:true,symbol:'none',
