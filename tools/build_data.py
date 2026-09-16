@@ -194,6 +194,15 @@ def listar_segmentos():
         print(f"{seg:<40} {len(sub):>6}  {ini:%Y-%m} a {fim:%Y-%m}      {marca}")
 
 
+def _meses_hist(rows):
+    """Meses inteiros cobertos pela série. Serve pra saber se o "36 Meses" da
+    fonte é, na prática, o acumulado desde o início. Série que abre no dia 1
+    cobre o mês inteiro, daí o +1."""
+    ini, fim = pd.Timestamp(rows[0][0]), pd.Timestamp(rows[-1][0])
+    m = (fim.year - ini.year) * 12 + (fim.month - ini.month)
+    return m + 1 if ini.day <= 2 else m
+
+
 def build_indicadores():
     from azure.storage.blob import BlobServiceClient
     b = BlobServiceClient.from_connection_string(azure_conn())
@@ -205,7 +214,7 @@ def build_indicadores():
     # apareceria duas vezes — "Mangalarga BRL" (parquet) e "Mangalarga II" (CVM).
     df = df[~df["Índice"].str.startswith(PREFIXOS_VIA_CVM)]
 
-    out, fantasy = {}, []
+    out, fantasy, parcial36 = {}, [], {}
     for idx, g in df.groupby("Índice"):
         g = g.sort_values("Data").reset_index(drop=True)
         d = g["Data"]
@@ -234,10 +243,18 @@ def build_indicadores():
                          pc(g["Variação Diária"].iloc[i]), pc(g["Mensal"].iloc[i]),
                          pc(g["QTR"].iloc[i]), pc(g["YTD"].iloc[i]), pc(g["36 Meses"].iloc[i])])
         out[idx] = rows
+        # Série mais nova que 36 meses: a coluna "36 Meses" da fonte traz o
+        # acumulado desde o início (conferido no 13.07%, que começa em
+        # 01/01/2024 e fecha ago/26 com 38,71% = a série inteira). Rotular isso
+        # como 36M põe lado a lado períodos diferentes. Se a coluna vier vazia,
+        # não há o que rotular — o hub já avisa que falta histórico.
+        meses_hist = _meses_hist(rows)
+        if meses_hist < 36 and rows[-1][6] is not None:
+            parcial36[idx] = meses_hist
 
     # Cotas do group_hist_data entram na mesma lista (outra fonte, série mensal).
     # Falha num segmento não derruba o resto — o painel sobe sem ele.
-    monthly, parcial36 = [], {}
+    monthly = []
     try:
         gdf = read_blob(b, GROUP_BLOB)
         for seg, label in SEGMENTOS:
