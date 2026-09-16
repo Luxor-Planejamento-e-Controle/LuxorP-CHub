@@ -117,6 +117,17 @@ select:focus,input:focus{border-color:var(--orange)}
 .seg{display:inline-flex;align-items:center;padding:3px;gap:3px}
 .seg button{background:transparent;border:0;color:var(--ink-2);padding:0 13px;height:calc(var(--ctl-h) - 8px);border-radius:6px;cursor:pointer;font:inherit;font-size:12px}
 .seg button.on{background:var(--orange);color:#201700;font-weight:600}
+/* chips de seleção múltipla: a cor do chip é a cor da série no gráfico,
+   então o seletor já serve de legenda (comparar índices). */
+.chips{display:flex;flex-wrap:wrap;gap:6px;align-items:center;height:auto;min-height:var(--ctl-h);
+  background:var(--surface);border:1px solid var(--line);border-radius:var(--r-sm);padding:5px 6px;box-sizing:border-box}
+.chips button{display:inline-flex;align-items:center;gap:6px;background:transparent;border:1px solid var(--line);
+  color:var(--ink-3);padding:0 11px;height:calc(var(--ctl-h) - 12px);border-radius:999px;cursor:pointer;font:inherit;font-size:12px}
+.chips button:hover:not(:disabled){color:var(--ink-2)}
+.chips button.on{border-color:currentColor}
+.chips button:disabled{opacity:.35;cursor:not-allowed}
+.chips button:not(.on) .dot{opacity:.35}
+.dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:currentColor;flex:0 0 auto}
 
 /* ---- cards / grid ---- */
 .grid{display:grid;gap:16px}

@@ -112,9 +112,21 @@ function renderHome(el){
 }
 
 /* ---- Indicadores Financeiros ---- */
+/* Duas visões da MESMA base: "Individual" (um índice, KPIs vindos da fonte) e
+   "Comparar" (até 5 índices no mesmo período, rebaseados em 100). */
 function renderIndicadores(el){
   const D=window.IND_DATA;
   if(!D){el.innerHTML='<div class="empty">Dados não carregados. Rode <code>python tools/build_data.py</code>.</div>';return;}
+  el.innerHTML=`<div class="toolbar" style="margin-bottom:14px">
+      <div class="field"><label>Modo</label>${seg('indModo',['Individual','Comparar'],'Individual')}</div>
+    </div><div id="indBody"></div>`;
+  const body=document.getElementById('indBody');
+  const go=()=>{clearCharts();body.innerHTML='';(segVal('indModo')==='Comparar'?indComparar:indIndividual)(body,D);};
+  bindSeg('indModo',go);
+  go();
+}
+
+function indIndividual(el,D){
   const inds=D.indices, def=inds.includes('Dólar')?'Dólar':inds[0];
   const fantasy=new Set(D.fantasy||[]);
   const monthly=new Set(D.monthly||[]);   // séries de fechamento de mês (ex.: Resultado FO)
@@ -237,6 +249,119 @@ function renderIndicadores(el){
   document.getElementById('refDate').onchange=e=>{refDate=e.target.value||null;draw();};
   document.getElementById('refLast').onclick=()=>{refDate=null;draw();};
   draw();
+}
+
+/* Comparar índices: em preço não dá — Dólar (~5), IBOV (~130k) e os sintéticos
+   base-100 não cabem no mesmo eixo. Cada série vira 100 no primeiro ponto do
+   período e o gráfico mostra variação acumulada: é o mesmo cálculo da barra
+   "Variação" da visão individual (p1/p0-1), sem métrica nova. Eixo de TEMPO
+   (não categoria) porque série mensal (Resultado FO) e diária convivem aqui. */
+const CMP_CORES=['#FFA400','#2E97A6','#D9D9D9','#F6C000','#FF0000'];
+
+function indComparar(el,D){
+  const inds=D.indices, monthly=new Set(D.monthly||[]), MAX=CMP_CORES.length;
+  const ts=d=>{const[y,m,dd]=d.split('-');return new Date(+y,+m-1,+dd).getTime();};
+  const iso=t=>{const d=new Date(t);return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');};
+  const maior=(a,b)=>a>b?a:b;
+  const recua=(d,meses)=>{const[y,m,dd]=d.split('-').map(Number);const x=new Date(y,m-1-meses,dd);
+    return x.getFullYear()+'-'+String(x.getMonth()+1).padStart(2,'0')+'-'+String(x.getDate()).padStart(2,'0');};
+  const minD=inds.reduce((a,f)=>{const d=D.rows[f][0][0];return d<a?d:a;},'9999-12-31');
+  const maxD=inds.reduce((a,f)=>{const r=D.rows[f];const d=r[r.length-1][0];return d>a?d:a;},'0000-01-01');
+  const PRESETS={'3M':3,'12M':12,'36M':36};
+  const iniDe=p=>p==='Máx'?minD:p==='YTD'?maior(maxD.slice(0,4)+'-01-01',minD):maior(recua(maxD,PRESETS[p]),minD);
+  const pref=['Dólar','CDI','IBOV','IPCA'].filter(f=>inds.includes(f));
+  const sel=(pref.length>=2?pref.slice(0,2):inds.slice(0,2));
+
+  el.innerHTML=`
+    <div class="toolbar">
+      <div class="field" style="flex:1 1 100%"><label>Índices (até ${MAX})</label>
+        <div class="chips" id="cmpChips"></div></div>
+      <div class="field"><label>De</label><input type="date" id="cmpIni" min="${minD}" max="${maxD}" value="${iniDe('12M')}"></div>
+      <div class="field"><label>Até</label><input type="date" id="cmpFim" min="${minD}" max="${maxD}" value="${maxD}"></div>
+      <div class="field"><label>Período</label>${seg('cmpPreset',['3M','12M','36M','YTD','Máx'],'12M')}</div>
+    </div>
+    <div class="grid g-6" id="cmpKpis" style="margin-bottom:16px"></div>
+    <div class="card">
+      <div class="card-title"><h2>Variação acumulada — base 100</h2><span class="muted" id="cmpPer"></span></div>
+      <div id="cmpChart" class="chart tall"></div>
+    </div>
+    <div class="card" style="margin-top:16px">
+      <div class="card-title"><h2>Histórico</h2><span class="muted" id="cmpCount"></span></div>
+      <div class="tbl-wrap" style="max-height:520px"><table class="data" id="cmpTbl" style="table-layout:auto"></table></div>
+    </div>`;
+
+  const chips=document.getElementById('cmpChips');
+  const pintaChips=()=>{
+    chips.innerHTML=inds.map(f=>{
+      const i=sel.indexOf(f), on=i>=0, cheio=!on&&sel.length>=MAX;
+      return `<button type="button" data-f="${f}" class="${on?'on':''}"${cheio?' disabled':''}`
+        +`${on?` style="color:${CMP_CORES[i]}"`:''}><i class="dot"></i>${f}</button>`;
+    }).join('');
+  };
+  chips.onclick=e=>{
+    const b=e.target.closest('button'); if(!b||b.disabled)return;
+    const f=b.dataset.f, i=sel.indexOf(f);
+    if(i>=0){ if(sel.length===1)return; sel.splice(i,1); }   // nunca fica vazio
+    else { if(sel.length>=MAX)return; sel.push(f); }
+    pintaChips(); draw();
+  };
+
+  const draw=()=>{
+    clearCharts();
+    const a=document.getElementById('cmpIni').value||minD, b=document.getElementById('cmpFim').value||maxD;
+    const lo=a<=b?a:b, hi=a<=b?b:a;
+    document.getElementById('cmpPer').textContent=fmt.br(lo)+' a '+fmt.br(hi)+' · 100 = primeiro ponto de cada série no período';
+    // cada série rebaseada no SEU primeiro ponto dentro do período: série que
+    // começa depois (ou é mensal) não some, só parte de onde tem dado.
+    const series=sel.map((f,i)=>{
+      const pts=D.rows[f].filter(r=>r[0]>=lo&&r[0]<=hi&&r[1]!=null);
+      const base=pts.length?pts[0][1]:null;
+      return {nome:f,cor:CMP_CORES[i],pts,base,
+        idx:base?pts.map(r=>[ts(r[0]),r[1]/base*100]):[],
+        varPct:base?(pts[pts.length-1][1]/base-1)*100:null};
+    });
+    document.getElementById('cmpKpis').innerHTML=series.map(s=>`<div class="card kpi">
+      <div class="label"><i class="dot" style="color:${s.cor}"></i> ${s.nome}</div>
+      <div class="val ${cls(s.varPct)}">${fmt.pct(s.varPct)}</div>
+      <div class="delta">${s.pts.length?fmt.br(s.pts[0][0])+' → '+fmt.br(s.pts[s.pts.length-1][0])+' · '+s.pts.length+' pts':'sem dado no período'}</div>
+    </div>`).join('');
+    const dias=(ts(hi)-ts(lo))/864e5;
+    const rotX=v=>dias<=180?fmt.br(iso(v)).slice(0,5):fmt.mesano(iso(v));
+    mkChart(document.getElementById('cmpChart'),Object.assign(baseOpt(),{
+      legend:{show:false},grid:{left:56,right:24,top:18,bottom:28},
+      tooltip:{trigger:'axis',backgroundColor:'#0b1f24',borderColor:C.line,textStyle:{color:C.ink},
+        axisPointer:{lineStyle:{color:C.ink3}},
+        formatter:ps=>!ps.length?'':fmt.br(iso(ps[0].axisValue))+'<br>'+ps.map(p=>
+          `<span style="color:${p.color}">●</span> ${p.seriesName} <b>${fmt.pct(p.data[1]-100)}</b>`).join('<br>')},
+      xAxis:axis({type:'time',axisLabel:{color:C.ink3,formatter:rotX}}),
+      yAxis:axis({type:'value',scale:true,axisLabel:{color:C.ink3,formatter:v=>v.toFixed(0)}}),
+      series:series.filter(s=>s.idx.length).map((s,i)=>({name:s.nome,type:'line',smooth:true,symbol:'none',
+        data:s.idx,lineStyle:{color:s.cor,width:2.2},itemStyle:{color:s.cor},
+        markLine:i?undefined:{silent:true,symbol:'none',label:{show:false},
+          lineStyle:{color:C.ink3,type:'dashed',width:1},data:[{yAxis:100}]}}))
+    }));
+    // tabela: união das datas das séries escolhidas; célula vazia = série sem
+    // ponto naquele dia (mensal, feriado local, início mais tarde).
+    const datas=[...new Set([].concat(...series.map(s=>s.pts.map(r=>r[0]))))].sort();
+    const mapa=series.map(s=>{const m={};if(s.base)s.pts.forEach(r=>{m[r[0]]=r[1]/s.base*100;});return m;});
+    document.getElementById('cmpTbl').innerHTML=
+      `<thead><tr><th>Data</th>${series.map(s=>`<th>${s.nome}${monthly.has(s.nome)?' <span class="ms-sub">mensal</span>':''}</th>`).join('')}</tr></thead>`
+      +`<tbody>${[...datas].reverse().map(d=>`<tr><td>${fmt.br(d)}</td>`
+        +mapa.map(m=>{const v=m[d];return v==null?'<td>—</td>':`<td class="${cls(v-100)}">${fmt.pct(v-100)}</td>`;}).join('')
+        +`</tr>`).join('')}</tbody>`;
+    document.getElementById('cmpCount').textContent=datas.length
+      ? datas.length+' datas · '+fmt.br(datas[0])+' a '+fmt.br(datas[datas.length-1])
+      : 'sem dado no período';
+  };
+
+  const limpaPreset=()=>document.querySelectorAll('#cmpPreset button').forEach(x=>x.classList.remove('on'));
+  bindSeg('cmpPreset',()=>{
+    document.getElementById('cmpIni').value=iniDe(segVal('cmpPreset'));
+    document.getElementById('cmpFim').value=maxD; draw();
+  });
+  document.getElementById('cmpIni').onchange=()=>{limpaPreset();draw();};
+  document.getElementById('cmpFim').onchange=()=>{limpaPreset();draw();};
+  pintaChips(); draw();
 }
 
 /* ---- DRE ---- */

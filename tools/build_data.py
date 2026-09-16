@@ -58,6 +58,14 @@ FUNDOS_COTA = [(n, n) for n in (
 # Índices do parquet de indicadores que agora vêm da CVM e devem ser ignorados lá.
 PREFIXOS_VIA_CVM = ("Mangalarga", "Lipizzaner")
 
+# Séries sem preço viram índice sintético compondo a "Variação Diária". A taxa é
+# diária-CALENDÁRIO na maioria (13,07%, IPCA+2%...), mas o CDI é taxa de DIA
+# ÚTIL: compor por dias corridos multiplica o fim de semana e infla a série.
+# Medido no payload de 31/08/2026: CDI rebaseado dava YTD 13,08% e 36M 65,73%,
+# contra 9,32%/43,89% das colunas da fonte — e o Tesouro Selic, que acompanha o
+# CDI e tem cota real, fechou 9,24%/43,33%. Aqui o expoente é 1 por linha.
+TAXAS_DIA_UTIL = {"CDI"}
+
 
 def azure_conn():
     """Connection string do Blob. Ambiente primeiro, .env local depois.
@@ -198,10 +206,16 @@ def build_indicadores():
         if real:
             px = cota
         else:
-            # "Variação Diária" é taxa diária-CALENDÁRIO. Compõe por dias corridos
+            # "Variação Diária" é taxa diária-CALENDÁRIO: compõe por dias corridos
             # entre linhas (inclui fim de semana), senão anualiza errado (ex.: 13,07%).
+            # Exceção: taxa de dia útil (CDI) compõe uma vez por linha — ver
+            # TAXAS_DIA_UTIL.
             vd = g["Variação Diária"].fillna(0).astype(float)
-            dias = d.diff().dt.days.fillna(0)
+            if idx in TAXAS_DIA_UTIL:
+                dias = pd.Series(1.0, index=g.index)
+                dias.iloc[0] = 0.0                 # 1ª linha ancora o índice em 100
+            else:
+                dias = d.diff().dt.days.fillna(0)
             px = 100 * ((1 + vd) ** dias).cumprod()
             fantasy.append(idx)
         # MÉTRICAS = colunas da FONTE (a pipeline dele já computa correto). Não recomputar.
