@@ -26,6 +26,14 @@
 --
 --    Escrita liberada para quem tem o painel (não só admin) justamente
 --    porque digitar o saldo É o uso normal da tela.
+--
+--    CADA POLICY É AMARRADA AO id DO SEU DOCUMENTO. Policy no Postgres vale para a
+--    TABELA inteira, e policies permissivas se SOMAM (OR). Sem o `id = 'saldo_bancario'`,
+--    quem tem acesso a qualquer painel que usa app_state leria e gravaria a linha de
+--    todos os outros — o colchão das contas do Saldo Bancário para quem só tem
+--    Projetos, por exemplo. Com um documento só isso não aparecia; app_state hoje
+--    tem três. O `.eq('id', ...)` do front é escopo de cliente, não barreira: a anon
+--    key é pública e a chamada pode ser feita direto na API.
 -- ---------------------------------------------------------------------
 drop policy if exists hub_saldo_bancario_select on app_state;
 create policy hub_saldo_bancario_select on app_state

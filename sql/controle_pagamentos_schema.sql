@@ -29,6 +29,14 @@
 --
 --    O resultado do batimento NÃO se escreve aqui — ele vem do bucket,
 --    publicado pelo ETL. Ver a seção 3.
+--
+--    CADA POLICY É AMARRADA AO id DO SEU DOCUMENTO. Policy no Postgres vale para a
+--    TABELA inteira, e policies permissivas se SOMAM (OR). Sem o `id = 'controle_pagamentos'`,
+--    quem tem acesso a qualquer painel que usa app_state leria e gravaria a linha de
+--    todos os outros — o colchão das contas do Saldo Bancário para quem só tem
+--    Projetos, por exemplo. Com um documento só isso não aparecia; app_state hoje
+--    tem três. O `.eq('id', ...)` do front é escopo de cliente, não barreira: a anon
+--    key é pública e a chamada pode ser feita direto na API.
 -- ---------------------------------------------------------------------
 drop policy if exists hub_controle_pagamentos_select on app_state;
 create policy hub_controle_pagamentos_select on app_state
