@@ -33,13 +33,13 @@
 drop policy if exists hub_controle_pagamentos_select on app_state;
 create policy hub_controle_pagamentos_select on app_state
   for select to authenticated
-  using ( public.hub_can('controle_pagamentos') );
+  using ( id = 'controle_pagamentos' and public.hub_can('controle_pagamentos') );
 
 drop policy if exists hub_controle_pagamentos_update on app_state;
 create policy hub_controle_pagamentos_update on app_state
   for update to authenticated
-  using      ( public.hub_can('controle_pagamentos') )
-  with check ( public.hub_can('controle_pagamentos') );
+  using      ( id = 'controle_pagamentos' and public.hub_can('controle_pagamentos') )
+  with check ( id = 'controle_pagamentos' and public.hub_can('controle_pagamentos') );
 
 -- ---------------------------------------------------------------------
 -- 2) Documento único do painel, vazio. O cadastro real é carregado pelo

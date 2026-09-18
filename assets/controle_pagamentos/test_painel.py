@@ -97,7 +97,7 @@ def _pagina(cls, resultado, cadastro):
         return route.continue_()
 
     pg.route("**/*.supabase.co/**", rota)
-    pg.add_init_script("window.HUB = {email:'leonardo.fernandes@luxor.com.br'};")
+    pg.add_init_script("window.HUB = {email:'fulano@luxor.com.br'};")
     pg.goto((AQUI / "index.html").as_uri())
     pg.wait_for_timeout(1300)
     return pg
@@ -217,7 +217,7 @@ class TestPainelCP(unittest.TestCase):
         por_cod = {f["cod"]: f for f in doc["fornecedores"]}
         self.assertEqual(por_cod["000041"]["valor_usual_txt"], "1.350,00")
         self.assertEqual(por_cod["000041"]["atualizado_por"],
-                         "leonardo.fernandes@luxor.com.br", "quem mexeu fica registrado")
+                         "fulano@luxor.com.br", "quem mexeu fica registrado")
         self.assertEqual(por_cod["000042"]["atualizado_em"], "2026-08-01T10:00:00",
                          "quem NÃO mudou mantém o carimbo antigo — senão 'atualizado_em' "
                          "não responderia mais quem mexeu em quê")

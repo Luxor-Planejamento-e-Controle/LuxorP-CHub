@@ -107,7 +107,7 @@ class TestPainelSaldoBancario(unittest.TestCase):
             return route.continue_()
 
         cls.pg.route("**/*.supabase.co/**", rota)
-        cls.pg.add_init_script("window.HUB = {email:'leonardo.fernandes@luxor.com.br'};")
+        cls.pg.add_init_script("window.HUB = {email:'fulano@luxor.com.br'};")
         cls.pg.goto((AQUI / "index.html").as_uri())
         cls.pg.wait_for_timeout(1300)
 
@@ -205,7 +205,7 @@ class TestPainelSaldoBancario(unittest.TestCase):
         self.assertEqual(len(doc["contas"][1]["investimentos"]), 2,
                          "as aplicações da conta também não podem sumir na gravação")
         self.assertEqual(doc["entradas"][semana][0]["por"],
-                         "leonardo.fernandes@luxor.com.br", "registra quem digitou")
+                         "fulano@luxor.com.br", "registra quem digitou")
         self.assertIn("SALDO RESTANTE", self.pg.inner_text("body").upper())
 
     def test_3c_semana_vem_da_janela_publicada(self):

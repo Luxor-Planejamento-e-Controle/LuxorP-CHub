@@ -38,13 +38,13 @@ drop policy if exists "luxor_update" on app_state;
 drop policy if exists hub_projetos_select on app_state;
 create policy hub_projetos_select on app_state
   for select to authenticated
-  using ( public.hub_can('projetos') );
+  using ( id = 'projetos' and public.hub_can('projetos') );
 
 drop policy if exists hub_projetos_update on app_state;
 create policy hub_projetos_update on app_state
   for update to authenticated
-  using      ( public.hub_can('projetos') )
-  with check ( public.hub_can('projetos') );
+  using      ( id = 'projetos' and public.hub_can('projetos') )
+  with check ( id = 'projetos' and public.hub_can('projetos') );
 
 -- ---------------------------------------------------------------------
 -- 4) Linha única do dashboard (vazia). O dado real vive na tabela;

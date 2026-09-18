@@ -30,13 +30,13 @@
 drop policy if exists hub_saldo_bancario_select on app_state;
 create policy hub_saldo_bancario_select on app_state
   for select to authenticated
-  using ( public.hub_can('saldo_bancario') );
+  using ( id = 'saldo_bancario' and public.hub_can('saldo_bancario') );
 
 drop policy if exists hub_saldo_bancario_update on app_state;
 create policy hub_saldo_bancario_update on app_state
   for update to authenticated
-  using      ( public.hub_can('saldo_bancario') )
-  with check ( public.hub_can('saldo_bancario') );
+  using      ( id = 'saldo_bancario' and public.hub_can('saldo_bancario') )
+  with check ( id = 'saldo_bancario' and public.hub_can('saldo_bancario') );
 
 -- ---------------------------------------------------------------------
 -- 2) Documento único do painel, vazio. As entradas por semana são preenchidas
