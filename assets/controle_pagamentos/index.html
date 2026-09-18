@@ -1,0 +1,807 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Controle de Pagamentos · Luxor P&amp;C</title>
+<!-- Fontes oficiais Luxor (Fakt Pro / Fakt Slab Pro), do próprio hub.
+     No repo da planilha o painel trazia uma cópia em `fontes/`; aqui aponta para o
+     arquivo do hub, para não versionar 172 KB de base64 duas vezes. -->
+<link rel="stylesheet" href="../fonts.css">
+<style>
+/* ============================================================
+   Tokens da identidade Luxor P&C.
+   Declarados aqui (não importados do hub) para o painel ser
+   autocontido: abre por file://, sem servidor e sem dependência.
+   Fonte: mesma pilha do hub — usa Fakt Pro se instalada, senão
+   degrada para a de sistema. Nenhum binário copiado.
+   ============================================================ */
+:root{
+  --bg:#0D2126; --bg-2:#113036;
+  --surface:#143840; --surface-2:#1B4650;
+  --ink:#EAF4F4; --ink-2:#A7C3C5; --ink-3:#6E8C90;
+  --orange:#FFA400; --orange-deep:#E08E00; --orange-soft:rgba(255,164,0,.14);
+  --teal:#1D6E79; --teal-light:#2E97A6;
+  --pos:#46B678; --neg:#E5674E; --warn:#F2C14E;
+  --line:rgba(255,255,255,.13); --line-strong:rgba(255,255,255,.24);
+  --r:14px; --r-sm:9px; --ctl-h:36px;
+  /* Largura útil do painel. A tabela tem 6 colunas e uma delas é texto livre
+     (Observação): sem teto, em monitor grande a linha fica longa demais para
+     ler. Com teto E centralização, a tela grande sobra em margem, não em
+     conteúdo colado num canto. */
+  --largura-max:1800px;
+  --gutter:26px;
+  --shadow-card:0 1px 3px rgba(0,0,0,.35);
+  --font-sans:"Fakt Pro",system-ui,-apple-system,"Segoe UI",Arial,sans-serif;
+  --font-serif:"Fakt Slab Pro","Fakt Pro",Georgia,serif;
+  /* fundos tingidos dos status — alpha .16 sobre superfície, medido em
+     WCAG: texto --ink sobre eles fica entre 8.0:1 e 12.3:1 */
+  --pos-soft:rgba(70,182,120,.16);
+  --neg-soft:rgba(229,103,78,.16);
+  --warn-soft:rgba(242,193,78,.16);
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{
+  font-family:var(--font-sans);background:var(--bg);color:var(--ink);
+  font-size:14px;line-height:1.45;-webkit-font-smoothing:antialiased;
+}
+::-webkit-scrollbar{width:10px;height:10px}
+::-webkit-scrollbar-thumb{background:var(--surface-2);border-radius:8px}
+::-webkit-scrollbar-track{background:transparent}
+
+/* ---- topbar ---- */
+.topbar{
+  border-bottom:1px solid var(--line);background:var(--bg-2);
+  position:sticky;top:0;z-index:5;
+}
+/* A barra estica de ponta a ponta (o fundo e a borda devem cortar a tela
+   inteira), mas o conteúdo dela segue o mesmo eixo do .content — senão em
+   monitor grande o título fica na borda e os cards centralizados. */
+.topbar-inner{
+  display:flex;align-items:center;gap:16px;flex-wrap:wrap;
+  padding:14px var(--gutter);
+  max-width:var(--largura-max);margin-inline:auto;
+}
+.brand{display:flex;align-items:center;gap:12px;padding-right:16px;border-right:1px solid var(--line)}
+.brand .word{font-family:var(--font-serif);font-size:16px;font-weight:600;letter-spacing:.02em}
+.brand .sub{font-size:10px;letter-spacing:.26em;color:var(--ink-2);font-weight:600}
+.topbar h1{font-family:var(--font-serif);font-size:19px;margin:0;font-weight:600}
+.topbar .sub{color:var(--ink-3);font-size:12px}
+.topbar .spacer{flex:1}
+.content{
+  padding:22px var(--gutter) 56px;
+  max-width:var(--largura-max);
+  /* centraliza: sem isto, em tela mais larga que o teto o painel inteiro fica
+     encostado à esquerda com um vazio à direita */
+  margin-inline:auto;
+}
+
+/* ---- avisos ---- */
+.banner{
+  border-radius:var(--r-sm);padding:11px 15px;font-size:12.5px;margin-bottom:18px;
+  display:flex;gap:10px;align-items:flex-start;
+  background:var(--orange-soft);border:1px solid rgba(255,164,0,.35);color:var(--ink);
+}
+.banner svg{flex:0 0 auto;margin-top:1px}
+.banner b{color:var(--ink)}
+
+/* ---- barra de filtros: UMA linha, acima de tudo que ela filtra ---- */
+.toolbar{display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end;margin-bottom:18px}
+.field{display:flex;flex-direction:column;gap:4px}
+.field label{font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3)}
+select,input[type=search]{
+  background:var(--surface);border:1px solid var(--line);color:var(--ink);
+  padding:0 12px;border-radius:var(--r-sm);font:inherit;font-size:13px;outline:none;
+  height:var(--ctl-h);
+}
+select:focus,input:focus{border-color:var(--orange)}
+input[type=search]{min-width:230px}
+/* O campo de busca pode ENCOLHER, mas não crescer (flex-grow 0). Sem isso, a
+   entrada do seletor de fonte empurrava o botão "Limpar filtros" para uma
+   segunda linha órfã; e deixando crescer, a busca engolia a sobra e empurrava
+   o botão do mesmo jeito. */
+.field.cresce{flex:0 1 220px;min-width:0}
+.field.cresce input[type=search]{width:100%;min-width:150px}
+.seg{
+  display:inline-flex;align-items:center;padding:3px;gap:3px;height:var(--ctl-h);
+  background:var(--surface);border:1px solid var(--line);border-radius:var(--r-sm);
+}
+.seg button{
+  background:transparent;border:0;color:var(--ink-2);padding:0 12px;
+  height:calc(var(--ctl-h) - 8px);border-radius:6px;cursor:pointer;font:inherit;font-size:12px;
+  display:inline-flex;align-items:center;gap:6px;white-space:nowrap;
+}
+.seg button:hover{color:var(--ink)}
+.seg button.on{background:var(--orange);color:#201700;font-weight:600}
+.btn-ghost{
+  background:transparent;border:1px solid var(--line);color:var(--ink-2);height:var(--ctl-h);
+  padding:0 14px;border-radius:var(--r-sm);font:inherit;font-size:13px;cursor:pointer;
+}
+.btn-ghost:hover{border-color:var(--orange);color:var(--orange)}
+
+/* ---- telas estreitas ----
+   O seletor de Situação tem quatro botões com contagem ("Não recebido (38)"), e `.seg`
+   e inline-flex de altura fixa: a 390px ele passava 98px da borda e levava a PÁGINA
+   inteira a rolar na horizontal. Dentro do iframe do hub isso é pior que numa página
+   normal - o cabeçalho e os filtros saem da tela e não há barra de rolagem de página
+   para trazer de volta.
+
+   Medido no tamanho que o hub realmente dá ao iframe: largura da janela menos os 248px
+   da sidebar, e a tela toda abaixo de 760px, quando a sidebar vira overlay. */
+@media(max-width:620px){
+  .seg{flex-wrap:wrap;height:auto;min-height:var(--ctl-h)}
+  .seg button{height:calc(var(--ctl-h) - 8px)}
+  /* `.field.cresce` tem base 220px; sem poder encolher, ele sozinho estoura um
+     iframe de 390px */
+  .field,.field.cresce{min-width:0;max-width:100%}
+  .field.cresce input[type=search]{min-width:0}
+  .toolbar{gap:10px}
+}
+
+/* ---- cards / KPI ---- */
+.grid{display:grid;gap:14px;margin-bottom:16px}
+.g-kpi{grid-template-columns:repeat(5,1fr)}
+@media(max-width:1150px){.g-kpi{grid-template-columns:repeat(3,1fr)}}
+@media(max-width:720px){.g-kpi{grid-template-columns:repeat(2,1fr)}}
+.card{
+  background:var(--surface);border:1px solid var(--line);border-radius:var(--r);
+  box-shadow:var(--shadow-card);padding:18px;
+}
+.card.kpi{padding:13px 16px;position:relative;overflow:hidden}
+.kpi .label{
+  font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3);
+  margin-bottom:5px;display:flex;align-items:center;gap:7px;
+}
+/* Valor do stat tile.
+   lining-nums fica mesmo com a Fakt Slab Pro carregada: protege o caso de
+   fallback. Sem a Fakt, a pilha serif cai em Georgia, que usa algarismos de
+   estilo antigo por padrão (1 na altura de x; 3,4,7,9 descendo abaixo da linha
+   de base) e desalinha "17" e "113.946,82". font-feature-settings repete a
+   regra para navegador que não entende font-variant-numeric.
+   Proporcionais, não tabulares: tabular-nums em número grande isolado deixa
+   os dígitos frouxos — alinhamento em coluna só na tabela. */
+.kpi .val{font-family:var(--font-serif);font-size:23px;font-weight:600;line-height:1.15;
+  font-variant-numeric:lining-nums proportional-nums;
+  font-feature-settings:"lnum" 1,"pnum" 1}
+.kpi .delta{font-size:11.5px;margin-top:3px;color:var(--ink-3);min-height:17px}
+.kpi.destaque{border-color:rgba(229,103,78,.45);background:linear-gradient(180deg,var(--neg-soft),var(--surface) 70%)}
+.card-title{display:flex;align-items:center;gap:9px;margin-bottom:14px;flex-wrap:wrap}
+.card-title h2{font-family:var(--font-serif);font-size:15px;margin:0;font-weight:600}
+.card-title .muted{color:var(--ink-3);font-size:12px;font-weight:400}
+
+/* ---- marca de status: ponto colorido + rótulo em --ink ----
+   Nunca cor sozinha (status exige ícone + rótulo) e nunca a cor do status
+   como texto em corpo pequeno: --neg sobre o card dá 3.82:1, abaixo dos
+   4.5:1 de texto normal. O ponto é marca (limite 3:1) e passa. */
+.st{display:inline-flex;align-items:center;gap:7px;white-space:nowrap}
+.st .dot{width:9px;height:9px;border-radius:50%;flex:0 0 auto}
+.st .ic{flex:0 0 auto;opacity:.95}
+.st-recebido .dot,.st-recebido .ic{color:var(--pos);background:var(--pos)}
+.st-nao_recebido .dot,.st-nao_recebido .ic{color:var(--neg);background:var(--neg)}
+.st-sem_cadastro .dot,.st-sem_cadastro .ic{color:var(--warn);background:var(--warn)}
+.st .ic{background:transparent!important}
+
+/* ---- meter (razão contra o total): barra empilhada, gap 2px ---- */
+.meter{display:flex;gap:2px;height:12px;border-radius:4px;overflow:hidden;margin:2px 0 12px}
+.meter span{display:block;transition:width .18s}
+.meter .s-recebido{background:var(--pos)}
+.meter .s-nao_recebido{background:var(--neg)}
+.meter .s-sem_cadastro{background:var(--warn)}
+.legend{display:flex;flex-wrap:wrap;gap:18px;font-size:12.5px;color:var(--ink-2)}
+.legend b{color:var(--ink);font-variant-numeric:tabular-nums}
+
+/* ---- tabela: é também a "table view" de tudo que o meter resume ---- */
+.tbl-wrap{overflow-x:auto;border-radius:var(--r-sm);max-height:calc(100vh - 200px)}
+table.data{width:100%;border-collapse:collapse;font-size:13px;font-variant-numeric:tabular-nums}
+table.data th{
+  text-align:left;padding:9px 13px;background:#0b1f24;color:var(--ink-2);
+  font-weight:600;font-size:10.5px;letter-spacing:.05em;text-transform:uppercase;
+  position:sticky;top:0;z-index:1;cursor:pointer;user-select:none;white-space:nowrap;
+}
+table.data th:hover{color:var(--ink)}
+table.data th .arw{opacity:.55;font-size:9px;margin-left:3px}
+table.data th.num,table.data td.num{text-align:right}
+table.data td{padding:8px 13px;border-top:1px solid var(--line);color:var(--ink);vertical-align:top}
+table.data tbody tr:hover td{background:rgba(255,255,255,.03)}
+table.data tr.pend td:first-child{box-shadow:inset 3px 0 0 var(--neg)}
+.forn{font-weight:500}
+.sub2{color:var(--ink-3);font-size:11px;margin-top:2px}
+.nowrap{white-space:nowrap}
+.vermelho{color:var(--ink)}
+.empty{display:grid;place-items:center;text-align:center;padding:60px 20px;color:var(--ink-3)}
+.empty .big{font-size:40px;margin-bottom:10px;opacity:.5}
+.empty code{background:var(--surface-2);padding:2px 7px;border-radius:5px;color:var(--orange);font-size:12.5px}
+.foot{margin-top:22px;padding-top:14px;border-top:1px solid var(--line);color:var(--ink-3);font-size:11.5px}
+
+/* ---- tela de cadastro (CP_CADASTRO) ----
+   Botão primário e caixa de erro não existiam neste painel, que é só de leitura.
+   Os valores vêm do theme.css do hub, não de escolhas novas. */
+.btn-acao{
+  background:var(--orange);border:1px solid var(--orange);color:#201700;height:var(--ctl-h);
+  padding:0 18px;border-radius:var(--r-sm);font:inherit;font-size:13px;font-weight:600;
+  cursor:pointer;display:inline-flex;align-items:center;gap:7px;
+}
+.btn-acao:hover:not(:disabled){background:var(--orange-deep);border-color:var(--orange-deep)}
+.btn-acao:disabled{opacity:.45;cursor:default}
+.erro-box{
+  margin-bottom:14px;padding:11px 14px;border-radius:var(--r-sm);font-size:12.5px;
+  background:rgba(229,103,78,.16);border:1px solid rgba(229,103,78,.45);color:var(--ink);
+}
+.cpc-acoes{
+  display:flex;align-items:center;gap:12px;flex-wrap:wrap;
+  margin-top:20px;padding-top:16px;border-top:1px solid var(--line);
+}
+.cpc-acoes .txt{flex:1;min-width:210px;font-size:12.5px;color:var(--ink-2)}
+
+/* Campos do cadastro: padrão de controle do hub (altura --ctl-h, fundo --surface),
+   o mesmo de qualquer outro campo do produto. */
+table.data input.cpc{
+  background:var(--surface);border:1px solid var(--line);color:var(--ink);
+  height:var(--ctl-h);padding:0 10px;border-radius:var(--r-sm);
+  font:inherit;font-size:13px;max-width:100%;
+}
+table.data input.cpc:focus{border-color:var(--orange);outline:none}
+table.data input.cpc::placeholder{color:var(--ink-3)}
+table.data.cadastro td{vertical-align:top;padding-top:9px;padding-bottom:9px}
+table.data.cadastro tr.inativo td{opacity:.6}
+table.data.cadastro tr.inativo td:first-child{box-shadow:inset 3px 0 0 var(--ink-3)}
+
+/* Os doze meses como fichas de uma letra. Doze caixinhas seriam corretas e ilegíveis:
+   a pergunta aqui é "qual o PADRÃO deste fornecedor" — todos os meses, um a cada três,
+   só um — e padrão se lê de relance, não item a item. */
+.meses{display:flex;gap:2px}
+.meses .m{
+  width:22px;height:26px;padding:0;cursor:pointer;font:inherit;font-size:11px;
+  background:var(--bg-2);border:1px solid var(--line);color:var(--ink-3);
+  border-radius:5px;
+}
+.meses .m:hover{border-color:var(--line-strong);color:var(--ink-2)}
+.meses .m.on{background:var(--teal);border-color:var(--teal-light);color:var(--ink);font-weight:600}
+
+.chip-ativo{
+  border-radius:20px;padding:4px 11px;font:inherit;font-size:11.5px;cursor:pointer;
+  background:transparent;border:1px solid var(--line);color:var(--ink-3);
+}
+.chip-ativo.on{background:rgba(70,182,120,.16);border-color:rgba(70,182,120,.45);color:var(--pos)}
+.btn-lixo{
+  background:transparent;border:1px solid var(--line);color:var(--ink-3);
+  border-radius:6px;width:28px;height:28px;cursor:pointer;font-size:15px;line-height:1;padding:0;
+}
+.btn-lixo:hover{border-color:var(--neg);color:var(--neg)}
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="topbar-inner">
+    <div class="brand">
+      <div>
+        <div class="word">LUXOR</div>
+        <div class="sub">P&amp;C</div>
+      </div>
+    </div>
+    <div>
+      <h1>Controle de Pagamentos</h1>
+      <div class="sub" id="pageSub">carregando…</div>
+    </div>
+    <div class="spacer"></div>
+  </div>
+</header>
+
+<div class="content" id="content">
+  <div class="empty" id="semDados">
+    <div class="big">◔</div>
+    <div>Dados não carregados.<br>Rode <code>python extrair_dados.py</code> e recarregue esta página.</div>
+  </div>
+</div>
+
+<!-- NO HUB os dados vêm do Supabase, não de um .js ao lado:
+
+       resultado    bucket privado `hub-data`, arquivo `controle_pagamentos.json`,
+                    publicado pelo ETL semanal com os meses JÁ BATIDOS
+       cadastro     tabela `app_state`, id 'controle_pagamentos' — editável na
+                    própria tela (CP_CADASTRO)
+
+     `window.CP_DATA_API` continua existindo e com o mesmo formato: é montado em
+     memória por CP_DADOS.paraCpData(). Foi o que permitiu trazer este painel inteiro
+     — filtros, ordenação, KPIs, prazos — sem tocar na lógica de tela. -->
+<script src="../vendor/supabase.min.js"></script>
+<script src="config.js"></script>
+<script src="cp_dados.js"></script>
+<script src="cp_fonte.js"></script>
+<script src="cp_cadastro.js"></script>
+<script>
+'use strict';
+
+/* ---------- status: rótulo + ícone. Nunca cor sozinha. ---------- */
+const ST = {
+  recebido:     {label:'Recebido',     ordem:3, ico:'M20 6L9 17l-5-5'},
+  nao_recebido: {label:'Não recebido', ordem:1, ico:'M12 9v4M12 17h.01M10.3 3.9L1.8 18a2 2 0 001.7 3h17a2 2 0 001.7-3L14.7 3.9a2 2 0 00-3.4 0z'},
+  sem_cadastro: {label:'Sem cadastro', ordem:2, ico:'M12 17h.01M9.1 9a3 3 0 015.8 1c0 2-3 2.2-3 4M12 21a9 9 0 100-18 9 9 0 000 18z'},
+};
+const stMeta = k => ST[k] || {label:k, ordem:9, ico:'M12 12h.01'};
+
+const fmt = {
+  int: v => v.toLocaleString('pt-BR'),
+  rs:  v => (v<0?'−':'') + 'R$ ' + Math.abs(v).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}),
+  data: d => String(d.getDate()).padStart(2,'0')+'/'+String(d.getMonth()+1).padStart(2,'0')+'/'+d.getFullYear(),
+  // 'AAAA-MM-DD' -> 'DD/MM/AAAA'. Separado de fmt.data, que recebe objeto Date.
+  iso: s => { const [y,mo,d] = String(s).split('-'); return `${d}/${mo}/${y}`; },
+  dtHora: iso => { const [d,h]=iso.split('T'); const [y,m,dd]=d.split('-'); return `${dd}/${m}/${y} às ${h}`; },
+};
+const esc = s => String(s==null?'':s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+const svg = (d, sz=13) =>
+  `<svg class="ic" width="${sz}" height="${sz}" viewBox="0 0 24 24" fill="none" stroke="currentColor" `
+  + `stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="${d}"/></svg>`;
+
+/* Marca de status = ponto + ícone + rótulo em --ink (ver CSS para o porquê). */
+const stTag = k => {
+  const m = stMeta(k);
+  return `<span class="st st-${k}"><span class="dot"></span>${svg(m.ico)}<span>${esc(m.label)}</span></span>`;
+};
+
+/* ---------- estado dos filtros ---------- */
+/* ---------- fonte de dados ----------
+   Uma só: títulos da API do Bimer, batidos em Python com o filtro de
+   competência. A comparação com a planilha manual acontece fora do painel
+   (comparar_fontes.py), então dados que só serviriam para comparar não são
+   carregados aqui.
+   O array continua sendo array porque o seletor e o card de delta já se
+   adaptam ao tamanho: com uma entrada, ambos simplesmente não aparecem. */
+/* Preenchido no boot, depois de baixar do bucket — e não na carga do script, que é
+   quando window.CP_DATA_API ainda não existe. `let` e não `const` pelo mesmo motivo. */
+let FONTES = [];
+
+const F = {fonte:null, mes:null, empresa:'', status:'todos', busca:''};
+let ordem = {col:'padrao', dir:1};
+const hoje = (()=>{ const d=new Date(); return new Date(d.getFullYear(), d.getMonth(), d.getDate()); })();
+
+const fonteAtual = () => FONTES.find(f => f.id === F.fonte) || FONTES[0];
+const dadosAtuais = () => fonteAtual().dados;
+const mesAtual = () => {
+  const ms = dadosAtuais().meses;
+  return ms.find(m => m.id === F.mes) || ms[ms.length - 1];
+};
+/* Fonte usada como referência do delta. Com mais de duas fontes, "a outra" é
+   ambíguo: o baseline útil é sempre a planilha atual (o que a equipe vê hoje).
+   Quando a própria planilha está selecionada, compara com a fonte seguinte. */
+const fonteReferencia = () => {
+  if(FONTES.length < 2) return null;
+  const atual = fonteAtual();
+  if(atual.id !== 'planilha'){
+    const base = FONTES.find(f => f.id === 'planilha');
+    if(base) return base;
+  }
+  return FONTES.find(f => f.id !== atual.id) || null;
+};
+
+/* mesmo mês na fonte de referência — é isso que alimenta o delta no card */
+const mesNaOutraFonte = () => {
+  const outra = fonteReferencia();
+  return outra ? (outra.dados.meses.find(m => m.id === F.mes) || null) : null;
+};
+const contaStatus = fixos => {
+  const c = {};
+  for(const f of fixos) c[f.status] = (c[f.status]||0) + 1;
+  return c;
+};
+/* "Limpar filtros" só aparece quando há algo para limpar. Botão permanente que
+   na maior parte do tempo não faz nada é ruído — e era ele que estourava a
+   barra de filtros para uma segunda linha depois da entrada do seletor de fonte. */
+const temFiltro = () => !!(F.empresa || F.busca.trim() || F.status !== 'todos');
+
+const outraFonte = () => fonteReferencia();
+/* "na planilha atual" / "no modelo novo" — o artigo vem da fonte, senão a
+   concordância sai errada num dos dois casos. */
+const outraFonteRotulo = () => {
+  const o = outraFonte();
+  return o ? `${o.artigo} ${o.rotulo.toLowerCase()}` : '';
+};
+
+/* Data de vencimento a partir do DIA (coluna J, preenchida por VBA na planilha
+   e já ajustada para dia útil). Dia > último dia do mês cai no último dia. */
+function vencData(m, dia){
+  if(dia == null) return null;
+  const ultimo = new Date(m.ano, m.mes, 0).getDate();
+  return new Date(m.ano, m.mes - 1, Math.min(dia, ultimo));
+}
+
+/* A coluna K da planilha ("Dias p/ Venc") NÃO é usada: a fórmula é
+   =J-DAY(TODAY()), que compara só o dia do mês e é recalculada quando o
+   arquivo abre — na planilha de agosto salva em julho ela dá número sem
+   sentido. Aqui o prazo é derivado da data real contra hoje. */
+function prazo(m, dia){
+  const dt = vencData(m, dia);
+  if(!dt) return null;
+  const dias = Math.round((dt - hoje) / 86400000);
+  return {dt, dias};
+}
+const mesEhCorrente = m => m.ano === hoje.getFullYear() && m.mes === hoje.getMonth() + 1;
+const mesEncerrado  = m => (m.ano < hoje.getFullYear()) || (m.ano === hoje.getFullYear() && m.mes < hoje.getMonth() + 1);
+const mesFuturo     = m => !mesEhCorrente(m) && !mesEncerrado(m);
+/* Rótulo do mês: distingue o mês corrente (onde a pendência é acionável) do
+   futuro (planilha já preparada, pendência é só "o mês não chegou"). */
+const mesTag = m => mesEhCorrente(m) ? ' · em andamento' : (mesFuturo(m) ? ' · mês futuro' : '');
+
+function textoPrazo(m, dia){
+  const p = prazo(m, dia);
+  if(!p) return '';
+  if(!mesEhCorrente(m)) return fmt.data(p.dt);
+  if(p.dias === 0)  return 'vence hoje';
+  if(p.dias  <  0)  return `venceu há ${-p.dias} dia${p.dias===-1?'':'s'}`;
+  return `em ${p.dias} dia${p.dias===1?'':'s'}`;
+}
+
+/* ---------- filtro + ordenação ----------
+   Dois níveis de propósito:
+   - ESCOPO (empresa + busca) recorta o conjunto que está sendo analisado.
+     KPIs, medidor e as contagens dos botões de situação seguem o escopo.
+   - SITUAÇÃO filtra apenas a tabela. Se entrasse nos KPIs viraria circular:
+     escolher "Não recebido" faria o card mostrar 17 de 17. */
+function escopo(){
+  const m = mesAtual();
+  const q = F.busca.trim().toLowerCase();
+  return m.fixos.filter(f =>
+       (!F.empresa || f.empresa === F.empresa)
+    && (!q || (f.fornecedor||'').toLowerCase().includes(q) || (f.cod||'').includes(q)
+           || (f.obs||'').toLowerCase().includes(q))
+  );
+}
+
+function linhas(base){
+  let rows = base.filter(f => F.status === 'todos' || f.status === F.status);
+  const chave = {
+    fornecedor: f => (f.fornecedor||'').toLowerCase(),
+    empresa:    f => (f.empresa||'').toLowerCase(),
+    valor:      f => (f.valor == null ? -Infinity : Math.abs(f.valor)),
+    venc:       f => (f.venc_dia == null ? 99 : f.venc_dia),
+    status:     f => stMeta(f.status).ordem,
+  }[ordem.col];
+
+  if(chave){
+    rows.sort((a,b) => {
+      const x = chave(a), y = chave(b);
+      if(x < y) return -1*ordem.dir;
+      if(x > y) return  1*ordem.dir;
+      return (a.fornecedor||'').localeCompare(b.fornecedor||'','pt-BR');
+    });
+  } else {
+    // padrão: pendências primeiro, depois vencimento mais próximo
+    rows.sort((a,b) =>
+         stMeta(a.status).ordem - stMeta(b.status).ordem
+      || (a.venc_dia ?? 99) - (b.venc_dia ?? 99)
+      || (a.fornecedor||'').localeCompare(b.fornecedor||'','pt-BR'));
+  }
+  return rows;
+}
+
+/* ---------- render ---------- */
+function render(){
+  const m = mesAtual(), esc0 = escopo(), rows = linhas(esc0);
+  const noMes = m.fixos.length;
+  const filtrado = esc0.length !== noMes;          // empresa e/ou busca ativos
+
+  // contagens SOBRE O ESCOPO (não sobre o mês inteiro)
+  const cont = {};
+  for(const f of esc0) cont[f.status] = (cont[f.status]||0) + 1;
+  const total = esc0.length;
+  const nRec = cont.recebido||0, nPend = cont.nao_recebido||0, nSem = cont.sem_cadastro||0;
+
+  // valor pendente: só o que tem valor numérico. Os "Variável" não entram —
+  // e a quantidade deles é dita, senão o total parece completo quando não é.
+  const pend = esc0.filter(f => f.status === 'nao_recebido');
+  const comValor = pend.filter(f => f.valor != null);
+  const semValor = pend.length - comValor.length;
+  const vlrPend = comValor.reduce((s,f) => s + Math.abs(f.valor), 0);
+
+  const pctRec = total ? (nRec/total*100) : 0;
+
+  /* Comparativo com a outra fonte. Só entra quando NÃO há filtro de empresa ou
+     busca: a outra fonte tem conjunto de fornecedores diferente (o modelo novo
+     retira os de competência), então comparar recortes daria número enganoso. */
+  const fonte = fonteAtual();
+  const outroMes = filtrado ? null : mesNaOutraFonte();
+  const outro = outroMes ? contaStatus(outroMes.fixos) : null;
+  const vs = (atual, campo) => {
+    if(!outro) return null;
+    const antes = outro[campo] || 0;
+    if(antes === atual) return `igual ${esc(outraFonteRotulo())}`;
+    return `${antes} ${esc(outraFonteRotulo())}`;
+  };
+
+  // rótulo do escopo, para nenhum número ficar ambíguo sobre o que ele conta
+  const escopoTxt = [
+    F.empresa ? F.empresa : null,
+    F.busca.trim() ? `busca "${F.busca.trim()}"` : null,
+  ].filter(Boolean).join(' · ');
+
+  document.getElementById('pageSub').textContent = filtrado
+    ? `${m.rotulo} · ${total} de ${noMes} fornecedores fixos · ${escopoTxt}`
+    : `${m.rotulo} · ${noMes} fornecedores fixos · ${m.titulos.n} títulos lançados`;
+
+  const kpi = (label, val, delta, cls, dot) => `
+    <div class="card kpi ${cls||''}">
+      <div class="label">${dot?`<span class="st st-${dot}"><span class="dot"></span></span>`:''}${esc(label)}</div>
+      <div class="val">${val}</div>
+      <div class="delta">${delta||'&nbsp;'}</div>
+    </div>`;
+
+  const seg = (id, opts) => `<div class="seg" id="${id}">` + opts.map(o =>
+      `<button type="button" data-v="${o.v}" class="${o.on?'on':''}">${o.html||esc(o.label)}</button>`
+    ).join('') + `</div>`;
+
+  const empresas = [...new Set(m.fixos.map(f => f.empresa).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'pt-BR'));
+
+  document.getElementById('content').innerHTML = `
+
+    <div class="banner">
+      ${svg('M12 8v4M12 16h.01M12 22a10 10 0 100-20 10 10 0 000 20z', 15)}
+      <div>
+        ${fonte.id === 'planilha' ? `
+          O status <b>Recebido / Não recebido</b> é lido pronto da planilha
+          <b>${esc(m.arquivo)}</b>, salva em <b>${fmt.dtHora(m.atualizado_em)}</b> —
+          é dessa data que vale a foto, não de agora. Lançamento feito depois disso
+          ainda aparece como pendente.
+        ` : `
+          Status recalculado em <b>${esc(m.arquivo)}</b>, gerado em
+          <b>${fmt.dtHora(m.atualizado_em)}</b>. O casamento fornecedor × título
+          normaliza o texto antes de comparar — é o que corrige os falsos
+          "Não recebido" causados por espaço em branco no export do Bimer.
+          ${m.fora_competencia && m.fora_competencia.length ? `<b>${m.fora_competencia.length}
+          ${m.fora_competencia.length === 1 ? 'gasto' : 'gastos'}</b> de competência anual
+          ou trimestral ${m.fora_competencia.length === 1 ? 'foi retirado' : 'foram retirados'}
+          deste mês por não ${m.fora_competencia.length === 1 ? 'ser devido' : 'serem devidos'}.` : ''}
+        `}
+        Os prazos abaixo são calculados contra hoje (${fmt.data(hoje)}).
+      </div>
+    </div>
+
+    <div class="toolbar">
+      <div class="field"><label>Mês de referência</label>
+        <select id="fMes">${dadosAtuais().meses.slice().reverse().map(x =>
+          `<option value="${x.id}" ${x.id===m.id?'selected':''}>${esc(x.rotulo)}${mesTag(x)}</option>`
+        ).join('')}</select></div>
+      ${FONTES.length > 1 ? `
+      <div class="field"><label>Fonte</label>
+        ${seg('fFonte', FONTES.map(f => ({v:f.id, label:f.rotulo, on:f.id===fonte.id})))}</div>` : ''}
+      <div class="field"><label>Empresa</label>
+        <select id="fEmpresa"><option value="">Todas (${empresas.length})</option>${empresas.map(e =>
+          `<option value="${esc(e)}" ${e===F.empresa?'selected':''}>${esc(e)}</option>`).join('')}</select></div>
+      <div class="field"><label>Situação</label>
+        ${seg('fStatus', [
+          {v:'todos',        label:`Todas (${total})`,                                   on:F.status==='todos'},
+          {v:'nao_recebido', html:`${svg(ST.nao_recebido.ico,12)} Não recebido (${nPend})`, on:F.status==='nao_recebido'},
+          {v:'recebido',     html:`${svg(ST.recebido.ico,12)} Recebido (${nRec})`,          on:F.status==='recebido'},
+          {v:'sem_cadastro', html:`${svg(ST.sem_cadastro.ico,12)} Sem cadastro (${nSem})`,  on:F.status==='sem_cadastro'},
+        ])}</div>
+      <div class="field cresce"><label>Buscar</label>
+        <input type="search" id="fBusca" value="${esc(F.busca)}"
+               placeholder="fornecedor, código ou obs."></div>
+      ${temFiltro() ? `
+      <div class="field"><label>&nbsp;</label>
+        <button class="btn-ghost" id="fLimpar" type="button">Limpar filtros</button></div>` : ''}
+      <div style="flex:1"></div>
+      <div class="field"><label>&nbsp;</label>
+        <button class="btn-ghost" id="btCadastro" type="button">Editar cadastro</button></div>
+    </div>
+
+    ${(estadoAtual && estadoAtual.pendentes) ? `
+    <div class="banner">
+      ${svg('M12 8v4M12 16h.01M12 22a10 10 0 100-20 10 10 0 000 20z', 15)}
+      <div><b>${estadoAtual.pendentes} alteração(ões) no cadastro ainda não refletida(s)
+      nos números.</b> O batimento roda no Azure com os títulos do Bimer; o que foi
+      editado depois da última publicação entra na próxima execução.</div>
+    </div>` : ''}
+
+    <div class="grid g-kpi">
+      ${kpi('Fornecedores fixos', fmt.int(total),
+             filtrado ? `de ${noMes} no mês`
+                      : (outroMes ? `${outroMes.fixos.length} ${outraFonteRotulo()}`
+                                  : `${m.titulos.n} títulos no mês`))}
+      ${kpi('Recebidos', fmt.int(nRec),
+             vs(nRec,'recebido') || (total ? `${pctRec.toFixed(0)}% do total` : ''), '', 'recebido')}
+      ${kpi('Não recebidos', fmt.int(nPend),
+             vs(nPend,'nao_recebido') || (nPend ? 'exigem conferência' : 'nada pendente'),
+             nPend ? 'destaque' : '', 'nao_recebido')}
+      ${kpi('Sem cadastro', fmt.int(nSem),
+             vs(nSem,'sem_cadastro') || (nSem ? 'cadastro a corrigir' : '—'), '', 'sem_cadastro')}
+      ${kpi('Valor pendente', vlrPend ? fmt.rs(vlrPend) : '—',
+             semValor ? `+ ${semValor} sem valor definido` : (vlrPend ? 'valor conhecido' : ''))}
+    </div>
+
+    <div class="card">
+      <div class="card-title">
+        <h2>Andamento${filtrado ? '' : ' do mês'}</h2>
+        <span class="muted">${nRec} de ${total} fornecedores fixos já lançados${
+          filtrado ? ` · ${esc(escopoTxt)}` : ''}</span>
+      </div>
+      <div class="meter" role="img" aria-label="${nRec} recebidos, ${nPend} não recebidos, ${nSem} sem cadastro, de ${total}">
+        ${total && nRec  ? `<span class="s-recebido"     style="width:${nRec/total*100}%"  title="Recebido: ${nRec}"></span>`:''}
+        ${total && nPend ? `<span class="s-nao_recebido" style="width:${nPend/total*100}%" title="Não recebido: ${nPend}"></span>`:''}
+        ${total && nSem  ? `<span class="s-sem_cadastro" style="width:${nSem/total*100}%"  title="Sem cadastro: ${nSem}"></span>`:''}
+      </div>
+      <div class="legend">
+        <span class="st st-recebido"><span class="dot"></span>${svg(ST.recebido.ico)}Recebido <b>${nRec}</b></span>
+        <span class="st st-nao_recebido"><span class="dot"></span>${svg(ST.nao_recebido.ico)}Não recebido <b>${nPend}</b></span>
+        <span class="st st-sem_cadastro"><span class="dot"></span>${svg(ST.sem_cadastro.ico)}Sem cadastro <b>${nSem}</b></span>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:16px">
+      <div class="card-title">
+        <h2>Fornecedores fixos</h2>
+        <span class="muted" id="tblSub"></span>
+      </div>
+      <div class="tbl-wrap">
+        <table class="data">
+          <thead><tr>
+            <th data-c="fornecedor">Fornecedor${arw('fornecedor')}</th>
+            <th data-c="empresa">Empresa${arw('empresa')}</th>
+            <th data-c="venc" class="num">Vencimento${arw('venc')}</th>
+            <th data-c="valor" class="num">Valor usual${arw('valor')}</th>
+            <th data-c="status">Situação${arw('status')}</th>
+            <th>Observação</th>
+          </tr></thead>
+          <tbody id="tbody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="foot">
+      Fonte <b>${esc(fonte.rotulo)}</b> — ${esc(fonte.nota)}.
+      Arquivo: <b>${esc(m.arquivo)}</b>, de ${fmt.dtHora(m.atualizado_em)} ·
+      dados extraídos em ${fmt.dtHora(dadosAtuais().gerado_em)}.
+      ${fonte.id === 'planilha'
+        ? 'O status vem calculado da planilha e não é recalculado aqui.'
+        : (m.ref_prazos ? `Planilha gerada com data de referência ${fmt.iso(m.ref_prazos)}.` : '')}
+    </div>`;
+
+  // corpo da tabela
+  const encerrado = mesEncerrado(m);
+  document.getElementById('tbody').innerHTML = rows.length ? rows.map(f => {
+    const p = textoPrazo(m, f.venc_dia);
+    const atrasado = mesEhCorrente(m) && f.status === 'nao_recebido'
+                     && f.venc_dia != null && prazo(m, f.venc_dia).dias < 0;
+    return `<tr class="${f.status==='nao_recebido'?'pend':''}">
+      <td>
+        <div class="forn">${esc(f.fornecedor)}${f.ocorrencia>1?` <span class="sub2">#${f.ocorrencia}</span>`:''}</div>
+        <div class="sub2">cód. ${esc(f.cod||'—')}</div>
+      </td>
+      <td>${esc(f.empresa||'—')}</td>
+      <td class="num nowrap">
+        <div>${f.venc_dia!=null?'dia '+f.venc_dia:'—'}</div>
+        <div class="sub2">${esc(p)}${atrasado?' ⚠':''}</div>
+        ${f.venc_orig && f.venc_orig!==String(f.venc_dia)
+          ? `<div class="sub2">regra: ${esc(f.venc_orig)}</div>`:''}
+      </td>
+      <td class="num nowrap">${f.valor!=null?fmt.rs(f.valor):esc(f.valor_txt||'—')}</td>
+      <td>${stTag(f.status)}</td>
+      <td>${esc(f.obs||'')}${f.reajuste && f.reajuste!=='-' && f.reajuste!=='?'
+            ? `<div class="sub2">reajuste: ${esc(f.reajuste)}</div>`:''}</td>
+    </tr>`;
+  }).join('') : `<tr><td colspan="6"><div class="empty">Nenhum fornecedor com esses filtros.</div></td></tr>`;
+
+  document.getElementById('tblSub').textContent =
+    `${rows.length} de ${total} linhas`
+    + (encerrado ? ' · mês encerrado' : (mesFuturo(m) ? ' · mês ainda não iniciado' : ''));
+
+  ligar();
+}
+
+function arw(c){
+  return ordem.col===c ? `<span class="arw">${ordem.dir>0?'▲':'▼'}</span>` : '';
+}
+
+function ligar(){
+  const gf = document.getElementById('fFonte');
+  if(gf) gf.onclick = e => {
+    const b = e.target.closest('button');
+    if(!b || b.dataset.v === F.fonte) return;
+    F.fonte = b.dataset.v;
+    // O mês selecionado é preservado; empresa/busca são zerados porque o
+    // conjunto de fornecedores difere entre as fontes e um filtro herdado
+    // poderia esvaziar a tela sem explicação.
+    F.empresa = ''; F.busca = '';
+    const ms = dadosAtuais().meses;
+    if(!ms.some(x => x.id === F.mes)) F.mes = ms[ms.length - 1].id;
+    render();
+  };
+  const bc = document.getElementById('btCadastro');
+  if(bc) bc.onclick = () => mostrarCadastro();
+  document.getElementById('fMes').onchange = e => { F.mes = e.target.value; F.empresa=''; render(); };
+  document.getElementById('fEmpresa').onchange = e => { F.empresa = e.target.value; render(); };
+  const bl = document.getElementById('fLimpar');
+  if(bl) bl.onclick = () => {
+    F.empresa=''; F.status='todos'; F.busca=''; ordem={col:'padrao',dir:1}; render();
+  };
+  const g = document.getElementById('fStatus');
+  g.onclick = e => { const b = e.target.closest('button'); if(!b) return; F.status = b.dataset.v; render(); };
+
+  const bu = document.getElementById('fBusca');
+  bu.oninput = e => {
+    F.busca = e.target.value;
+    const pos = e.target.selectionStart;
+    render();
+    const n = document.getElementById('fBusca');
+    n.focus(); n.setSelectionRange(pos, pos);
+  };
+
+  document.querySelectorAll('th[data-c]').forEach(th => {
+    th.onclick = () => {
+      const c = th.dataset.c;
+      ordem = (ordem.col === c) ? {col:c, dir:-ordem.dir} : {col:c, dir:1};
+      render();
+    };
+  });
+}
+
+/* ---------- boot ----------
+   Monta o estado a partir das duas origens e decide a tela:
+
+     sem resultado publicado  -> CADASTRO (é o que dá para fazer sem o ETL ter rodado)
+     com resultado            -> o painel
+
+   O cadastro é alcançável a qualquer momento pelo botão da barra. */
+let estadoAtual = null;
+
+async function carregarEstado(){
+  const d = await window.CP_FONTE.carregar();
+  estadoAtual = CP_DADOS.montar(d.resultado, d.fornecedores);
+  window.CP_DATA_API = CP_DADOS.paraCpData(estadoAtual);
+  FONTES = window.CP_DATA_API ? [{
+    id: 'api', rotulo: 'API Bimer', artigo: 'na', dados: window.CP_DATA_API,
+    nota: 'títulos buscados na API do Bimer, batidos em Python com filtro de competência',
+  }] : [];
+  return estadoAtual;
+}
+
+function mostrarCadastro(){
+  document.getElementById('pageSub').textContent =
+    `cadastro · ${estadoAtual.fornecedores.length} fornecedores`;
+  CP_CADASTRO.abrir(document.getElementById('content'), estadoAtual, {
+    salvar: async linhas => {
+      const gravados = await window.CP_FONTE.salvarCadastro(linhas);
+      // remonta o estado: é o que recalcula quantas edições estão pendentes de ETL
+      estadoAtual = CP_DADOS.montar(estadoAtual.resultado, gravados);
+      return estadoAtual.fornecedores;
+    },
+    sair: () => decidirTela(),
+  });
+}
+
+function decidirTela(){
+  if(estadoAtual && estadoAtual.temPainel){
+    F.fonte = FONTES[0].id;
+    // Abre no MÊS CORRENTE, onde a pendência é acionável. Meses futuros já têm
+    // planilha preparada e mostrariam "77 não recebidos" só porque o mês não
+    // chegou — abrir ali daria alarme falso. Sem o mês corrente na base, cai no
+    // mais recente que existir.
+    const ms = dadosAtuais().meses;
+    F.mes = (ms.find(mesEhCorrente) || ms[ms.length - 1]).id;
+    render();
+    return;
+  }
+  mostrarCadastro();
+}
+
+/* Exposto para o botão da barra e para os testes. */
+window.CP_PAINEL = {
+  recarregar: async () => { await carregarEstado(); decidirTela(); },
+  cadastro: () => mostrarCadastro(),
+  estado: () => estadoAtual,
+};
+
+(async function boot(){
+  try{
+    await carregarEstado();
+  }catch(e){
+    document.getElementById('pageSub').textContent = 'não foi possível carregar: ' + e.message;
+    return;
+  }
+  decidirTela();
+})();
+</script>
+</body>
+</html>
