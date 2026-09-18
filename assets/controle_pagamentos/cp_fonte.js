@@ -49,6 +49,11 @@ window.CP_FONTE = (function () {
   var BUCKET = 'hub-data';
   var _sb = null;
 
+  /* `updated_at` da linha no instante em que ESTA tela carregou. É o que impede a
+   * gravação de apagar em silêncio o que outra pessoa gravou no intervalo: o UPDATE só
+   * casa se a linha ainda estiver na versão que a tela leu. Ver salvarCadastro(). */
+  var _versao = null;
+
   function cliente() {
     if (_sb) return _sb;
     /* Dentro do iframe o hub já tem uma sessão no mesmo domínio; o client criado aqui a
@@ -62,9 +67,9 @@ window.CP_FONTE = (function () {
   }
 
   async function lerEstado(sb) {
-    var r = await sb.from('app_state').select('data').eq('id', DOC).maybeSingle();
+    var r = await sb.from('app_state').select('data, updated_at').eq('id', DOC).maybeSingle();
     if (r.error) throw new Error('app_state: ' + r.error.message);
-    return (r.data && r.data.data) || {};
+    return { doc: (r.data && r.data.data) || {}, versao: r.data && r.data.updated_at };
   }
 
   async function carregar() {
@@ -81,10 +86,11 @@ window.CP_FONTE = (function () {
       console.warn('[controle_pagamentos] resultado ainda não publicado:', e.message);
     }
 
-    var estado = await lerEstado(sb);
+    var lido = await lerEstado(sb);
+    _versao = lido.versao;
     return {
       resultado: resultado,
-      fornecedores: estado.fornecedores || []
+      fornecedores: lido.doc.fornecedores || []
     };
   }
 
@@ -93,7 +99,8 @@ window.CP_FONTE = (function () {
    * venha a existir no documento. */
   async function salvarCadastro(fornecedores) {
     var sb = cliente();
-    var estado = await lerEstado(sb);
+    var lido = await lerEstado(sb);
+    var estado = lido.doc;
     var email = (window.HUB && window.HUB.email) || null;
     var agora = new Date().toISOString();
 
@@ -110,10 +117,32 @@ window.CP_FONTE = (function () {
     });
 
     var novo = Object.assign({}, estado, { fornecedores: novos });
+
+    /* O UPDATE casa a versão que a tela leu. Se alguém gravou nesse meio tempo,
+     * `updated_at` mudou, nenhuma linha casa e nada é escrito.
+     *
+     * A guarda importa mais aqui do que em qualquer outra tela do hub: o cadastro sobe
+     * INTEIRO a cada gravação, montado da lista que esta tela carregou. Sem ela, duas
+     * pessoas com o cadastro aberto significam que a segunda a salvar apaga o trabalho
+     * da primeira sem erro nenhum — exatamente o tipo de perda silenciosa que esta tela
+     * existe para acabar (ver o cabeçalho do cp_cadastro.js).
+     *
+     * `_versao` é a do carregamento da tela, não a da releitura logo acima: é a releitura
+     * que enxergaria a gravação do outro e faria a guarda passar sempre. */
+    var esperada = _versao || lido.versao;
     var r = await sb.from('app_state')
       .update({ data: novo, updated_at: agora })
-      .eq('id', DOC);
+      .eq('id', DOC)
+      .eq('updated_at', esperada)
+      .select('id, updated_at');
     if (r.error) throw new Error('não foi possível gravar: ' + r.error.message);
+    if (!r.data || !r.data.length) {
+      throw new Error('outra pessoa gravou o cadastro enquanto esta tela estava aberta. ' +
+                      'Nada foi sobrescrito — recarregue o painel e refaça a alteração.');
+    }
+    /* A versão vem da resposta, não do que mandamos: quem decide o valor gravado é o
+     * banco, e assumir o nosso faria a próxima gravação desta tela falhar sozinha. */
+    _versao = r.data[0].updated_at || agora;
     return novos;
   }
 

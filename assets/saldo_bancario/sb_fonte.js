@@ -60,6 +60,10 @@ window.SB_FONTE = (function () {
    * disponível, e aí não há projeção para divergir dele. */
   var _semana = null;
 
+  /* `updated_at` da linha no instante em que ESTA tela carregou. O UPDATE só casa se a
+   * linha ainda estiver nessa versão — ver a guarda em gravar(). */
+  var _versao = null;
+
   function semanaDe(fatos) {
     return (fatos && fatos.meta && fatos.meta.janela_inicio)
       || SB_DADOS.iso(SB_DADOS.quartaDaSemana(new Date()));
@@ -70,9 +74,35 @@ window.SB_FONTE = (function () {
   }
 
   async function lerEstado(sb) {
-    var r = await sb.from('app_state').select('data').eq('id', DOC).maybeSingle();
+    var r = await sb.from('app_state').select('data, updated_at').eq('id', DOC).maybeSingle();
     if (r.error) throw new Error('app_state: ' + r.error.message);
-    return (r.data && r.data.data) || {};
+    return { doc: (r.data && r.data.data) || {}, versao: r.data && r.data.updated_at };
+  }
+
+  /* Gravação com guarda de concorrência, usada pelas duas telas que escrevem.
+   *
+   * `app_state` guarda o documento inteiro, então toda gravação daqui é read-modify-write
+   * e "último a salvar ganha" apaga o do outro sem erro. A guarda casa a versão que a TELA
+   * leu (`_versao`), e não a releitura feita dentro de cada função: a releitura já enxerga
+   * a gravação alheia e faria a guarda passar sempre.
+   *
+   * O formulário de saldos e o editor de provisões escrevem compartimentos diferentes do
+   * mesmo documento, então um bloqueia o outro. É o comportamento certo: os dois releem o
+   * documento inteiro antes de montar o novo, e seguir com uma leitura velha apagaria o
+   * compartimento do outro. */
+  async function gravar(sb, novo, agora) {
+    var r = await sb.from('app_state')
+      .update({ data: novo, updated_at: agora })
+      .eq('id', DOC)
+      .eq('updated_at', _versao)
+      .select('id, updated_at');
+    if (r.error) throw new Error('não foi possível gravar: ' + r.error.message);
+    if (!r.data || !r.data.length) {
+      throw new Error('outra pessoa gravou enquanto esta tela estava aberta. ' +
+                      'Nada foi sobrescrito — recarregue o painel e refaça a alteração.');
+    }
+    /* A versão vem da resposta: quem decide o valor gravado é o banco. */
+    _versao = r.data[0].updated_at || agora;
   }
 
   async function carregar() {
@@ -89,7 +119,9 @@ window.SB_FONTE = (function () {
       console.warn('[saldo_bancario] fatos da semana ainda não publicados:', e.message);
     }
 
-    var estado = await lerEstado(sb);
+    var lido = await lerEstado(sb);
+    var estado = lido.doc;
+    _versao = lido.versao;     // gravar() recusa se a linha mudou desde esta leitura
     var semana = semanaDe(fatos);
     _semana = semana;          // salvar() grava na MESMA semana que a tela mostrou
     return {
@@ -103,7 +135,7 @@ window.SB_FONTE = (function () {
 
   async function salvar(linhas, provisoes) {
     var sb = cliente();
-    var estado = await lerEstado(sb);
+    var estado = (await lerEstado(sb)).doc;
     var semana = semanaAtual();
 
     /* Lê antes de gravar e mexe só na semana corrente: `app_state` guarda o documento
@@ -135,9 +167,7 @@ window.SB_FONTE = (function () {
     });
 
     var novo = Object.assign({}, estado, { entradas: entradas, provisoes: provs });
-    var r = await sb.from('app_state').update({ data: novo, updated_at: new Date().toISOString() })
-                    .eq('id', DOC);
-    if (r.error) throw new Error('não foi possível gravar: ' + r.error.message);
+    await gravar(sb, novo, agora);
   }
 
   /* Grava SÓ as provisões, preservando os saldos digitados.
@@ -148,7 +178,7 @@ window.SB_FONTE = (function () {
    * apagar os saldos toda vez que gravasse uma provisão. */
   async function salvarProvisoes(provisoes) {
     var sb = cliente();
-    var estado = await lerEstado(sb);
+    var estado = (await lerEstado(sb)).doc;
     var semana = semanaAtual();
     var email = (window.HUB && window.HUB.email) || null;
     var agora = new Date().toISOString();
@@ -164,9 +194,7 @@ window.SB_FONTE = (function () {
     });
 
     var novo = Object.assign({}, estado, { provisoes: provs });
-    var r = await sb.from('app_state')
-      .update({ data: novo, updated_at: agora }).eq('id', DOC);
-    if (r.error) throw new Error('não foi possível gravar: ' + r.error.message);
+    await gravar(sb, novo, agora);
     return provs[semana];
   }
 
