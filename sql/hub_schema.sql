@@ -36,7 +36,8 @@ create trigger allowed_users_lower before insert or update on allowed_users
 create table if not exists user_dashboard_access (
   email      text not null references allowed_users(email) on update cascade on delete cascade,
   dashboard  text not null check (dashboard in
-               ('indicadores','dre','inadimplencia','vendas','projetos','fluxo','participacoes','plantel')),
+               ('indicadores','dre','inadimplencia','vendas','projetos','fluxo','participacoes','plantel',
+                'saldo_bancario','controle_pagamentos')),
   granted_at timestamptz not null default now(),
   primary key (email, dashboard)
 );
@@ -44,10 +45,16 @@ create table if not exists user_dashboard_access (
 -- A check acima só vale na CRIAÇÃO: `create table if not exists` não altera tabela
 -- que já existe. Dashboard novo (foi o caso de 'vendas') precisa da constraint
 -- recriada, senão o insert do admin volta como violação de check.
+--
+-- Esta é a ÚNICA lista de painéis do hub. Painel novo se adiciona aqui, nos dois
+-- lugares — nunca redefinindo a constraint no arquivo do próprio painel: a lista
+-- passaria a existir em dois arquivos e quem rodasse por último apagaria o painel
+-- do outro, sem erro nenhum na hora.
 alter table user_dashboard_access drop constraint if exists user_dashboard_access_dashboard_check;
 alter table user_dashboard_access add constraint user_dashboard_access_dashboard_check
   check (dashboard in
-          ('indicadores','dre','inadimplencia','vendas','projetos','fluxo','participacoes','plantel'));
+          ('indicadores','dre','inadimplencia','vendas','projetos','fluxo','participacoes','plantel',
+           'saldo_bancario','controle_pagamentos'));
 
 -- ---------------------------------------------------------------------
 -- 3) Helpers. SECURITY DEFINER para as policies não recursarem na própria

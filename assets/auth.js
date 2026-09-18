@@ -22,6 +22,9 @@ const HUB_DATASETS = {
   inadimplencia: { file:'inadimplencia.html', html:'inadHtml'    },
   vendas:        { file:'vendas.html',        html:'vendasHtml'  },
   projetos:      null,
+  // o painel baixa o snapshot do bucket por conta própria, dentro do iframe,
+  // porque precisa recarregar depois de gravar o formulário
+  saldo_bancario: null, controle_pagamentos: null,
 };
 
 /* Erro devolvido pelo GoTrue vem na URL (hash no fluxo implícito, query no PKCE)
