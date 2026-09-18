@@ -54,6 +54,8 @@ const ROUTES = [
   {id:'inadimplencia', title:'Controle de Inadimplência', sub:'', icon:'inad', render:renderInad},
   {id:'vendas', title:'Controle de Vendas HPG', sub:'Venda × valor no plantel — Haras Pao Grande', icon:'vendas', render:renderVendas},
   {id:'projetos', title:'Projetos', sub:'Controle de projetos de automação/BI', icon:'proj', render:renderProjetos},
+  {id:'saldo_bancario', title:'Saldo Bancário', sub:'Projeção de caixa da semana — Grupo Luxor', icon:'proj', render:renderSaldoBancario},
+  {id:'controle_pagamentos', title:'Controle de Pagamentos', sub:'Fornecedores fixos do mês e o que já foi pago', icon:'proj', render:renderControlePagamentos},
 ];
 // Rotas que o usuário logado pode abrir (Início sempre). Fora da allowlist a
 // aba nem aparece — e o dado dela nem foi baixado (ver assets/auth.js).
@@ -65,6 +67,8 @@ function temDado(id, hub){
   if(id==='dre')           return !!window.DRE_DATA;
   if(id==='inadimplencia') return !!hub.inadHtml;
   if(id==='vendas')        return !!hub.vendasHtml;
+  if(id==='saldo_bancario') return true;          // lê o bucket e app_state por conta própria
+  if(id==='controle_pagamentos') return true;     // idem
   return true;                                    // Projetos lê direto do Postgres
 }
 function allowed(){
@@ -658,6 +662,24 @@ function renderVendas(el){
 function renderProjetos(el){
   el.classList.add('flush');
   el.innerHTML=`<iframe class="embed" src="assets/projetos/index.html" title="Controle de Projetos"></iframe>`;
+}
+
+/* ---- Saldo Bancário (app com escrita, mesmo padrão do Projetos) ----
+   Os títulos a pagar vêm do bucket (publicados pelo ETL semanal); o saldo de cada conta
+   é digitado aqui e gravado em app_state. Por isso é iframe com src local, e não srcdoc
+   com HTML do bucket: a página precisa gravar, não só mostrar. */
+function renderSaldoBancario(el){
+  el.classList.add('flush');
+  el.innerHTML=`<iframe class="embed" src="assets/saldo_bancario/index.html" title="Saldo Bancário"></iframe>`;
+}
+
+/* ---- Controle de Pagamentos (mesmo padrão) ----
+   O resultado do batimento vem do bucket; o cadastro de fornecedores fixos é mantido
+   na própria tela e gravado em app_state. Por isso iframe com src local, e não srcdoc
+   com HTML do bucket: a página precisa gravar, não só mostrar. */
+function renderControlePagamentos(el){
+  el.classList.add('flush');
+  el.innerHTML=`<iframe class="embed" src="assets/controle_pagamentos/index.html" title="Controle de Pagamentos"></iframe>`;
 }
 
 /* ---- sidebar: desktop colapsa pra ícone, mobile vira drawer ----

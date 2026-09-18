@@ -81,3 +81,30 @@ jobs:
           for f in tools/*.py; do
             python -m py_compile "$f" && echo "ok $f"
           done
+
+  # Portão único, e é ESTE o nome que a proteção da main exige.
+  #
+  # O GitHub publica um status por JOB ("PII e segredos", "Sintaxe") — nunca um com o
+  # nome do workflow. A proteção pedia o contexto `guarda`, que ninguém reportava: todo
+  # PR ficava em "Waiting for status to be reported", sem erro e sem fim, e a barreira
+  # que devia ser obrigatória nunca chegava a bloquear nada de fato.
+  #
+  # Com o portão, a proteção passa a apontar para algo real e continua valendo se um job
+  # for renomeado. Job novo entra aqui no `needs` — uma linha — em vez de exigir que
+  # alguém lembre de mexer na configuração do repositório.
+  guarda:
+    name: guarda
+    needs: [segredos, sintaxe]
+    # `always()` para o portão rodar mesmo com um dependente falhando ou pulado: sem
+    # isso ele seria PULADO junto, o status nunca sairia e o PR voltaria a esperar para
+    # sempre — falha aberta, exatamente o que este job existe para impedir.
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resultado dos jobs
+        run: |
+          echo "segredos: ${{ needs.segredos.result }}"
+          echo "sintaxe:  ${{ needs.sintaxe.result }}"
+          [ "${{ needs.segredos.result }}" = "success" ] || exit 1
+          [ "${{ needs.sintaxe.result }}"  = "success" ] || exit 1
+          echo "guarda ok"

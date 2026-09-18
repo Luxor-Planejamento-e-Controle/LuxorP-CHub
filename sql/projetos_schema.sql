@@ -31,6 +31,14 @@ alter table app_state enable row level security;
 -- ---------------------------------------------------------------------
 -- 3) Policies do hub. As duas antigas (domínio aberto) saem de cena —
 --    é isto que desliga o acesso pela URL avulsa do controle-de-projetos.
+--
+--    CADA POLICY É AMARRADA AO id DO SEU DOCUMENTO. Policy no Postgres vale para a
+--    TABELA inteira, e policies permissivas se SOMAM (OR). Sem o `id = 'projetos'`,
+--    quem tem acesso a qualquer painel que usa app_state leria e gravaria a linha de
+--    todos os outros — o colchão das contas do Saldo Bancário para quem só tem
+--    Projetos, por exemplo. Com um documento só isso não aparecia; app_state hoje tem
+--    três. O `.eq('id', ...)` do front é escopo de cliente, não barreira: a anon key
+--    é pública e a chamada pode ser feita direto na API.
 -- ---------------------------------------------------------------------
 drop policy if exists "luxor_select" on app_state;
 drop policy if exists "luxor_update" on app_state;
@@ -38,13 +46,13 @@ drop policy if exists "luxor_update" on app_state;
 drop policy if exists hub_projetos_select on app_state;
 create policy hub_projetos_select on app_state
   for select to authenticated
-  using ( public.hub_can('projetos') );
+  using ( id = 'projetos' and public.hub_can('projetos') );
 
 drop policy if exists hub_projetos_update on app_state;
 create policy hub_projetos_update on app_state
   for update to authenticated
-  using      ( public.hub_can('projetos') )
-  with check ( public.hub_can('projetos') );
+  using      ( id = 'projetos' and public.hub_can('projetos') )
+  with check ( id = 'projetos' and public.hub_can('projetos') );
 
 -- ---------------------------------------------------------------------
 -- 4) Linha única do dashboard (vazia). O dado real vive na tabela;
