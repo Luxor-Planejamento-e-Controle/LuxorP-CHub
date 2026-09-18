@@ -1,0 +1,1114 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Saldo Bancário · Luxor P&amp;C</title>
+<!-- Fontes oficiais Luxor (Fakt Pro / Fakt Slab Pro), do próprio hub.
+     No repo da planilha o painel trazia uma cópia em `fontes/`, que aqui não existe —
+     o link falhava calado e a tela caía na fonte de sistema. O hub já tem o arquivo,
+     e apontar para ele evita uma segunda cópia de 172 KB de base64. -->
+<link rel="stylesheet" href="../fonts.css">
+<style>
+/* ============================================================
+   Mesmos tokens do painel de Controle de Pagamentos. Declarados
+   aqui (não importados) para o painel ser autocontido: abre por
+   file://, sem servidor e sem dependência.
+   ============================================================ */
+:root{
+  --bg:#0D2126; --bg-2:#113036;
+  --surface:#143840; --surface-2:#1B4650;
+  --ink:#EAF4F4; --ink-2:#A7C3C5; --ink-3:#6E8C90;
+  --orange:#FFA400; --orange-deep:#E08E00; --orange-soft:rgba(255,164,0,.14);
+  --teal:#1D6E79; --teal-light:#2E97A6;
+  --pos:#46B678; --neg:#E5674E; --warn:#F2C14E;
+  --line:rgba(255,255,255,.13); --line-strong:rgba(255,255,255,.24);
+  --r:14px; --r-sm:9px; --ctl-h:36px;
+  --largura-max:1800px;
+  --gutter:26px;
+  --shadow-card:0 1px 3px rgba(0,0,0,.35);
+  --font-sans:"Fakt Pro",system-ui,-apple-system,"Segoe UI",Arial,sans-serif;
+  --font-serif:"Fakt Slab Pro","Fakt Pro",Georgia,serif;
+  --pos-soft:rgba(70,182,120,.16);
+  --neg-soft:rgba(229,103,78,.16);
+  --warn-soft:rgba(242,193,78,.16);
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{
+  font-family:var(--font-sans);background:var(--bg);color:var(--ink);
+  font-size:14px;line-height:1.45;-webkit-font-smoothing:antialiased;
+}
+::-webkit-scrollbar{width:10px;height:10px}
+::-webkit-scrollbar-thumb{background:var(--surface-2);border-radius:8px}
+::-webkit-scrollbar-track{background:transparent}
+
+/* ---- topbar ---- */
+.topbar{
+  border-bottom:1px solid var(--line);background:var(--bg-2);
+  position:sticky;top:0;z-index:6;
+}
+/* A barra estica de ponta a ponta, mas o conteúdo dela segue o mesmo eixo do
+   .content — senão em monitor grande o título fica na borda e os cards
+   centralizados. */
+.topbar-inner{
+  display:flex;align-items:center;gap:16px;flex-wrap:wrap;
+  padding:14px var(--gutter);
+  max-width:var(--largura-max);margin-inline:auto;
+}
+.brand{display:flex;align-items:center;gap:12px;padding-right:16px;border-right:1px solid var(--line)}
+.brand .word{font-family:var(--font-serif);font-size:16px;font-weight:600;letter-spacing:.02em}
+.brand .sub{font-size:10px;letter-spacing:.26em;color:var(--ink-2);font-weight:600}
+.topbar h1{font-family:var(--font-serif);font-size:19px;margin:0;font-weight:600}
+.topbar .sub{color:var(--ink-3);font-size:12px}
+.topbar .spacer{flex:1}
+.content{
+  padding:22px var(--gutter) 56px;
+  max-width:var(--largura-max);
+  margin-inline:auto;   /* sem isto o painel encosta à esquerda em tela larga */
+}
+
+/* ---- avisos ---- */
+.banner{
+  border-radius:var(--r-sm);padding:11px 15px;font-size:12.5px;margin-bottom:18px;
+  display:flex;gap:10px;align-items:flex-start;
+  background:var(--orange-soft);border:1px solid rgba(255,164,0,.35);color:var(--ink);
+}
+.banner svg{flex:0 0 auto;margin-top:1px}
+.banner b{color:var(--ink)}
+
+/* ---- barra de filtros ---- */
+.toolbar{display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end;margin-bottom:18px}
+.field{display:flex;flex-direction:column;gap:4px}
+.field label{font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3)}
+select{
+  background:var(--surface);border:1px solid var(--line);color:var(--ink);
+  padding:0 12px;border-radius:var(--r-sm);font:inherit;font-size:13px;outline:none;
+  height:var(--ctl-h);
+}
+select:focus{border-color:var(--orange)}
+.seg{
+  display:inline-flex;align-items:center;padding:3px;gap:3px;height:var(--ctl-h);
+  background:var(--surface);border:1px solid var(--line);border-radius:var(--r-sm);
+}
+.seg button{
+  background:transparent;border:0;color:var(--ink-2);padding:0 12px;
+  height:calc(var(--ctl-h) - 8px);border-radius:6px;cursor:pointer;font:inherit;font-size:12px;
+  display:inline-flex;align-items:center;gap:6px;white-space:nowrap;
+}
+.seg button:hover{color:var(--ink)}
+.seg button.on{background:var(--orange);color:#201700;font-weight:600}
+.btn-ghost{
+  background:transparent;border:1px solid var(--line);color:var(--ink-2);height:var(--ctl-h);
+  padding:0 14px;border-radius:var(--r-sm);font:inherit;font-size:13px;cursor:pointer;
+}
+.btn-ghost:hover{border-color:var(--orange);color:var(--orange)}
+
+/* ---- cards ---- */
+.grid{display:grid;gap:14px;margin-bottom:16px}
+/* auto-fill em vez de contagem fixa: o número de movimentações varia de semana
+   para semana (nesta são 7, pode ser 1) e coluna fixa deixaria card esticado
+   ou órfão na última fila. */
+.g-mov{grid-template-columns:repeat(auto-fill,minmax(252px,1fr));margin-bottom:0}
+.card{
+  background:var(--surface);border:1px solid var(--line);border-radius:var(--r);
+  box-shadow:var(--shadow-card);padding:18px;
+}
+.card + .card{margin-top:16px}
+.card-title{display:flex;align-items:baseline;gap:9px;margin-bottom:14px;flex-wrap:wrap}
+.card-title h2{font-family:var(--font-serif);font-size:15px;margin:0;font-weight:600}
+.card-title .muted{color:var(--ink-3);font-size:12px;font-weight:400}
+.sub-title{
+  display:flex;align-items:baseline;gap:9px;flex-wrap:wrap;
+  margin:22px 0 12px;padding-top:16px;border-top:1px solid var(--line);
+}
+.sub-title h3{font-family:var(--font-serif);font-size:13.5px;margin:0;font-weight:600}
+.sub-title .muted{color:var(--ink-3);font-size:12px;font-weight:400}
+
+/* ---- movimentação a solicitar ---- */
+.mov{
+  background:var(--bg-2);border:1px solid var(--line);border-radius:var(--r-sm);
+  padding:13px 15px;border-left:3px solid var(--line-strong);
+}
+.mov.resgate{border-left-color:var(--neg);background:linear-gradient(90deg,var(--neg-soft),var(--bg-2) 60%)}
+.mov.aplicar{border-left-color:var(--pos);background:linear-gradient(90deg,var(--pos-soft),var(--bg-2) 60%)}
+.mov .acao{font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-2);
+  display:flex;align-items:center;gap:7px;margin-bottom:3px}
+.mov .vlr{font-family:var(--font-serif);font-size:25px;font-weight:600;line-height:1.1;
+  font-variant-numeric:lining-nums proportional-nums;font-feature-settings:"lnum" 1,"pnum" 1}
+.mov .conta{font-size:13px;font-weight:500;margin-top:5px}
+.mov .de{color:var(--ink-3);font-size:11.5px;margin-top:2px}
+
+/* ---- marca de status: ponto + ícone + rótulo em --ink ----
+   Nunca cor sozinha, e nunca a cor do status como texto em corpo pequeno:
+   --neg sobre o card dá 3.82:1, abaixo dos 4.5:1 exigidos de texto normal.
+   O ponto é marca (limite 3:1) e passa. */
+.st{display:inline-flex;align-items:center;gap:7px;white-space:nowrap}
+.st .dot{width:9px;height:9px;border-radius:50%;flex:0 0 auto}
+.st .ic{flex:0 0 auto;opacity:.95}
+.st-resgate .dot,.st-resgate .ic{color:var(--neg);background:var(--neg)}
+.st-aplicar .dot,.st-aplicar .ic{color:var(--pos);background:var(--pos)}
+.st-sem_acao .dot,.st-sem_acao .ic{color:var(--teal-light);background:var(--teal-light)}
+.st-sem_colchao .dot,.st-sem_colchao .ic{color:var(--warn);background:var(--warn)}
+.st-descontinuada .dot,.st-descontinuada .ic{color:var(--ink-3);background:var(--ink-3)}
+.st-saida .dot,.st-saida .ic{color:var(--neg);background:var(--neg)}
+.st-entrada .dot,.st-entrada .ic{color:var(--pos);background:var(--pos)}
+.st .ic{background:transparent!important}
+
+/* ---- tabelas ---- */
+.tbl-wrap{overflow:auto;border-radius:var(--r-sm);max-height:calc(100vh - 200px)}
+.tbl-wrap.baixa{max-height:none}
+table.data{width:100%;border-collapse:collapse;font-size:13px;font-variant-numeric:tabular-nums}
+table.data th{
+  text-align:left;padding:9px 13px;background:#0b1f24;color:var(--ink-2);
+  font-weight:600;font-size:10.5px;letter-spacing:.05em;text-transform:uppercase;
+  position:sticky;top:0;z-index:1;user-select:none;white-space:nowrap;
+}
+table.data th[data-c]{cursor:pointer}
+table.data th[data-c]:hover{color:var(--ink)}
+table.data th .arw{opacity:.55;font-size:9px;margin-left:3px}
+table.data th.num,table.data td.num{text-align:right}
+table.data td{padding:8px 13px;border-top:1px solid var(--line);color:var(--ink);vertical-align:middle}
+table.data tbody tr:hover td{background:rgba(255,255,255,.03)}
+/* Barra na borda da linha = a situação da conta, mesmas cores dos pontos de
+   status. Ela marca o QUE FAZER (resgatar / aplicar / conta em encerramento),
+   não o sinal do saldo: FPG-Itaú fecha a semana com +15.468 e ainda assim
+   precisa de resgate, porque o colchão dela é 30 mil.
+   A cor não vai sozinha — a coluna Situação repete em texto e ícone. */
+table.data tr.mk-resgate td:first-child      {box-shadow:inset 3px 0 0 var(--neg)}
+table.data tr.mk-aplicar td:first-child      {box-shadow:inset 3px 0 0 var(--pos)}
+table.data tr.mk-descontinuada td:first-child{box-shadow:inset 3px 0 0 var(--ink-3)}
+table.data tr.mk-sem_colchao td:first-child  {box-shadow:inset 3px 0 0 var(--warn)}
+/* mk-sem_acao não tem barra de propósito: "dentro do colchão" é a ausência de
+   ação, e uma barra ali competiria com as que pedem alguma. */
+table.data tfoot td{
+  padding:9px 13px;border-top:1px solid var(--line-strong);font-weight:600;
+  background:rgba(255,255,255,.03);
+  white-space:nowrap;   /* sem isto "−R$ 490.001,03" quebra em duas linhas */
+}
+table.data tfoot tr.aplicado td{font-weight:500;color:var(--ink-2);border-top:1px solid var(--line)}
+
+/* Linha de aplicação: subordinada à conta corrente logo acima, como no Painel
+   da planilha. Borda tracejada e recuo dizem que é detalhe da linha anterior,
+   não mais uma conta — sem isso o total de saldo pareceria contado duas vezes. */
+table.data tr.inv td{
+  border-top:1px dashed rgba(255,255,255,.08);color:var(--ink-2);font-size:12.5px;
+  padding-top:6px;padding-bottom:6px;
+}
+table.data tr.inv td:first-child{padding-left:32px}
+table.data tr.inv .marca{color:var(--ink-3);margin-right:8px}
+table.data tr.conta-cc td{border-top:1px solid var(--line-strong)}
+
+/* Abaixo de ~1300px as 8 colunas não cabem e a tabela rola dentro do card; sem
+   prender a primeira, o valor perde a conta a que pertence. Mesmo motivo do
+   fluxo — aqui só vale quando há rolagem, e sticky não atrapalha quando não há. */
+table.principal td:first-child,table.principal th:first-child{
+  position:sticky;left:0;z-index:2;background:var(--surface);
+  border-right:1px solid var(--line);
+}
+table.principal thead th:first-child{z-index:3;background:#0b1f24}
+table.principal tbody tr:hover td:first-child{background:var(--surface-2)}
+table.principal tfoot td:first-child{background:#12333a}
+
+.forn{font-weight:500}
+.sub2{color:var(--ink-3);font-size:11px;margin-top:2px}
+.nowrap{white-space:nowrap}
+
+/* ---- fluxo dia a dia ----
+   A primeira coluna fica presa: com 8 colunas de data, rolar na horizontal sem
+   isso faz o número perder a conta a que pertence. */
+table.fluxo td.c0,table.fluxo th.c0{
+  position:sticky;left:0;z-index:2;background:var(--surface);min-width:215px;
+  border-right:1px solid var(--line);
+}
+table.fluxo thead th.c0{z-index:3;background:#0b1f24}
+table.fluxo tbody tr:hover td.c0{background:var(--surface-2)}
+table.fluxo tfoot td.c0{background:#12333a}
+table.fluxo td{vertical-align:top}
+table.fluxo td.dia{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
+table.fluxo td.dia.abaixo{background:var(--neg-soft)}
+table.fluxo td.dia.vira{box-shadow:inset 2px 0 0 var(--neg)}
+table.fluxo th.dia{text-align:right}
+table.fluxo th.dia .dsem{display:block;font-weight:400;letter-spacing:.02em;
+  text-transform:none;color:var(--ink-3);font-size:10px}
+.mov-dia{color:var(--ink-3);font-size:10.5px;display:block;margin-top:1px}
+
+/* ---- modo edição ---- */
+.btn-acao{
+  background:var(--orange);border:1px solid var(--orange);color:#201700;height:var(--ctl-h);
+  padding:0 15px;border-radius:var(--r-sm);font:inherit;font-size:13px;font-weight:600;cursor:pointer;
+  display:inline-flex;align-items:center;gap:7px;
+}
+.btn-acao:hover{background:var(--orange-deep);border-color:var(--orange-deep)}
+.btn-acao:disabled{opacity:.5;cursor:default}
+.barra-edicao{
+  display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:14px;
+  padding:11px 14px;border-radius:var(--r-sm);
+  background:var(--orange-soft);border:1px solid rgba(255,164,0,.35);
+}
+.barra-edicao .txt{font-size:12.5px;flex:1;min-width:220px}
+.barra-edicao b{font-variant-numeric:tabular-nums}
+table.data td input,table.data td select{
+  background:var(--bg-2);border:1px solid var(--line);color:var(--ink);
+  border-radius:6px;font:inherit;font-size:12.5px;padding:4px 7px;width:100%;min-width:0;
+  font-variant-numeric:tabular-nums;
+}
+table.data td input:focus,table.data td select:focus{border-color:var(--orange);outline:none}
+table.data td input.num{text-align:right}
+table.data tr.novo td{background:var(--pos-soft)}
+table.data tr.alterado td{background:var(--warn-soft)}
+.btn-lixo{
+  background:transparent;border:1px solid var(--line);color:var(--ink-2);
+  border-radius:6px;width:28px;height:26px;cursor:pointer;display:grid;place-items:center;padding:0;
+}
+.btn-lixo:hover{border-color:var(--neg);color:var(--neg)}
+.aviso-edicao{
+  margin-top:12px;font-size:12px;color:var(--ink-2);display:flex;gap:8px;align-items:flex-start;
+}
+.erro-box{
+  margin-bottom:14px;padding:11px 14px;border-radius:var(--r-sm);font-size:12.5px;
+  background:var(--neg-soft);border:1px solid rgba(229,103,78,.45);color:var(--ink);
+}
+.empty{display:grid;place-items:center;text-align:center;padding:60px 20px;color:var(--ink-3)}
+.empty .big{font-size:40px;margin-bottom:10px;opacity:.5}
+.empty code{background:var(--surface-2);padding:2px 7px;border-radius:5px;color:var(--orange);font-size:12.5px}
+.foot{margin-top:22px;padding-top:14px;border-top:1px solid var(--line);color:var(--ink-3);font-size:11.5px}
+
+/* ---- formulário de saldos (SB_FORM) ----
+   Os campos seguem o padrão de CONTROLE DO HUB (assets/theme.css): fundo --surface,
+   altura --ctl-h, raio --r-sm, 13px. Não o `table.data td input` logo acima, que é a
+   variante compacta de edição inline da tabela — apertada e de outro raio. Numa tela
+   que é a principal, ela destoa do resto do hub. */
+table.data td input.sbf{
+  background:var(--surface);border:1px solid var(--line);color:var(--ink);
+  height:var(--ctl-h);padding:0 12px;border-radius:var(--r-sm);
+  font:inherit;font-size:13px;text-align:right;width:172px;
+  font-variant-numeric:tabular-nums;margin-left:auto;display:block;
+}
+table.data td input.sbf::placeholder{color:var(--ink-3)}
+table.data td input.sbf:focus{border-color:var(--orange);outline:none}
+/* Campo já informado ganha a borda do teal: dá para varrer a coluna de cima a baixo e
+   ver o que falta, sem contar linha por linha. */
+table.data td input.sbf.ok{border-color:var(--teal-light)}
+
+/* Marca a conta que ainda não tem saldo. Mesmo idioma de marcador da tabela principal
+   (faixa de 3px na primeira célula) e o token --warn que já existe, mas com classe
+   própria: `mk-sem_colchao` quer dizer "conta sem colchão", outra coisa. */
+table.data tr.falta-saldo td:first-child{box-shadow:inset 3px 0 0 var(--warn)}
+/* "do cadastro": diz que o valor veio da entrada recorrente e não de alguém que digitou
+   esta semana. Sem a marca, o campo pré-preenchido parece confirmado quando não é. */
+table.data .sub2.fixo{text-align:right;margin-top:3px;color:var(--teal-light)}
+
+/* Barra de ações do formulário: neutra, separada por um filete — como o rodapé dos
+   cards do hub. A `.barra-edicao` do painel é laranja, e o botão primário (laranja
+   também) afundava dentro dela. */
+.sbf-acoes{
+  display:flex;align-items:center;gap:12px;flex-wrap:wrap;
+  margin-top:20px;padding-top:16px;border-top:1px solid var(--line);
+}
+.sbf-acoes .txt{flex:1;min-width:210px;font-size:12.5px;color:var(--ink-2)}
+.sbf-acoes .txt b{color:var(--ink);font-variant-numeric:tabular-nums}
+.sbf-acoes .btn-acao{padding:0 18px}
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="topbar-inner">
+    <div class="brand">
+      <div>
+        <div class="word">LUXOR</div>
+        <div class="sub">P&amp;C</div>
+      </div>
+    </div>
+    <div>
+      <h1>Saldo Bancário</h1>
+      <div class="sub" id="pageSub">carregando…</div>
+    </div>
+    <div class="spacer"></div>
+  </div>
+</header>
+
+<div class="content" id="content">
+  <div class="empty" id="semDados">
+    <div class="big">◔</div>
+    <div>Dados não carregados.<br>Rode <code>python extrair_dados.py</code> e recarregue esta página.</div>
+  </div>
+</div>
+
+<!-- Projeção de caixa da semana (quarta a quarta). Três origens alimentam ela e
+     só uma é automática:
+        Base CAP  títulos a pagar        <- API do Bimer, publicada semanalmente no
+                                            bucket privado como saldo_bancario.json
+        Base CAR  estimativa de entrada  <- digitado aqui (formulário)
+        Saldo     extrato de cada conta  <- digitado aqui (até haver API do banco)
+
+     O layout e a lógica de tela vêm do painel que rodava sobre a planilha; o que mudou
+     é de onde os números vêm. `sb_dados.paraSbData` devolve exatamente o mesmo
+     window.SB_DATA que o extrair_dados.py produzia, para nada da tela precisar mudar. -->
+<script src="../vendor/supabase.min.js"></script>
+<script src="config.js"></script>
+<script src="sb_regra.js"></script>
+<script src="sb_dados.js"></script>
+<script src="sb_fonte.js"></script>
+<script src="sb_formulario.js"></script>
+<script>
+'use strict';
+
+/* Erro de JS deixaria a página no estado vazio, que parece "sem dados" e não
+   "quebrou". Jogar no título dá o diagnóstico até em navegador headless. */
+window.onerror = (m, f, l) => { document.title = 'ERRO JS: ' + m + ' @' + l; };
+
+/* ---------- situação da conta: rótulo + ícone. Nunca cor sozinha. ---------- */
+const ST = {
+  resgate:       {label:'Resgatar',   ordem:1, ico:'M12 5v14M19 12l-7 7-7-7'},
+  sem_colchao:   {label:'Sem colchão',ordem:2, ico:'M12 17h.01M9.1 9a3 3 0 015.8 1c0 2-3 2.2-3 4M12 21a9 9 0 100-18 9 9 0 000 18z'},
+  aplicar:       {label:'Aplicar',    ordem:3, ico:'M12 19V5M5 12l7-7 7 7'},
+  sem_acao:      {label:'Sem ação',   ordem:4, ico:'M20 6L9 17l-5-5'},
+  descontinuada: {label:'Em descontinuação', ordem:5, ico:'M12 8v4M12 16h.01M12 22a10 10 0 100-20 10 10 0 000 20z'},
+  saida:         {label:'Saída',      ordem:1, ico:'M12 5v14M19 12l-7 7-7-7'},
+  entrada:       {label:'Entrada',    ordem:2, ico:'M12 19V5M5 12l7-7 7 7'},
+};
+const stMeta = k => ST[k] || {label:k, ordem:9, ico:'M12 12h.01'};
+const ICO_FLUXO   = 'M3 3v18h18M7 15l4-5 4 3 5-7';
+const ICO_TITULOS = 'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2';
+
+const fmt = {
+  int: v => v.toLocaleString('pt-BR'),
+  rs:  v => (v<0?'−':'') + 'R$ ' + Math.abs(v).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}),
+  /* "135k" — o idioma da casa: é assim que a anotação manual da coluna H é
+     escrita e é assim que o gestor pede ao banco. Abaixo de 100k mantém uma
+     decimal, senão "1,8k" viraria "2k" e a projeção perderia o sinal do
+     tamanho real do buraco.
+     Abaixo de mil sai o valor exato em reais: a escala em milhares imprimiria
+     "−0,0k", que se lê como zero justamente no dia em que a conta virou
+     negativa — o dia que a tabela do fluxo existe para mostrar. */
+  k: v => {
+    if(!v) return '0';
+    const s = v < 0 ? '−' : '', a = Math.abs(v);
+    if(a < 1000) return s + 'R$ ' + Math.round(a).toLocaleString('pt-BR');
+    const m = a / 1000;
+    return s + (m >= 100 ? Math.round(m).toLocaleString('pt-BR')
+                         : m.toLocaleString('pt-BR',{minimumFractionDigits:1,maximumFractionDigits:1})) + 'k';
+  },
+  data: d => String(d.getDate()).padStart(2,'0')+'/'+String(d.getMonth()+1).padStart(2,'0')+'/'+d.getFullYear(),
+  dm:   d => String(d.getDate()).padStart(2,'0')+'/'+String(d.getMonth()+1).padStart(2,'0'),
+  // 'AAAA-MM-DD' -> 'DD/MM/AAAA'. Separado de fmt.data, que recebe Date.
+  // Campo ausente vira '—': no hub há dado que só existe depois que alguém digita, e
+  // 'undefined/undefined/null' no meio de uma frase é pior que uma lacuna assumida.
+  iso: s => { if(!s) return '—'; const [y,mo,d] = String(s).split('-'); return `${d}/${mo}/${y}`; },
+  dtHora: s => { if(!s) return '—'; const [d,h]=String(s).split('T');
+                 if(!h) return d; const [y,m,dd]=d.split('-'); return `${dd}/${m}/${y} às ${h}`; },
+};
+const esc = s => String(s==null?'':s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+const svg = (d, sz=13) =>
+  `<svg class="ic" width="${sz}" height="${sz}" viewBox="0 0 24 24" fill="none" stroke="currentColor" `
+  + `stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="${d}"/></svg>`;
+
+const stTag = k => {
+  const m = stMeta(k);
+  return `<span class="st st-${k}"><span class="dot"></span>${svg(m.ico)}<span>${esc(m.label)}</span></span>`;
+};
+
+/* ---------- dados ---------- */
+/* Preenchido no boot, a partir do snapshot do bucket + o que foi digitado no hub.
+   `estadoAtual` guarda a forma interna (com a regra já aplicada), que o formulário usa. */
+let D = null;
+let estadoAtual = null;
+const DIAS_SEM = ['dom','seg','ter','qua','qui','sex','sáb'];
+
+/* Na versão que rodava sobre a planilha, editar exigia o servidor.py: por file:// o
+   navegador não grava em arquivo nenhum, então os controles ficavam ocultos.
+
+   No hub há onde gravar — `app_state` —, e a edição voltou. Mas ela é RESTRITA ÀS
+   PROVISÕES: título que veio do Bimer é só leitura, porque a próxima execução do ETL
+   republica o arquivo e apagaria qualquer alteração. Mostrar campo editável para ele
+   seria prometer uma coisa que se descobre falsa só na quarta seguinte. */
+const podeEditar = () => true;
+
+/* Cópia de trabalho da edição. Vive só aqui até o "Aplicar": assim dá para
+   descartar sem ter tocado na planilha. `origem` guarda o estado como veio,
+   para marcar o que mudou e para o Descartar funcionar. */
+let E = null;
+let erroEdicao = null;
+let salvando = false;
+
+/* Situação derivada da ação sugerida em Python. A AÇÃO vem primeiro: conta em
+   descontinuação ainda recebe pagamento durante a transição, e quando precisa de
+   resgate é isso que o gestor tem de ver — rotular "em descontinuação" ali
+   esconderia a única linha da tabela que exige providência. Sem ação nenhuma, o
+   rótulo volta a ser o estado da conta. */
+const situacao = c => c.acao === 'resgate' ? 'resgate'
+  : c.acao === 'Aplicar' ? 'aplicar'
+  : c.descontinuada ? 'descontinuada'
+  : (c.colchao == null ? 'sem_colchao' : 'sem_acao');
+
+/* Fluxo e títulos ficam atrás de botão: a página abre na decisão (o que pedir
+   ao banco) e o detalhe só entra quando alguém for conferir. */
+const F = {conta:'', fluxo:false, titulos:false};
+let oC = {col:'padrao', dir:1};   // ordem da tabela de contas
+let oT = {col:'padrao', dir:1};   // ordem da tabela de títulos
+
+/* A ordenação conta como estado ativo: sem isso, quem clica num cabeçalho fica
+   sem caminho de volta para a ordem padrão — que não é decorativa, ela põe as
+   contas que precisam de resgate em cima. */
+const temOrdem   = () => oC.col !== 'padrao' || oT.col !== 'padrao';
+const temRecorte = () => !!F.conta;
+const temFiltro  = () => temRecorte() || temOrdem();
+
+function diasDaJanela(){
+  const out = [];
+  if(!D.janela) return out;
+  const p = s => { const [y,m,d] = s.split('-').map(Number); return new Date(y, m-1, d); };
+  let cur = p(D.janela[0]);
+  const fim = p(D.janela[1]);
+  while(cur <= fim){
+    out.push(cur);
+    cur = new Date(cur.getFullYear(), cur.getMonth(), cur.getDate() + 1);
+  }
+  return out;
+}
+const isoDe = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+
+const escopo = () => D.contas.filter(c => !F.conta || c.chave === F.conta);
+
+function ordenar(rows, o, chaves, padrao){
+  const chave = chaves[o.col];
+  if(!chave) return rows.sort(padrao);
+  return rows.sort((a,b) => {
+    const x = chave(a), y = chave(b);
+    if(x < y) return -1*o.dir;
+    if(x > y) return  1*o.dir;
+    return padrao(a,b);
+  });
+}
+function arw(o, c){
+  return o.col === c ? `<span class="arw">${o.dir>0?'▲':'▼'}</span>` : '';
+}
+
+/* ---------- render ---------- */
+function render(){
+  const contas = escopo();
+  const chaves = new Set(contas.map(c => c.chave));
+  const tit = D.titulos.filter(t => chaves.has(t.chave));
+  const rec = D.a_receber.filter(t => chaves.has(t.chave));
+  const filtrado = contas.length !== D.contas.length;
+
+  const resgates = contas.filter(c => c.acao === 'resgate');
+  const aplicar  = contas.filter(c => c.acao === 'Aplicar');
+
+  document.getElementById('pageSub').textContent =
+    `${fmt.iso(D.janela[0])} a ${fmt.iso(D.janela[1])} · saldo de ${fmt.iso(D.data_saldo)} · `
+    + (filtrado ? `${contas[0] ? contas[0].conta : 'nenhuma conta'}`
+                : `${contas.length} contas · ${D.titulos.length} títulos a pagar`);
+
+  const seg = (id, opts) => `<div class="seg" id="${id}">` + opts.map(o =>
+      `<button type="button" data-v="${o.v}" class="${o.on?'on':''}">${o.html||esc(o.label)}</button>`
+    ).join('') + `</div>`;
+
+  const contasOpt = D.contas.slice().sort((a,b)=>a.conta.localeCompare(b.conta,'pt-BR'));
+
+  document.getElementById('content').innerHTML = `
+
+    <div class="banner">
+      ${svg('M12 8v4M12 16h.01M12 22a10 10 0 100-20 10 10 0 000 20z', 15)}
+      <div>
+        Projeção da semana de <b>${fmt.iso(D.janela[0])} a ${fmt.iso(D.janela[1])}</b>, com o saldo
+        das contas na posição de <b>${fmt.iso(D.data_saldo)}</b>. Só as <b>saídas</b> vêm da API do
+        Bimer: o saldo de cada conta é digitado do extrato e o a receber é uma estimativa lançada à
+        mão — as duas seguem manuais até haver API dos bancos. Resgate e aplicação são
+        <b>sugestão para o gestor solicitar ao banco</b>: esta projeção não movimenta dinheiro.
+        Arquivo <b>${esc(D.arquivo)}</b>, salvo em <b>${fmt.dtHora(D.atualizado_em)}</b>.
+      </div>
+    </div>
+
+    <div class="toolbar">
+      <div class="field"><label>Conta</label>
+        <select id="fConta"><option value="">Todas (${D.contas.length})</option>${contasOpt.map(c =>
+          `<option value="${esc(c.chave)}" ${c.chave===F.conta?'selected':''}>${esc(c.conta)}</option>`).join('')}</select></div>
+      <div class="field"><label>Detalhamento</label>
+        ${seg('fSecoes', [
+          {v:'fluxo',   html:`${svg(ICO_FLUXO,12)} Fluxo de caixa`,       on:F.fluxo},
+          {v:'titulos', html:`${svg(ICO_TITULOS,12)} Títulos a pagar e receber`, on:F.titulos},
+        ])}</div>
+      ${temFiltro() ? `
+      <div class="field"><label>&nbsp;</label>
+        <button class="btn-ghost" id="fLimpar" type="button">${
+          temRecorte() ? 'Limpar filtros' : 'Restaurar ordem'}</button></div>` : ''}
+      ${podeEditar() && !E ? `
+      <div class="field"><label>Provisões</label>
+        <button class="btn-acao" id="btEditar" type="button">
+          ${svg('M11 4h2M4 20h16M7 17l9.5-9.5a2.1 2.1 0 00-3-3L4 14v3h3z',13)}
+          Editar provisões</button></div>` : ''}
+    </div>
+
+    ${erroEdicao ? `<div class="erro-box">
+      ${svg('M12 9v4M12 17h.01M10.3 3.9L1.8 18a2 2 0 001.7 3h17a2 2 0 001.7-3L14.7 3.9a2 2 0 00-3.4 0z',15)}
+      <b>Não foi possível gravar.</b> ${esc(erroEdicao)}</div>` : ''}
+
+    ${E ? (() => { const m = contarMudancas(); return `
+    <div class="barra-edicao">
+      ${svg('M11 4h2M4 20h16M7 17l9.5-9.5a2.1 2.1 0 00-3-3L4 14v3h3z',15)}
+      <div class="txt">
+        <b>Editando as provisões da semana.</b> Nada foi gravado ainda —
+        ${temMudanca()
+          ? `<b>${m.novas}</b> nova(s), <b>${m.alteradas}</b> alterada(s), <b>${m.excluidas}</b> excluída(s).`
+          : 'nenhuma alteração até agora.'}
+        Ao gravar, o saldo restante, a sugestão de resgate e o fluxo dia a dia são
+        recalculados.
+      </div>
+      <button class="btn-ghost" id="btAddSaida" type="button">+ Adicionar provisão</button>
+      <button class="btn-ghost" id="btCancelar" type="button">Descartar</button>
+      <button class="btn-acao" id="btAplicar" type="button" ${
+        (!temMudanca() || salvando) ? 'disabled' : ''}>${
+        salvando ? 'Gravando…' : 'Gravar provisões'}</button>
+    </div>`; })() : ''}
+
+
+    ${!E ? `<div class="aviso-edicao">
+      ${svg('M12 8v4M12 16h.01M12 22a10 10 0 100-20 10 10 0 000 20z',14)}
+      <div>Os <b>títulos do Bimer</b> não se editam aqui — vêm da API e são republicados
+      a cada execução. O <b>saldo</b> de cada conta e as <b>entradas previstas</b> são
+      digitados${D.data_saldo ? `, e os desta semana foram informados em
+      <b>${fmt.iso(D.data_saldo)}</b>` : ''}; as <b>provisões</b> ficam na aba de
+      títulos.</div>
+      <button class="btn-ghost" id="btEditarSaldos" type="button"
+              style="margin-left:auto;align-self:center;white-space:nowrap">Corrigir saldos</button></div>` : ''}
+
+    <div class="card">
+      <div class="card-title">
+        <h2>Movimentações</h2>
+      </div>
+      <div class="tbl-wrap baixa">${tabelaContas(contas, filtrado)}</div>
+
+      <div class="sub-title">
+        <h3>Sugestões de Movimentação</h3>
+        <span class="muted">${(resgates.length + aplicar.length)
+          ? `${resgates.length} resgate${resgates.length===1?'':'s'} e ${aplicar.length} aplicaç${aplicar.length===1?'ão':'ões'}`
+          : 'nada a movimentar nesta semana'}</span>
+      </div>
+      ${(resgates.length + aplicar.length) ? `
+      <div class="grid g-mov">
+        ${contas.filter(c => c.acao).map(c => `
+          <div class="mov ${c.acao === 'resgate' ? 'resgate' : 'aplicar'}">
+            <div class="acao">${svg(ST[c.acao==='resgate'?'resgate':'aplicar'].ico,12)}
+              ${c.acao === 'resgate' ? 'Resgatar' : 'Aplicar'}</div>
+            <div class="vlr">${esc(c.valor_rotulo)}</div>
+            <div class="conta">${esc(c.conta)}</div>
+            <div class="de">${c.acao === 'resgate' ? 'do' : 'no'}
+              ${c.par_nome ? esc(c.par_nome) : '<i>sem investimento par</i>'}</div>
+          </div>`).join('')}
+      </div>` : `<div class="empty">Nenhuma movimentação sugerida${filtrado?' nesta conta':''}.</div>`}
+    </div>
+
+    ${F.fluxo ? `
+    <div class="card">
+      <div class="card-title">
+        <h2>Fluxo de caixa dia a dia</h2>
+        <span class="muted">saldo projetado ao fim de cada dia · valores em milhares (abaixo de
+          mil, o valor exato) · a barra vermelha marca o dia em que a conta vira negativa</span>
+      </div>
+      <div class="tbl-wrap baixa">${tabelaFluxo(contas)}</div>
+    </div>` : ''}
+
+    ${F.titulos ? `
+    <div class="card">
+      <div class="card-title">
+        <h2>Títulos a pagar e receber</h2>
+        <span class="muted" id="tblSub"></span>
+      </div>
+      <div class="tbl-wrap">
+        <table class="data">
+          <thead><tr>${E ? `
+            <th>Tipo</th>
+            <th style="min-width:210px">Fornecedor / cliente</th>
+            <th style="min-width:190px">Conta</th>
+            <th style="min-width:130px">Título</th>
+            <th style="min-width:140px">Vencimento</th>
+            <th style="min-width:120px" class="num">Valor</th>
+            <th style="width:44px"></th>` : `
+            <th data-t="t" data-c="tipo">Tipo${arw(oT,'tipo')}</th>
+            <th data-t="t" data-c="pessoa">Fornecedor / cliente${arw(oT,'pessoa')}</th>
+            <th data-t="t" data-c="conta">Conta${arw(oT,'conta')}</th>
+            <th data-t="t" data-c="titulo">Título${arw(oT,'titulo')}</th>
+            <th data-t="t" data-c="venc" class="num">Vencimento${arw(oT,'venc')}</th>
+            <th data-t="t" data-c="valor" class="num">Valor${arw(oT,'valor')}</th>`}
+          </tr></thead>
+          <tbody id="tbody"></tbody>
+        </table>
+      </div>
+      ${E ? `<div class="aviso-edicao">
+        ${svg('M12 8v4M12 16h.01M12 22a10 10 0 100-20 10 10 0 000 20z',14)}
+        <div>O valor é sempre positivo — o sinal vem do tipo (saída ou entrada).
+        O <b>título pode ficar vazio</b>, para lançar uma provisão de pagamento que
+        ainda não foi lançado no Bimer. Linha em verde é nova, em amarelo foi alterada.</div>
+      </div>` : ''}
+    </div>` : ''}
+
+    <div class="foot">
+      Títulos a pagar buscados na <b>API do Bimer</b> por vencimento, excluídas as retenções de
+      imposto geradas a partir de outro título. Saldo das contas e entradas previstas digitados
+      neste painel. Colchão por conta e degrau de 5&nbsp;mil definidos pela Controladoria; resgate
+      arredonda para cima e aplicação para baixo, para que o arredondamento nunca invada o colchão.
+      Arquivo: <b>${esc(D.arquivo)}</b>, de ${fmt.dtHora(D.atualizado_em)} ·
+      dados extraídos em ${fmt.dtHora(D.gerado_em)}.
+    </div>`;
+
+  if(F.titulos) corpoTitulos(tit, rec);
+  ligar();
+}
+
+/* ---------- tabela principal ----------
+   Contas correntes com as aplicações vinculadas logo abaixo, como no Painel da
+   planilha. A aplicação é linha de detalhe: entra só com nome e saldo, porque
+   saída, colchão e movimentação são atributos da conta corrente, não dela. */
+function tabelaContas(contas, filtrado){
+  /* Ordem padrão = a da planilha (as contas vêm do Painel na ordem das linhas
+     7..28, agrupadas por empresa). É como a equipe lê o controle hoje; ordenar
+     por situação obrigaria a reprocurar cada conta a cada semana. Clicar num
+     cabeçalho continua reordenando, e "Restaurar ordem" traz esta de volta. */
+  const naPlanilha = new Map(D.contas.map((c,i) => [c.chave, i]));
+  const padrao = (a,b) => naPlanilha.get(a.chave) - naPlanilha.get(b.chave);
+  const rows = ordenar(contas.slice(), oC, {
+    conta:    c => c.conta.toLowerCase(),
+    saldo:    c => c.saldo,
+    pagar:    c => c.a_pagar,
+    receber:  c => c.a_receber,
+    restante: c => c.restante,
+    colchao:  c => c.colchao == null ? -1 : c.colchao,
+    sit:      c => stMeta(situacao(c)).ordem,
+  }, padrao);
+
+  const corpo = rows.length ? rows.map(c => {
+    const s = situacao(c);
+    const linhaConta = `<tr class="conta-cc mk-${s}">
+      <td><div class="forn">${esc(c.conta)}</div>
+          <div class="sub2">${esc(c.chave)}</div></td>
+      <td class="num nowrap">${fmt.rs(c.saldo)}</td>
+      <td class="num nowrap">${c.a_pagar ? fmt.rs(c.a_pagar) : '—'}</td>
+      <td class="num nowrap">${c.a_receber ? fmt.rs(c.a_receber) : '—'}</td>
+      <td class="num nowrap">${fmt.rs(c.restante)}</td>
+      <td class="num nowrap">${c.colchao != null ? fmt.rs(c.colchao) : '—'}</td>
+      <td>${stTag(s)}</td>
+      <td class="nowrap">${c.acao
+        ? `<b>${c.acao === 'resgate' ? 'Resgatar' : 'Aplicar'} ${esc(c.valor_rotulo)}</b>`
+          + `<div class="sub2">${c.par_nome ? esc(c.par_nome) : 'sem investimento par'}</div>`
+        : `<span class="sub2" style="margin:0">${s === 'descontinuada'
+              ? 'conta sendo encerrada — sem colchão'
+              : (s === 'sem_colchao' ? 'colchão não definido' : 'dentro do colchão')}</span>`}</td>
+    </tr>`;
+
+    const linhasInv = c.investimentos.map(i => {
+      const ehPar = c.par_nome && i.nome === c.par_nome;
+      return `<tr class="inv">
+        <td><span class="marca">└</span>${esc(i.nome)}${
+          ehPar ? ` <span class="sub2" style="display:inline;margin:0">· ${
+            c.acao === 'resgate' ? 'origem do resgate' : (c.acao ? 'destino da aplicação' : 'aplicação par')
+          }</span>` : ''}${
+          i.tipo !== 'aplicacao' ? ' <span class="sub2" style="display:inline;margin:0">· conta, não aplicação</span>' : ''}</td>
+        <td class="num nowrap">${fmt.rs(i.saldo)}</td>
+        <td colspan="6"></td>
+      </tr>`;
+    }).join('');
+
+    return linhaConta + linhasInv;
+  }).join('') : `<tr><td colspan="8"><div class="empty">Nenhuma conta.</div></td></tr>`;
+
+  const soma = f => contas.reduce((s,c) => s + (f(c)||0), 0);
+  const aplicado = contas.reduce((s,c) =>
+    s + c.investimentos.filter(i => i.tipo === 'aplicacao').reduce((t,i) => t + (i.saldo||0), 0), 0);
+
+  return `<table class="data principal">
+    <thead><tr>
+      <th data-t="c" data-c="conta">Conta${arw(oC,'conta')}</th>
+      <th data-t="c" data-c="saldo"    class="num">Saldo${arw(oC,'saldo')}</th>
+      <th data-t="c" data-c="pagar"    class="num">Saídas da semana${arw(oC,'pagar')}</th>
+      <th data-t="c" data-c="receber"  class="num">Entradas previstas${arw(oC,'receber')}</th>
+      <th data-t="c" data-c="restante" class="num">Saldo restante${arw(oC,'restante')}</th>
+      <th data-t="c" data-c="colchao"  class="num">Colchão${arw(oC,'colchao')}</th>
+      <th data-t="c" data-c="sit">Situação${arw(oC,'sit')}</th>
+      <th>Movimentação</th>
+    </tr></thead>
+    <tbody>${corpo}</tbody>
+    <tfoot>
+      <tr>
+        <td>Total em conta corrente${filtrado?' (filtrado)':''}</td>
+        <td class="num">${fmt.rs(soma(c => c.saldo))}</td>
+        <td class="num">${fmt.rs(soma(c => c.a_pagar))}</td>
+        <td class="num">${soma(c => c.a_receber) ? fmt.rs(soma(c => c.a_receber)) : '—'}</td>
+        <td class="num">${fmt.rs(soma(c => c.restante))}</td>
+        <td colspan="3"></td>
+      </tr>
+      <tr class="aplicado">
+        <td>Total aplicado</td>
+        <td class="num">${fmt.rs(aplicado)}</td>
+        <td colspan="6"></td>
+      </tr>
+    </tfoot>
+  </table>`;
+}
+
+/* ---------- fluxo dia a dia ----------
+   Saldo do extrato somado, dia após dia, aos títulos que vencem naquele dia. O
+   último dia tem de fechar com o "saldo restante" da tabela acima — as duas vêm
+   das mesmas três parcelas, então divergência ali é erro, não arredondamento. */
+function tabelaFluxo(contas){
+  const dias = diasDaJanela();
+  if(!dias.length) return `<div class="empty">Sem janela de datas nos dados.</div>`;
+
+  const porDia = {};   // chave|iso -> soma do movimento do dia
+  for(const t of [...D.titulos, ...D.a_receber]){
+    if(!t.vencimento) continue;
+    const k = t.chave + '|' + t.vencimento;
+    porDia[k] = (porDia[k]||0) + (t.valor||0);
+  }
+
+  const totalDia = dias.map(() => 0);
+  const corpo = contas.map(c => {
+    let acc = c.saldo || 0;
+    let jaNeg = c.saldo < 0;   // conta que já entra negativa não "vira" no meio da semana
+    const cels = dias.map((d, i) => {
+      const mov = porDia[c.chave + '|' + isoDe(d)] || 0;
+      acc += mov;
+      totalDia[i] += acc;
+      const vira = acc < 0 && !jaNeg;
+      if(acc < 0) jaNeg = true;
+      return `<td class="dia${acc<0?' abaixo':''}${vira?' vira':''}" title="${esc(c.conta)} em ${fmt.data(d)}: ${fmt.rs(acc)}${mov?` (movimento ${fmt.rs(mov)})`:''}">
+        ${fmt.k(acc)}${mov?`<span class="mov-dia">${fmt.k(mov)}</span>`:''}</td>`;
+    }).join('');
+    return `<tr><td class="c0"><div class="forn">${esc(c.conta)}</div>
+      <div class="sub2">abre com ${fmt.rs(c.saldo)}</div></td>${cels}</tr>`;
+  }).join('');
+
+  return `<table class="data fluxo">
+    <thead><tr>
+      <th class="c0">Conta</th>
+      ${dias.map(d => `<th class="dia">${fmt.dm(d)}<span class="dsem">${DIAS_SEM[d.getDay()]}</span></th>`).join('')}
+    </tr></thead>
+    <tbody>${corpo}</tbody>
+    <tfoot><tr><td class="c0">Total do grupo</td>
+      ${totalDia.map((v,i) => `<td class="dia${v<0?' abaixo':''}" title="Total em ${fmt.data(dias[i])}: ${fmt.rs(v)}">${fmt.k(v)}</td>`).join('')}
+    </tr></tfoot>
+  </table>`;
+}
+
+/* ---------- edição ----------
+   O recálculo NÃO acontece aqui: o "Gravar" manda para o app_state e o painel
+   devolve tudo recalculado pelo mesmo `analise_resgate` que o resto do projeto
+   usa. Reimplementar colchão e arredondamento em JS criaria uma segunda cópia
+   da regra — foi isso que gerou o bug da retenção no Controle de Pagamentos. */
+let seqNova = 0;
+
+function linhaEditavel(t, tipo){
+  return {
+    uid: t.id != null ? `${tipo}:${t.id}` : `${tipo}:novo${--seqNova}`,
+    tipo,
+    chave: t.chave || '',
+    pessoa: (tipo === 'saida' ? t.fornecedor : t.cliente) || '',
+    titulo: t.titulo || '',
+    emissao: t.emissao || null,
+    vencimento: t.vencimento || '',
+    valor: Math.abs(t.valor || 0),
+    nova: t.id == null,
+  };
+}
+
+function entrarEdicao(){
+  /* Só as PROVISÕES. Os títulos do Bimer ficam de fora porque não são graváveis daqui:
+     a próxima execução do ETL republica o arquivo e qualquer edição some. Mostrar campo
+     editável para eles seria prometer algo que não acontece — e o jeito de descobrir
+     seria o número voltar sozinho na quarta seguinte. */
+  E = {
+    linhas: D.titulos.filter(t => t.provisao).map(t => linhaEditavel(t, 'saida')),
+  };
+  E.origem = JSON.stringify(E.linhas);
+  erroEdicao = null;
+  F.titulos = true;      // a tabela editada é a de títulos; abre junto
+  render();
+}
+
+function sairEdicao(){ E = null; erroEdicao = null; render(); }
+
+const mudou = l => {
+  if(!E) return false;
+  const orig = JSON.parse(E.origem).find(x => x.uid === l.uid);
+  if(!orig) return true;
+  return ['chave','pessoa','titulo','vencimento','valor'].some(k => String(orig[k]) !== String(l[k]));
+};
+const contarMudancas = () => {
+  if(!E) return {novas:0, alteradas:0, excluidas:0};
+  const orig = JSON.parse(E.origem);
+  const uids = new Set(E.linhas.map(l => l.uid));
+  return {
+    novas: E.linhas.filter(l => l.nova).length,
+    alteradas: E.linhas.filter(l => !l.nova && mudou(l)).length,
+    excluidas: orig.filter(o => !uids.has(o.uid)).length,
+  };
+};
+const temMudanca = () => {
+  const m = contarMudancas();
+  return m.novas + m.alteradas + m.excluidas > 0;
+};
+
+function adicionar(tipo){
+  const hoje = D.janela ? D.janela[0] : '';
+  E.linhas.push(linhaEditavel({
+    chave: F.conta || (D.contas[0] && D.contas[0].chave) || '',
+    vencimento: hoje, valor: 0,
+  }, tipo));
+  render();
+  // foca o campo de pessoa da linha recém-criada
+  const inputs = document.querySelectorAll('#tbody tr:last-child input[data-c="pessoa"]');
+  if(inputs.length) inputs[0].focus();
+}
+
+async function aplicar(){
+  const m = contarMudancas();
+  const vazias = E.linhas.filter(l => !l.valor || !l.vencimento || !l.chave);
+  if(vazias.length){
+    erroEdicao = `${vazias.length} linha(s) sem conta, vencimento ou valor. `
+      + 'Preencha ou remova antes de aplicar.';
+    return render();
+  }
+  if(!confirm(`Gravar as provisões da semana?\n\n`
+    + `${m.novas} nova(s), ${m.alteradas} alterada(s), ${m.excluidas} excluída(s).`)) return;
+
+  salvando = true; erroEdicao = null; render();
+  try{
+    await window.SB_FONTE.salvarProvisoes(E.linhas.map(l => ({
+      chave: l.chave, descricao: l.pessoa,
+      // o sinal é da coluna, não do que se digita: quem lança uma saída escreve o
+      // valor, não o valor negativo
+      valor: Math.abs(l.valor || 0),
+      vencimento: l.vencimento,
+    })));
+    /* Recarrega do zero em vez de recalcular aqui: a provisão muda o "saldo restante",
+       a sugestão de resgate e o fluxo dia a dia. Refazer essa conta na tela seria uma
+       segunda implementação do que o SB_DADOS já faz. */
+    await carregarEstado();
+    E = null;
+  }catch(e){
+    erroEdicao = e.message;
+  }finally{
+    salvando = false;
+    render();
+  }
+}
+const payloadLinha = l => ({
+  chave:l.chave, pessoa:l.pessoa, titulo:l.titulo,
+  emissao:l.emissao, vencimento:l.vencimento, valor:l.valor,
+});
+
+/* ---------- títulos a pagar e a receber, na mesma tabela ---------- */
+function corpoTitulos(tit, rec){
+  if(E) return corpoEdicao();
+  const linhas = [
+    ...tit.map(t => ({...t, tipo:'saida',   pessoa:t.fornecedor})),
+    ...rec.map(t => ({...t, tipo:'entrada', pessoa:t.cliente})),
+  ];
+  const padrao = (a,b) => (a.vencimento||'').localeCompare(b.vencimento||'')
+    || (a.pessoa||'').localeCompare(b.pessoa||'','pt-BR');
+  const rows = ordenar(linhas, oT, {
+    tipo:   t => stMeta(t.tipo).ordem,
+    pessoa: t => (t.pessoa||'').toLowerCase(),
+    conta:  t => (t.chave||'').toLowerCase(),
+    titulo: t => (t.titulo||'').toLowerCase(),
+    venc:   t => t.vencimento||'',
+    valor:  t => t.valor||0,
+  }, padrao);
+
+  document.getElementById('tbody').innerHTML = rows.length ? rows.map(t => `
+    <tr>
+      <td>${stTag(t.tipo)}</td>
+      <td><div class="forn">${esc(t.pessoa||'—')}</div></td>
+      <td>${esc(t.chave)}</td>
+      <td class="nowrap">${esc(t.titulo||'—')}</td>
+      <td class="num nowrap">${t.vencimento?fmt.iso(t.vencimento):'—'}
+        <div class="sub2">${t.emissao?'emitido '+fmt.iso(t.emissao):''}</div></td>
+      <td class="num nowrap">${fmt.rs(t.valor)}</td>
+    </tr>`).join('')
+    : `<tr><td colspan="6"><div class="empty">Nenhum título nesta janela.</div></td></tr>`;
+
+  const saidas = tit.reduce((s,t)=>s+(t.valor||0),0);
+  const entradas = rec.reduce((s,t)=>s+(t.valor||0),0);
+  document.getElementById('tblSub').textContent =
+    `${tit.length} a pagar (${fmt.rs(saidas)}) · ${rec.length} a receber (${fmt.rs(entradas)})`;
+}
+
+/* Corpo da tabela em modo edição. Ordena pelo que veio, sem reordenar a cada
+   tecla: reordenar enquanto se digita faz a linha fugir do cursor. */
+function corpoEdicao(){
+  const contas = D.contas.slice().sort((a,b)=>a.conta.localeCompare(b.conta,'pt-BR'));
+  const opts = (sel) => contas.map(c =>
+    `<option value="${esc(c.chave)}" ${c.chave===sel?'selected':''}>${esc(c.conta)}</option>`).join('');
+
+  const visiveis = E.linhas.filter(l => !F.conta || l.chave === F.conta);
+  document.getElementById('tbody').innerHTML = visiveis.length ? visiveis.map(l => {
+    const cls = l.nova ? 'novo' : (mudou(l) ? 'alterado' : '');
+    return `<tr class="${cls}" data-uid="${esc(l.uid)}">
+      <td>${stTag(l.tipo)}</td>
+      <td><input data-c="pessoa" value="${esc(l.pessoa)}" placeholder="fornecedor / cliente"></td>
+      <td><select data-c="chave">${opts(l.chave)}</select></td>
+      <td><input data-c="titulo" value="${esc(l.titulo)}" placeholder="nº"></td>
+      <td><input data-c="vencimento" type="date" value="${esc(l.vencimento||'')}"></td>
+      <td><input data-c="valor" class="num" type="number" step="0.01" min="0"
+                 value="${l.valor||''}"></td>
+      <td style="text-align:center">
+        <button class="btn-lixo" data-del="${esc(l.uid)}" title="Excluir esta linha"
+                type="button">${svg('M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14',12)}</button></td>
+    </tr>`;
+  }).join('') : `<tr><td colspan="7"><div class="empty">Nenhuma linha${
+      F.conta?' nesta conta':''}. Use "Adicionar saída" abaixo.</div></td></tr>`;
+
+  const sai = E.linhas.filter(l => l.tipo === 'saida');
+  const ent = E.linhas.filter(l => l.tipo === 'entrada');
+  const soma = a => a.reduce((s,l)=>s+(Number(l.valor)||0),0);
+  document.getElementById('tblSub').textContent =
+    `editando · ${sai.length} a pagar (${fmt.rs(soma(sai))}) · `
+    + `${ent.length} a receber (${fmt.rs(soma(ent))})`
+    + (F.conta ? ` · mostrando ${visiveis.length}` : '');
+}
+
+function ligar(){
+  document.getElementById('fConta').onchange = e => { F.conta = e.target.value; render(); };
+
+  // --- edição ---
+  const liga = (id, fn) => { const b = document.getElementById(id); if(b) b.onclick = fn; };
+  liga('btEditarSaldos', () => mostrarFormulario());
+  liga('btEditar',     entrarEdicao);
+  liga('btAddSaida',   () => adicionar('saida'));
+  liga('btAplicar',    aplicar);
+  liga('btCancelar',   () => {
+    if(!temMudanca() || confirm('Descartar as alterações? A planilha não foi tocada.')) sairEdicao();
+  });
+
+  if(E){
+    // cinto e suspensório: o seletor já impede fechar a aba em edição, mas um caminho
+    // novo que quebrasse essa invariante viraria um TypeError sem explicação
+    const tb = document.getElementById('tbody');
+    if(!tb) return;
+    /* 'change' e não 'input': re-renderizar a cada tecla tiraria o foco do
+       campo. O usuário sai do campo e a linha se remarca como alterada. */
+    tb.addEventListener('change', ev => {
+      const el = ev.target.closest('[data-c]');
+      if(!el) return;
+      const uid = el.closest('tr').dataset.uid;
+      const l = E.linhas.find(x => x.uid === uid);
+      if(!l) return;
+      const campo = el.dataset.c;
+      l[campo] = campo === 'valor' ? Math.abs(Number(el.value) || 0) : el.value;
+      render();
+    });
+    tb.addEventListener('click', ev => {
+      const b = ev.target.closest('[data-del]');
+      if(!b) return;
+      E.linhas = E.linhas.filter(x => x.uid !== b.dataset.del);
+      render();
+    });
+  }
+
+  // toggles independentes: dá para abrir os dois detalhamentos ao mesmo tempo
+  document.getElementById('fSecoes').onclick = e => {
+    const b = e.target.closest('button');
+    if(!b) return;
+    /* Editando, a aba de títulos não fecha: é a tabela que está sendo editada, e
+       fechá-la tirava da vista alterações ainda não gravadas — e deixava o listener
+       do tbody pendurado num elemento que deixou de existir. */
+    if(E && b.dataset.v === 'titulos' && F.titulos) return;
+    F[b.dataset.v] = !F[b.dataset.v];
+    render();
+  };
+
+  const bl = document.getElementById('fLimpar');
+  if(bl) bl.onclick = () => {
+    F.conta = '';
+    oC={col:'padrao',dir:1}; oT={col:'padrao',dir:1};
+    render();
+  };
+
+  document.querySelectorAll('th[data-c]').forEach(th => {
+    th.onclick = () => {
+      const c = th.dataset.c, alvo = th.dataset.t;
+      const o = alvo === 't' ? oT : oC;
+      const novo = (o.col === c) ? {col:c, dir:-o.dir} : {col:c, dir:1};
+      if(alvo === 't') oT = novo; else oC = novo;
+      render();
+    };
+  });
+}
+
+/* ---------- boot ----------
+   Monta o estado a partir das duas origens e decide qual tela mostrar:
+
+     falta saldo de alguma conta corrente -> FORMULÁRIO
+     tudo informado                       -> a projeção
+
+   O formulário vem antes de propósito. Uma projeção com conta zerada não parece
+   incompleta — parece completa e errada, dizendo que sobra dinheiro onde ninguém
+   informou nada. */
+async function carregarEstado(){
+  const d = await window.SB_FONTE.carregar();
+  estadoAtual = SB_DADOS.montar(d.fatos, d.contas, d.entradas,
+                                d.hoje ? new Date(d.hoje) : new Date(),
+                                d.provisoes);
+  D = SB_DADOS.paraSbData(estadoAtual);
+  return estadoAtual;
+}
+
+function mostrarFormulario(){
+  const alvo = document.getElementById('content') || document.body;
+  alvo.innerHTML = SB_FORM.html(estadoAtual);
+  SB_FORM.ligar();                       // máscara de real + contador de "faltam N"
+
+  const j = estadoAtual && estadoAtual.janela;
+  document.getElementById('pageSub').textContent = j
+    ? `${fmt.iso(j[0])} a ${fmt.iso(j[1])} · informando os saldos da semana`
+    : 'informando os saldos da semana';
+
+  // Só existe volta se já há projeção para voltar: na primeira vez, não há.
+  const voltar = document.getElementById('sbfVoltar');
+  if(voltar) voltar.onclick = () => render();
+
+  const btn = document.getElementById('sbfSalvar');
+  if(!btn) return;                       // sem conta cadastrada: só o aviso
+  btn.onclick = async () => {
+    const linhas = SB_FORM.coletar(estadoAtual.semana);
+    btn.disabled = true;
+    document.getElementById('sbfStatus').textContent = 'salvando...';
+    try{
+      await window.SB_FONTE.salvar(linhas);
+      await carregarEstado();
+      decidirTela();
+    }catch(e){
+      btn.disabled = false;
+      document.getElementById('sbfStatus').textContent = 'não foi possível salvar: ' + e.message;
+    }
+  };
+}
+
+function decidirTela(){
+  if(estadoAtual && estadoAtual.completo){ render(); return; }
+  mostrarFormulario();
+}
+
+/* Exposto para o botão "editar saldos" que a barra do painel oferece, e para os testes. */
+window.SB_PAINEL = {
+  recarregar: async () => { await carregarEstado(); decidirTela(); },
+  editarSaldos: () => mostrarFormulario(),
+  estado: () => estadoAtual,
+};
+
+async function boot(){
+  try{
+    await carregarEstado();
+  }catch(e){
+    document.getElementById('pageSub').textContent = 'não foi possível carregar: ' + e.message;
+    return;
+  }
+  decidirTela();
+}
+boot();
+</script>
+</body>
+</html>
