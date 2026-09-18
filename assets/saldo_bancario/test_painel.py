@@ -12,6 +12,7 @@ Uso: python assets/saldo_bancario/test_painel.py   (da raiz do repo do hub)
 """
 
 import json
+import urllib.parse
 import pathlib
 import unittest
 
@@ -82,6 +83,9 @@ class TestPainelSaldoBancario(unittest.TestCase):
             raise unittest.SkipTest("playwright não instalado")
 
         cls.estado = json.loads(json.dumps(ESTADO_INICIAL))
+        # Versão da linha em app_state. O painel lê no boot e devolve no filtro do
+        # UPDATE; é assim que ele detecta que alguém gravou no meio do caminho.
+        cls.versao = "2026-09-01T00:00:00+00:00"
         cls.gravacoes = []
         cls.erros = []
 
@@ -96,14 +100,29 @@ class TestPainelSaldoBancario(unittest.TestCase):
                 return route.fulfill(status=200, content_type="application/json",
                                      body=json.dumps(FATOS))
             if "/rest/v1/app_state" in url and metodo in ("PATCH", "POST"):
-                cls.gravacoes.append(json.loads(request.post_data))
-                cls.estado = cls.gravacoes[-1]["data"]
-                return route.fulfill(status=200, content_type="application/json", body="[]")
+                # Guarda de concorrência: o UPDATE leva `updated_at=eq.<versão lida>`.
+                # Com a versão vencida nenhuma linha casa e o PostgREST devolve lista
+                # vazia — é esse vazio, e não um erro, que o painel traduz em "recarregue".
+                pedida = None
+                if "updated_at=eq." in url:
+                    pedida = urllib.parse.unquote(
+                        url.split("updated_at=eq.")[1].split("&")[0])
+                if pedida is not None and pedida != cls.versao:
+                    return route.fulfill(status=200, content_type="application/json",
+                                         body="[]")
+                corpo = json.loads(request.post_data)
+                cls.gravacoes.append(corpo)
+                cls.estado = corpo["data"]
+                cls.versao = corpo.get("updated_at") or cls.versao
+                return route.fulfill(
+                    status=200, content_type="application/json",
+                    body=json.dumps([{"id": "saldo_bancario", "updated_at": cls.versao}]))
             if "/rest/v1/app_state" in url:
                 # maybeSingle() pede objeto único (Accept: application/vnd.pgrst.object+json)
                 return route.fulfill(status=200,
                                      content_type="application/vnd.pgrst.object+json",
-                                     body=json.dumps({"data": cls.estado}))
+                                     body=json.dumps({"data": cls.estado,
+                                                      "updated_at": cls.versao}))
             return route.continue_()
 
         cls.pg.route("**/*.supabase.co/**", rota)
@@ -450,6 +469,34 @@ class TestPainelSaldoBancario(unittest.TestCase):
             with self.subTest(conta=nome):
                 chave = next(k for k, c in est.items() if c["conta"] == nome)
                 self.assertAlmostEqual(num(titulo), est[chave]["restante"], places=2)
+
+    def test_a_conflito_nao_sobrescreve_gravacao_alheia(self):
+        """Duas telas abertas: a que gravar depois não pode apagar o que a outra gravou.
+
+        `app_state` guarda o documento INTEIRO, então gravar aqui é read-modify-write. Sem
+        a guarda de versão, a segunda tela sobe a leitura que fez no boot e o trabalho da
+        primeira some sem erro nenhum.
+
+        Roda por último de propósito (o `_a_` ordena depois de `_9_`): deixa o formulário
+        num estado de erro, e os testes desta classe dividem a mesma página."""
+        pg = self.pg
+        pg.click("#btEditarSaldos")
+        pg.wait_for_timeout(500)
+        pg.fill('input.sbf[data-campo=saldo][data-chave="TARITUBA"]', "1.234,00")
+
+        # outra pessoa gravou entre o carregamento desta tela e o clique em Salvar
+        type(self).versao = "2099-01-01T00:00:00+00:00"
+
+        antes = len(self.gravacoes)
+        pg.click("#sbfSalvar")
+        pg.wait_for_timeout(900)
+
+        self.assertEqual(len(self.gravacoes), antes,
+                         "com a versão vencida, nada pode ser escrito")
+        self.assertIn("recarregue o painel", pg.inner_text("#sbfStatus").lower())
+        self.assertIn("1.234", pg.input_value(
+            'input.sbf[data-campo=saldo][data-chave="TARITUBA"]'),
+            "o que a pessoa digitou continua na tela")
 
     def test_9_sem_erro_de_console(self):
         self.assertEqual(self.erros, [], f"erros no navegador: {self.erros}")

@@ -13,6 +13,7 @@ Uso: python assets/controle_pagamentos/test_painel.py   (da raiz do repo do hub)
 import json
 import pathlib
 import unittest
+import urllib.parse
 
 AQUI = pathlib.Path(__file__).resolve().parent
 
@@ -74,6 +75,9 @@ def _pagina(cls, resultado, cadastro):
         cls._b = cls._pw.chromium.launch()
 
     cls.estado = {"fornecedores": json.loads(json.dumps(cadastro))}
+    # Versão da linha em app_state. O painel lê no boot e devolve no filtro do UPDATE;
+    # é assim que ele detecta que alguém gravou no meio do caminho.
+    cls.versao = "2026-09-01T00:00:00+00:00"
     cls.gravacoes = []
     cls.erros = []
     pg = cls._b.new_page(viewport={"width": 1500, "height": 950})
@@ -87,13 +91,26 @@ def _pagina(cls, resultado, cadastro):
             return route.fulfill(status=200, content_type="application/json",
                                  body=json.dumps(resultado))
         if "/rest/v1/app_state" in url and metodo in ("PATCH", "POST"):
-            cls.gravacoes.append(json.loads(request.post_data))
-            cls.estado = cls.gravacoes[-1]["data"]
-            return route.fulfill(status=200, content_type="application/json", body="[]")
+            # Guarda de concorrência: o UPDATE leva `updated_at=eq.<versão lida>`. Com a
+            # versão vencida nenhuma linha casa, e o PostgREST devolve lista vazia — é
+            # esse vazio, e não um erro, que o painel traduz em "recarregue".
+            pedida = None
+            if "updated_at=eq." in url:
+                pedida = urllib.parse.unquote(url.split("updated_at=eq.")[1].split("&")[0])
+            if pedida is not None and pedida != cls.versao:
+                return route.fulfill(status=200, content_type="application/json", body="[]")
+            corpo = json.loads(request.post_data)
+            cls.gravacoes.append(corpo)
+            cls.estado = corpo["data"]
+            cls.versao = corpo.get("updated_at") or cls.versao
+            return route.fulfill(
+                status=200, content_type="application/json",
+                body=json.dumps([{"id": "controle_pagamentos", "updated_at": cls.versao}]))
         if "/rest/v1/app_state" in url:
             return route.fulfill(status=200,
                                  content_type="application/vnd.pgrst.object+json",
-                                 body=json.dumps({"data": cls.estado}))
+                                 body=json.dumps({"data": cls.estado,
+                                                  "updated_at": cls.versao}))
         return route.continue_()
 
     pg.route("**/*.supabase.co/**", rota)
@@ -235,6 +252,64 @@ class TestPainelCP(unittest.TestCase):
 
     def test_9_sem_erro_de_console(self):
         self.assertEqual(self.erros, [], f"erros no navegador: {self.erros}")
+
+
+class TestConcorrencia(unittest.TestCase):
+    """Duas pessoas com o cadastro aberto. A segunda a gravar não pode apagar a primeira.
+
+    O cadastro sobe INTEIRO a cada gravação, montado da lista que a tela carregou. Sem a
+    guarda de versão, "último a salvar ganha" apaga a edição do outro sem erro nenhum —
+    a mesma perda silenciosa que esta tela existe para acabar."""
+
+    @classmethod
+    def setUpClass(cls):
+        try:
+            import playwright  # noqa: F401
+        except ImportError:
+            raise unittest.SkipTest("playwright não instalado")
+        cls.pg = _pagina(cls, None, CADASTRO)   # sem ETL publicado: abre direto no cadastro
+
+    @classmethod
+    def tearDownClass(cls):
+        if hasattr(cls, "_b"):
+            cls._b.close()
+            cls._pw.stop()
+
+    def test_versao_vencida_recusa_a_gravacao(self):
+        pg = self.pg
+        pg.fill(_linha(pg, "000041") + ' input.cpc[data-campo="valor_usual_txt"]', "9.999,00")
+        pg.wait_for_timeout(200)
+
+        # outra pessoa gravou entre o carregamento desta tela e o clique em Gravar
+        type(self).versao = "2099-01-01T00:00:00+00:00"
+
+        antes = len(self.gravacoes)
+        pg.click("#cpcSalvar")
+        pg.wait_for_timeout(900)
+
+        self.assertEqual(len(self.gravacoes), antes,
+                         "com a versão vencida, nada pode ser escrito")
+        self.assertIn("recarregue o painel", pg.inner_text("#cpcStatus").lower())
+        self.assertEqual(
+            pg.input_value(_linha(pg, "000041") + ' input.cpc[data-campo="valor_usual_txt"]'),
+            "9.999,00", "o que a pessoa digitou continua na tela")
+        self.assertEqual(self.erros, [], f"erros no navegador: {self.erros}")
+
+    def test_versao_em_dia_grava(self):
+        """A guarda não pode virar um bloqueio permanente: com a versão em dia, grava."""
+        pg = self.pg
+        pg.reload()
+        pg.wait_for_timeout(1300)
+        pg.fill(_linha(pg, "000042") + ' input.cpc[data-campo="valor_usual_txt"]', "77,00")
+        pg.wait_for_timeout(200)
+
+        antes = len(self.gravacoes)
+        pg.click("#cpcSalvar")
+        pg.wait_for_timeout(900)
+
+        self.assertEqual(len(self.gravacoes), antes + 1, "nada foi gravado")
+        por_cod = {f["cod"]: f for f in self.gravacoes[-1]["data"]["fornecedores"]}
+        self.assertEqual(por_cod["000042"]["valor_usual_txt"], "77,00")
 
 
 class TestSemResultadoPublicado(unittest.TestCase):
