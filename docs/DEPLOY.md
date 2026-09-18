@@ -433,13 +433,19 @@ Projetos) aceita qualquer `@luxor.com.br` autenticado — inclusive por fora do
 hub, pela URL avulsa do antigo `controle-de-projetos`, que aponta pro mesmo
 projeto Supabase. Isto troca pra allowlist e fecha essa porta:
 
-SQL Editor → **+ New query** → abrir
-[`sql/projetos_schema.sql`](../sql/projetos_schema.sql), **Ctrl+A**, colar, **Run**.
+SQL Editor → query `hub_schema` → abrir
+[`sql/hub_schema.sql`](../sql/hub_schema.sql), **Ctrl+A**, colar, **Run**.
 
-Além das policies, esse arquivo é o schema canônico do Projetos: cria
-`app_state`, liga a RLS e adiciona a tabela à publication do realtime — o que
-antes só existia no repo `controle-de-projetos` e faltava aqui num rebuild
-do zero. É idempotente, pode rodar de novo sem efeito colateral.
+A seção 6 desse arquivo é o schema canônico do `app_state`: cria a tabela, liga
+a RLS, declara as policies de TODOS os painéis que escrevem e adiciona a tabela
+à publication do realtime — o que antes só existia no repo
+`controle-de-projetos` e faltava aqui num rebuild do zero. É idempotente, pode
+rodar de novo sem efeito colateral.
+
+As policies do `app_state` ficam todas nesse arquivo de propósito: RLS é da
+TABELA, e policies permissivas somam (OR). Declaradas em arquivos separados, uma
+por painel, cada uma valia para a tabela inteira sem saber das outras — quem
+tinha um painel lia e gravava o documento dos demais.
 
 **Testar logo depois:** abrir o hub, aba Projetos, editar e salvar. Se salvar,
 funcionou. Se der erro de permissão, rollback:

@@ -10,7 +10,7 @@
 -- (repositório Automacoes, pasta "Alterdata/Saldo Bancário"), que grava o SQL
 -- fora de qualquer repo de propósito.
 --
--- Rodar UMA vez, depois de `saldo_bancario_schema.sql`. Sem isso o painel abre
+-- Rodar UMA vez, depois de `hub_schema.sql`. Sem isso o painel abre
 -- avisando que não há conta cadastrada.
 -- =====================================================================
 

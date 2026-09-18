@@ -137,12 +137,115 @@ create policy hub_data_read on storage.objects
   );
 
 -- ---------------------------------------------------------------------
--- 6) Projetos (app_state): saiu daqui — está em `sql/projetos_schema.sql`,
---    que cria a tabela, liga o realtime e troca as policies antigas
---    (domínio aberto @luxor.com.br) pelas do hub, em hub_can('projetos').
---    Rodar DEPOIS deste arquivo e DEPOIS de semear allowed_users, senão
---    ninguém entra no Projetos.
+-- 6) app_state: um documento por painel que ESCREVE. Tabela compartilhada.
+--
+--      id = 'projetos'             Controle de Projetos
+--      id = 'saldo_bancario'       saldo de cada conta, entradas, provisões
+--      id = 'controle_pagamentos'  cadastro de fornecedores fixos
+--
+--    Mora AQUI, e não num arquivo por painel, porque a RLS é DA TABELA: as seis
+--    policies abaixo só fazem sentido lidas juntas. Enquanto estiveram em três
+--    arquivos, cada um declarou uma policy válida para a tabela inteira sem saber
+--    das outras — e policies permissivas SOMAM (OR). O resultado era acesso
+--    cruzado: quem tinha um painel lia e gravava o documento de todos os demais.
+--
+--    Por isso cada policy é amarrada ao `id` do seu documento. O `.eq('id', ...)`
+--    que o front faz é escopo de cliente, não barreira: a anon key é pública e a
+--    chamada pode ser feita direto na API.
+--
+--    Painel novo que escreve entra aqui: duas policies e um insert. Não se cria
+--    arquivo por painel — foi o que produziu o furo acima.
+--
+--    O que NÃO entra aqui: o snapshot que os ETLs publicam, que vive no bucket
+--    `hub-data` (seção 5), liberado por hub_can(split_part(name,'.',1)) — ou
+--    seja, o nome do arquivo no bucket TEM de ser o id do painel.
 -- ---------------------------------------------------------------------
+create table if not exists app_state (
+  id          text primary key,
+  data        jsonb not null default '[]'::jsonb,
+  updated_at  timestamptz not null default now()
+);
+
+-- Sem política, a anon key NÃO acessa nada.
+alter table app_state enable row level security;
+
+-- As duas antigas (qualquer @luxor.com.br autenticado, sem passar pela allowlist
+-- nem pelo RBAC) saem de cena: é isto que desliga o acesso pela URL avulsa do
+-- repo controle-de-projetos.
+drop policy if exists "luxor_select" on app_state;
+drop policy if exists "luxor_update" on app_state;
+
+drop policy if exists hub_projetos_select on app_state;
+create policy hub_projetos_select on app_state
+  for select to authenticated
+  using ( id = 'projetos' and public.hub_can('projetos') );
+
+drop policy if exists hub_projetos_update on app_state;
+create policy hub_projetos_update on app_state
+  for update to authenticated
+  using      ( id = 'projetos' and public.hub_can('projetos') )
+  with check ( id = 'projetos' and public.hub_can('projetos') );
+
+-- Escrita liberada para quem TEM o painel, não só para admin: digitar o saldo e
+-- manter o cadastro É o uso normal das duas telas.
+drop policy if exists hub_saldo_bancario_select on app_state;
+create policy hub_saldo_bancario_select on app_state
+  for select to authenticated
+  using ( id = 'saldo_bancario' and public.hub_can('saldo_bancario') );
+
+drop policy if exists hub_saldo_bancario_update on app_state;
+create policy hub_saldo_bancario_update on app_state
+  for update to authenticated
+  using      ( id = 'saldo_bancario' and public.hub_can('saldo_bancario') )
+  with check ( id = 'saldo_bancario' and public.hub_can('saldo_bancario') );
+
+drop policy if exists hub_controle_pagamentos_select on app_state;
+create policy hub_controle_pagamentos_select on app_state
+  for select to authenticated
+  using ( id = 'controle_pagamentos' and public.hub_can('controle_pagamentos') );
+
+drop policy if exists hub_controle_pagamentos_update on app_state;
+create policy hub_controle_pagamentos_update on app_state
+  for update to authenticated
+  using      ( id = 'controle_pagamentos' and public.hub_can('controle_pagamentos') )
+  with check ( id = 'controle_pagamentos' and public.hub_can('controle_pagamentos') );
+
+-- Linha de cada painel, vazia. O conteúdo real vem do seed (sql/*.local.sql, não
+-- versionado: este repo é público e colchão de conta e fornecedor com valor são
+-- dado interno) e depois é mantido pela própria tela.
+--
+--   projetos            : lista de projetos            -> '[]'
+--   saldo_bancario      : { contas, entradas, provisoes }
+--   controle_pagamentos : { fornecedores }
+--
+-- Em saldo_bancario, a chave de `entradas` e `provisoes` é a QUARTA-FEIRA da
+-- semana: a projeção sempre foi de quarta a quarta, e guardar por semana preserva
+-- o histórico.
+--
+-- Em controle_pagamentos, (ano, cod, empresa, contagem) é a chave do batimento: o
+-- mesmo fornecedor pode ter mais de um título fixo no mês, e a N-ésima linha do
+-- cadastro casa com o N-ésimo título. Chave repetida faz o batimento não saber
+-- qual é qual — a tela avisa antes de gravar.
+insert into app_state (id, data) values
+  ('projetos',            '[]'::jsonb),
+  ('saldo_bancario',      '{}'::jsonb),
+  ('controle_pagamentos', '{}'::jsonb)
+on conflict (id) do nothing;
+
+-- Realtime: sem isto o app sobe e salva, mas os clientes não se sincronizam —
+-- sintoma difícil de diagnosticar num rebuild do zero.
+do $$
+begin
+  if not exists (
+    select 1 from pg_publication_tables
+    where pubname = 'supabase_realtime'
+      and schemaname = 'public'
+      and tablename = 'app_state'
+  ) then
+    alter publication supabase_realtime add table app_state;
+  end if;
+end $$;
+
 
 -- ---------------------------------------------------------------------
 -- 7) Auditoria de acesso (exigência LGPD p/ inadimplência; já serve p/ tudo).
