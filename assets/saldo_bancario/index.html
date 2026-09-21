@@ -51,15 +51,14 @@ body{
 /* A barra estica de ponta a ponta, mas o conteúdo dela segue o mesmo eixo do
    .content — senão em monitor grande o título fica na borda e os cards
    centralizados. */
+/* Faixa fina: sobrou só a linha de contexto, já que marca e título vêm do hub.
+   Continua sticky de propósito — a tabela é longa, e saber de que semana é a projeção
+   importa depois de rolar trinta linhas. */
 .topbar-inner{
   display:flex;align-items:center;gap:16px;flex-wrap:wrap;
-  padding:14px var(--gutter);
+  padding:9px var(--gutter);
   max-width:var(--largura-max);margin-inline:auto;
 }
-.brand{display:flex;align-items:center;gap:12px;padding-right:16px;border-right:1px solid var(--line)}
-.brand .word{font-family:var(--font-serif);font-size:16px;font-weight:600;letter-spacing:.02em}
-.brand .sub{font-size:10px;letter-spacing:.26em;color:var(--ink-2);font-weight:600}
-.topbar h1{font-family:var(--font-serif);font-size:19px;margin:0;font-weight:600}
 .topbar .sub{color:var(--ink-3);font-size:12px}
 .topbar .spacer{flex:1}
 .content{
@@ -313,26 +312,29 @@ table.data .sub2.fixo{text-align:right;margin-top:3px;color:var(--teal-light)}
 </head>
 <body>
 
+<!-- Sem marca e sem <h1>: o hub já põe "LUXOR P&C" na barra lateral e o nome do painel
+     no #pageTitle da topbar dele. Repetir aqui custava ~30px de altura DENTRO do iframe
+     para dizer de novo o que a moldura já diz.
+
+     O subtítulo fica. Ele não é identidade, é estado — a janela da semana, quantas
+     contas, quantos títulos — e é onde a falha de carregamento aparece. O hub tem um
+     #pageSub próprio, mas não consegue preenchê-lo: o iframe é isolado, e só este
+     documento sabe o que carregou. -->
 <header class="topbar">
   <div class="topbar-inner">
-    <div class="brand">
-      <div>
-        <div class="word">LUXOR</div>
-        <div class="sub">P&amp;C</div>
-      </div>
-    </div>
-    <div>
-      <h1>Saldo Bancário</h1>
-      <div class="sub" id="pageSub">carregando…</div>
-    </div>
+    <div class="sub" id="pageSub">carregando…</div>
     <div class="spacer"></div>
   </div>
 </header>
 
 <div class="content" id="content">
+  <!-- Só aparece enquanto o JS não substituiu o conteúdo. Se ficar visível, algo
+       quebrou no boot: no hub não há script para ninguém rodar, os dados vêm do
+       Supabase. O texto herdado do painel local mandava rodar `extrair_dados.py`, que
+       aqui não existe — instrução que não ajuda quem lê. -->
   <div class="empty" id="semDados">
     <div class="big">◔</div>
-    <div>Dados não carregados.<br>Rode <code>python extrair_dados.py</code> e recarregue esta página.</div>
+    <div>Carregando…</div>
   </div>
 </div>
 
@@ -511,17 +513,10 @@ function render(){
 
   document.getElementById('content').innerHTML = `
 
-    <div class="banner">
-      ${svg('M12 8v4M12 16h.01M12 22a10 10 0 100-20 10 10 0 000 20z', 15)}
-      <div>
-        Projeção da semana de <b>${fmt.iso(D.janela[0])} a ${fmt.iso(D.janela[1])}</b>, com o saldo
-        das contas na posição de <b>${fmt.iso(D.data_saldo)}</b>. Só as <b>saídas</b> vêm da API do
-        Bimer: o saldo de cada conta é digitado do extrato e o a receber é uma estimativa lançada à
-        mão — as duas seguem manuais até haver API dos bancos. Resgate e aplicação são
-        <b>sugestão para o gestor solicitar ao banco</b>: esta projeção não movimenta dinheiro.
-        Arquivo <b>${esc(D.arquivo)}</b>, salvo em <b>${fmt.dtHora(D.atualizado_em)}</b>.
-      </div>
-    </div>
+    <!-- O banner fixo que ficava aqui saiu: a janela e a data do saldo já estão no
+         subtítulo, e a procedência (arquivo, origem, o que é manual) já estava repetida
+         no rodapé. Era o mesmo texto em toda visita, empurrando a tabela para baixo.
+         A ressalva de que isto não movimenta dinheiro foi junto para o rodapé. -->
 
     <div class="toolbar">
       <div class="field"><label>Conta</label>
@@ -649,7 +644,9 @@ function render(){
     <div class="foot">
       Títulos a pagar buscados na <b>API do Bimer</b> por vencimento, excluídas as retenções de
       imposto geradas a partir de outro título. Saldo das contas e entradas previstas digitados
-      neste painel. Colchão por conta e degrau de 5&nbsp;mil definidos pela Controladoria; resgate
+      neste painel — seguem manuais até haver API dos bancos. Resgate e aplicação são
+      <b>sugestão para o gestor solicitar ao banco</b>: esta projeção não movimenta dinheiro.
+      Colchão por conta e degrau de 5&nbsp;mil definidos pela Controladoria; resgate
       arredonda para cima e aplicação para baixo, para que o arredondamento nunca invada o colchão.
       Arquivo: <b>${esc(D.arquivo)}</b>, de ${fmt.dtHora(D.atualizado_em)} ·
       dados extraídos em ${fmt.dtHora(D.gerado_em)}.
@@ -1076,13 +1073,23 @@ function mostrarFormulario(){
     const linhas = SB_FORM.coletar(estadoAtual.semana);
     btn.disabled = true;
     document.getElementById('sbfStatus').textContent = 'salvando...';
+    /* Dois try separados de propósito. Um só faria a falha de QUALQUER etapa dizer
+       "não foi possível salvar" — inclusive quando a gravação deu certo e quem quebrou
+       foi o desenho da tela seguinte. Quem lê essa mensagem digita tudo de novo à toa. */
     try{
       await window.SB_FONTE.salvar(linhas);
+    }catch(e){
+      btn.disabled = false;
+      document.getElementById('sbfStatus').textContent = 'não foi possível salvar: ' + e.message;
+      return;
+    }
+    try{
       await carregarEstado();
       decidirTela();
     }catch(e){
       btn.disabled = false;
-      document.getElementById('sbfStatus').textContent = 'não foi possível salvar: ' + e.message;
+      document.getElementById('sbfStatus').textContent =
+        'saldos gravados, mas a tela não recarregou: ' + e.message;
     }
   };
 }
