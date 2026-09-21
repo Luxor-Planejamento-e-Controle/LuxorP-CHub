@@ -350,6 +350,7 @@ table.data .sub2.fixo{text-align:right;margin-top:3px;color:var(--teal-light)}
      window.SB_DATA que o extrair_dados.py produzia, para nada da tela precisar mudar. -->
 <script src="../vendor/supabase.min.js"></script>
 <script src="config.js"></script>
+<script src="../reprocessar.js"></script>
 <script src="sb_regra.js"></script>
 <script src="sb_dados.js"></script>
 <script src="sb_fonte.js"></script>
@@ -568,8 +569,18 @@ function render(){
       digitados${D.data_saldo ? `, e os desta semana foram informados em
       <b>${fmt.iso(D.data_saldo)}</b>` : ''}; as <b>provisões</b> ficam na aba de
       títulos.</div>
-      <button class="btn-ghost" id="btEditarSaldos" type="button"
-              style="margin-left:auto;align-self:center;white-space:nowrap">Corrigir saldos</button></div>` : ''}
+      <div style="margin-left:auto;align-self:center;display:flex;gap:8px;
+                  align-items:center;flex-wrap:wrap">
+        <span class="sub" id="reprocStatus"></span>
+        <button class="btn-ghost" id="btEditarSaldos" type="button"
+                style="white-space:nowrap">Corrigir saldos</button>
+        <!-- Os títulos vêm da API e só mudam quando o robô roda. Sem este botão, quem
+             lançou algo no Bimer hoje esperaria até a terça para ver. -->
+        <button class="btn-ghost" id="btReprocessar" type="button"
+                style="white-space:nowrap"
+                title="Busca os títulos do Bimer de novo e republica a semana">
+          Atualizar agora</button>
+      </div></div>` : ''}
 
     <div class="card">
       <div class="card-title">
@@ -973,6 +984,19 @@ function ligar(){
   // --- edição ---
   const liga = (id, fn) => { const b = document.getElementById(id); if(b) b.onclick = fn; };
   liga('btEditarSaldos', () => mostrarFormulario());
+
+  /* O carimbo lido é o do ARQUIVO PUBLICADO, não o da tela: é ele que muda quando o robô
+     termina, e é assim que se sabe que acabou sem manter conexão aberta. */
+  if(window.HUB_REPROCESSAR) HUB_REPROCESSAR.ligar({
+    painel: 'saldo_bancario',
+    botao:  document.getElementById('btReprocessar'),
+    status: document.getElementById('reprocStatus'),
+    lerCarimbo: async () => {
+      const d = await window.SB_FONTE.carregar();
+      return d.fatos && d.fatos.meta ? d.fatos.meta.gerado_em : null;
+    },
+    aoConcluir: () => window.SB_PAINEL.recarregar(),
+  });
   liga('btEditar',     entrarEdicao);
   liga('btAddSaida',   () => adicionar('saida'));
   liga('btAplicar',    aplicar);

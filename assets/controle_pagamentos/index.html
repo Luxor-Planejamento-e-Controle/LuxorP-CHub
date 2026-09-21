@@ -301,6 +301,7 @@ table.data.cadastro tr.inativo td:first-child{box-shadow:inset 3px 0 0 var(--ink
      — filtros, ordenação, KPIs, prazos — sem tocar na lógica de tela. -->
 <script src="../vendor/supabase.min.js"></script>
 <script src="config.js"></script>
+<script src="../reprocessar.js"></script>
 <script src="cp_dados.js"></script>
 <script src="cp_fonte.js"></script>
 <script src="cp_cadastro.js"></script>
@@ -573,7 +574,15 @@ function render(){
       <div style="flex:1"></div>
       <div class="field"><label>&nbsp;</label>
         <button class="btn-ghost" id="btCadastro" type="button">Editar cadastro</button></div>
+      <!-- O batimento roda no Azure: editar o cadastro não mexe nos números até a próxima
+           execução. Este botão é o que encurta essa espera, e é por isso que ele fica ao
+           lado do "Editar cadastro" — quem acabou de editar é quem vai querer. -->
+      <div class="field"><label>&nbsp;</label>
+        <button class="btn-ghost" id="btReprocessar" type="button"
+                title="Refaz o batimento no Azure com os títulos do Bimer de agora">
+          Atualizar agora</button></div>
     </div>
+    <div class="sub" id="reprocStatus" style="margin:-6px 0 14px"></div>
 
     ${(estadoAtual && estadoAtual.pendentes) ? `
     <div class="banner">
@@ -703,6 +712,19 @@ function ligar(){
   };
   const bc = document.getElementById('btCadastro');
   if(bc) bc.onclick = () => mostrarCadastro();
+
+  /* O carimbo lido é o do ARQUIVO PUBLICADO, não o da tela: é ele que muda quando o robô
+     termina, e é assim que se sabe que acabou sem manter conexão aberta. */
+  if(window.HUB_REPROCESSAR) HUB_REPROCESSAR.ligar({
+    painel: 'controle_pagamentos',
+    botao:  document.getElementById('btReprocessar'),
+    status: document.getElementById('reprocStatus'),
+    lerCarimbo: async () => {
+      const d = await window.CP_FONTE.carregar();
+      return d.resultado ? d.resultado.gerado_em : null;
+    },
+    aoConcluir: () => window.CP_PAINEL.recarregar(),
+  });
   document.getElementById('fMes').onchange = e => { F.mes = e.target.value; F.empresa=''; render(); };
   document.getElementById('fEmpresa').onchange = e => { F.empresa = e.target.value; render(); };
   const bl = document.getElementById('fLimpar');
