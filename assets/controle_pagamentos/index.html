@@ -58,15 +58,14 @@ body{
 /* A barra estica de ponta a ponta (o fundo e a borda devem cortar a tela
    inteira), mas o conteúdo dela segue o mesmo eixo do .content — senão em
    monitor grande o título fica na borda e os cards centralizados. */
+/* Faixa fina: sobrou só a linha de contexto, já que marca e título vêm do hub.
+   Continua sticky de propósito — a tabela é longa, e saber de que mês é a lista
+   importa depois de rolar cem fornecedores. */
 .topbar-inner{
   display:flex;align-items:center;gap:16px;flex-wrap:wrap;
-  padding:14px var(--gutter);
+  padding:9px var(--gutter);
   max-width:var(--largura-max);margin-inline:auto;
 }
-.brand{display:flex;align-items:center;gap:12px;padding-right:16px;border-right:1px solid var(--line)}
-.brand .word{font-family:var(--font-serif);font-size:16px;font-weight:600;letter-spacing:.02em}
-.brand .sub{font-size:10px;letter-spacing:.26em;color:var(--ink-2);font-weight:600}
-.topbar h1{font-family:var(--font-serif);font-size:19px;margin:0;font-weight:600}
 .topbar .sub{color:var(--ink-3);font-size:12px}
 .topbar .spacer{flex:1}
 .content{
@@ -273,18 +272,12 @@ table.data.cadastro tr.inativo td:first-child{box-shadow:inset 3px 0 0 var(--ink
 </head>
 <body>
 
+<!-- Ver o comentário equivalente no painel de Saldo Bancário: marca e <h1> saem porque o
+     hub já os mostra em volta do iframe; o subtítulo fica porque é estado (mês, quantos
+     fornecedores, quantos títulos) e é onde a falha de carregamento aparece. -->
 <header class="topbar">
   <div class="topbar-inner">
-    <div class="brand">
-      <div>
-        <div class="word">LUXOR</div>
-        <div class="sub">P&amp;C</div>
-      </div>
-    </div>
-    <div>
-      <h1>Controle de Pagamentos</h1>
-      <div class="sub" id="pageSub">carregando…</div>
-    </div>
+    <div class="sub" id="pageSub">carregando…</div>
     <div class="spacer"></div>
   </div>
 </header>
@@ -536,27 +529,22 @@ function render(){
 
   document.getElementById('content').innerHTML = `
 
+    <!-- Banner só para o que é EXCEPCIONAL. A explicação fixa de sempre (origem do
+         status, arquivo, data, e que os prazos correm contra hoje) saiu daqui para o
+         rodapé: ela era a mesma em toda visita e empurrava a tabela para baixo.
+
+         O que ficou é o que muda de mês para mês e ninguém adivinha olhando a tabela:
+         linha retirada por competência. Retirar em silêncio é o comportamento que
+         originou os erros da planilha antiga — 63 falsos "Não Recebido" no ano —, então
+         quando acontece tem de estar escrito. -->
+    ${(m.fora_competencia && m.fora_competencia.length) ? `
     <div class="banner">
       ${svg('M12 8v4M12 16h.01M12 22a10 10 0 100-20 10 10 0 000 20z', 15)}
-      <div>
-        ${fonte.id === 'planilha' ? `
-          O status <b>Recebido / Não recebido</b> é lido pronto da planilha
-          <b>${esc(m.arquivo)}</b>, salva em <b>${fmt.dtHora(m.atualizado_em)}</b> —
-          é dessa data que vale a foto, não de agora. Lançamento feito depois disso
-          ainda aparece como pendente.
-        ` : `
-          Status recalculado em <b>${esc(m.arquivo)}</b>, gerado em
-          <b>${fmt.dtHora(m.atualizado_em)}</b>. O casamento fornecedor × título
-          normaliza o texto antes de comparar — é o que corrige os falsos
-          "Não recebido" causados por espaço em branco no export do Bimer.
-          ${m.fora_competencia && m.fora_competencia.length ? `<b>${m.fora_competencia.length}
-          ${m.fora_competencia.length === 1 ? 'gasto' : 'gastos'}</b> de competência anual
-          ou trimestral ${m.fora_competencia.length === 1 ? 'foi retirado' : 'foram retirados'}
-          deste mês por não ${m.fora_competencia.length === 1 ? 'ser devido' : 'serem devidos'}.` : ''}
-        `}
-        Os prazos abaixo são calculados contra hoje (${fmt.data(hoje)}).
-      </div>
-    </div>
+      <div><b>${m.fora_competencia.length}
+      ${m.fora_competencia.length === 1 ? 'gasto' : 'gastos'}</b> de competência anual
+      ou trimestral ${m.fora_competencia.length === 1 ? 'foi retirado' : 'foram retirados'}
+      deste mês por não ${m.fora_competencia.length === 1 ? 'ser devido' : 'serem devidos'}.</div>
+    </div>` : ''}
 
     <div class="toolbar">
       <div class="field"><label>Mês de referência</label>
@@ -654,8 +642,13 @@ function render(){
       Arquivo: <b>${esc(m.arquivo)}</b>, de ${fmt.dtHora(m.atualizado_em)} ·
       dados extraídos em ${fmt.dtHora(dadosAtuais().gerado_em)}.
       ${fonte.id === 'planilha'
-        ? 'O status vem calculado da planilha e não é recalculado aqui.'
-        : (m.ref_prazos ? `Planilha gerada com data de referência ${fmt.iso(m.ref_prazos)}.` : '')}
+        ? `O status <b>Recebido / Não recebido</b> vem calculado da planilha e não é
+           recalculado aqui: vale a foto da data acima, não a de agora, então lançamento
+           feito depois ainda aparece como pendente.`
+        : `O casamento fornecedor × título normaliza o texto antes de comparar — é o que
+           corrige os falsos "Não recebido" causados por espaço em branco no export do
+           Bimer.${m.ref_prazos ? ` Data de referência ${fmt.iso(m.ref_prazos)}.` : ''}`}
+      Os prazos da tabela são calculados contra hoje (${fmt.data(hoje)}).
     </div>`;
 
   // corpo da tabela
