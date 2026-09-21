@@ -502,5 +502,196 @@ class TestPainelSaldoBancario(unittest.TestCase):
         self.assertEqual(self.erros, [], f"erros no navegador: {self.erros}")
 
 
+class TestSemFatosPublicados(unittest.TestCase):
+    """A semana em que o ETL ainda não publicou — que é a primeira semana de todas.
+
+    Classe à parte porque o cenário é o bucket VAZIO, e a classe de cima divide uma
+    página só, com o arquivo sempre presente.
+
+    Regressão de um erro visto em produção: a pessoa digitou os saldos, a gravação
+    funcionou, e a tela disse "não foi possível salvar: Cannot read properties of null
+    (reading '0')". Sem fatos não há janela, `D.janela` era null, e o painel montado logo
+    após a gravação estourava ao formatar a data — dentro do mesmo try do salvar, que
+    então culpou a gravação. Quem lê essa mensagem digita tudo de novo à toa.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        try:
+            from playwright.sync_api import sync_playwright
+        except ImportError:
+            raise unittest.SkipTest("playwright não instalado")
+
+        cls.estado = json.loads(json.dumps(ESTADO_INICIAL))
+        cls.versao = "2026-09-01T00:00:00+00:00"
+        cls.gravacoes = []
+        cls.erros = []
+
+        cls._pw = sync_playwright().start()
+        cls._b = cls._pw.chromium.launch()
+        cls.pg = cls._b.new_page(viewport={"width": 1400, "height": 900})
+        cls.pg.on("pageerror", lambda e: cls.erros.append(str(e)))
+
+        def rota(route, request):
+            url, metodo = request.url, request.method
+            if "/storage/v1/object/" in url:
+                # o que o Storage responde quando o arquivo não existe
+                return route.fulfill(
+                    status=400, content_type="application/json",
+                    body=json.dumps({"statusCode": "404", "error": "not_found",
+                                     "message": "Object not found"}))
+            if "/rest/v1/app_state" in url and metodo in ("PATCH", "POST"):
+                corpo = json.loads(request.post_data)
+                cls.gravacoes.append(corpo)
+                cls.estado = corpo["data"]
+                cls.versao = corpo.get("updated_at") or cls.versao
+                return route.fulfill(
+                    status=200, content_type="application/json",
+                    body=json.dumps([{"id": "saldo_bancario", "updated_at": cls.versao}]))
+            if "/rest/v1/app_state" in url:
+                return route.fulfill(status=200,
+                                     content_type="application/vnd.pgrst.object+json",
+                                     body=json.dumps({"data": cls.estado,
+                                                      "updated_at": cls.versao}))
+            return route.continue_()
+
+        cls.pg.route("**/*.supabase.co/**", rota)
+        cls.pg.add_init_script("window.HUB = {email:'fulano@luxor.com.br'};")
+        cls.pg.goto((AQUI / "index.html").as_uri())
+        cls.pg.wait_for_timeout(1300)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls._b.close()
+        cls._pw.stop()
+
+    def test_1_avisa_que_as_saidas_nao_foram_publicadas(self):
+        """Sem esse aviso a tela é indistinguível da semana normal: o formulário é o
+        mesmo, e o que muda — saída zero em toda conta — só apareceria depois, como uma
+        projeção folgada que ninguém tem por que desconfiar."""
+        texto = self.pg.inner_text("body")
+        self.assertIn("ainda não foram publicadas", texto)
+        self.assertIn("otimista", texto)
+
+    def test_2_grava_e_continua_no_formulario(self):
+        pg = self.pg
+        for chave, valor in SALDOS.items():
+            pg.fill(f'input.sbf[data-campo=saldo][data-chave="{chave}"]', valor)
+        pg.click("#sbfSalvar")
+        pg.wait_for_timeout(900)
+
+        self.assertEqual(len(self.gravacoes), 1, "a gravação tem de acontecer")
+        status = pg.inner_text("#sbfStatus")
+        self.assertNotIn("não foi possível salvar", status,
+                         f"a gravação funcionou; a mensagem não pode culpá-la: {status!r}")
+        self.assertNotIn("não recarregou", status, f"render quebrou: {status!r}")
+
+    def test_3_nao_monta_painel_sem_janela(self):
+        """Com os saldos todos informados e nenhum fato, a projeção fecharia as contas
+        contra saída nenhuma — completa na aparência e otimista pela semana inteira. A
+        tela fica no formulário até o ETL publicar."""
+        pg = self.pg
+        self.assertFalse(pg.evaluate("SB_PAINEL.estado().completo"))
+        self.assertFalse(pg.evaluate("SB_PAINEL.estado().temFatos"))
+        self.assertEqual(pg.locator("#sbfSalvar").count(), 1,
+                         "continua no formulário, não no painel")
+
+    def test_4_sem_erro_de_console(self):
+        self.assertEqual(self.erros, [], f"erros no navegador: {self.erros}")
+
+
+class TestSaldosGravadosSemFatos(unittest.TestCase):
+    """Saldos JÁ gravados e o ETL ainda sem publicar — o painel não pode morrer ao abrir.
+
+    Visto em produção em 21/09: alguém informou os saldos na sexta (para testar), o ETL
+    do saldo bancário só roda na terça, e na segunda o painel abriu no placeholder
+    "Dados não carregados", sem mensagem nenhuma.
+
+    A cadeia: todos os saldos preenchidos -> `faltando` vazio -> `completo` -> boot chama
+    `render()` -> `D.janela[0]` com janela null. E `decidirTela()` está FORA do try do
+    boot, então a exceção não vira mensagem: o placeholder do HTML fica na tela.
+
+    Era invisível no teste anterior porque lá o formulário é preenchido DURANTE o teste;
+    aqui a página já nasce com as entradas gravadas, que é o caso de quem só abre a tela.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        try:
+            from playwright.sync_api import sync_playwright
+        except ImportError:
+            raise unittest.SkipTest("playwright não instalado")
+
+        cls.estado = json.loads(json.dumps(ESTADO_INICIAL))
+        cls.erros = []
+
+        cls._pw = sync_playwright().start()
+        cls._b = cls._pw.chromium.launch()
+        cls.pg = cls._b.new_page(viewport={"width": 1400, "height": 900})
+        cls.pg.on("pageerror", lambda e: cls.erros.append(str(e)))
+
+        def rota(route, request):
+            if "/storage/v1/object/" in request.url:
+                return route.fulfill(status=400, content_type="application/json",
+                                     body=json.dumps({"statusCode": "404",
+                                                      "message": "Object not found"}))
+            if "/rest/v1/app_state" in request.url:
+                return route.fulfill(status=200,
+                                     content_type="application/vnd.pgrst.object+json",
+                                     body=json.dumps({"data": cls.estado,
+                                                      "updated_at": "2026-09-01"}))
+            return route.continue_()
+
+        cls.pg.route("**/*.supabase.co/**", rota)
+        cls.pg.add_init_script("window.HUB = {email:'fulano@luxor.com.br'};")
+
+        # Primeira carga só para perguntar ao painel qual é a semana corrente. Calcular a
+        # quarta-feira aqui seria uma segunda implementação de `quartaDaSemana`, que
+        # divergiria em silêncio justamente na virada da semana.
+        cls.pg.goto((AQUI / "index.html").as_uri())
+        cls.pg.wait_for_timeout(1300)
+        semana = cls.pg.evaluate("SB_PAINEL.estado().semana")
+
+        cls.estado["entradas"] = {semana: [
+            {"chave": chave, "semana": semana,
+             "saldo": float(v.replace(".", "").replace(",", ".")),
+             "a_receber": 0, "por": "fulano@luxor.com.br",
+             "em": "2026-09-18T12:00:00.000Z"}
+            for chave, v in SALDOS.items()
+        ]}
+        cls.semana = semana
+
+        cls.erros.clear()                      # só interessam os erros da carga real
+        cls.pg.goto((AQUI / "index.html").as_uri())
+        cls.pg.wait_for_timeout(1300)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls._b.close()
+        cls._pw.stop()
+
+    def test_1_a_tela_abriu(self):
+        """O sintoma exato: o placeholder do HTML continuar na tela."""
+        self.assertEqual(self.pg.locator("#semDados").count(), 0,
+                         "o boot morreu antes de desenhar qualquer coisa")
+
+    def test_2_sem_erro_de_console(self):
+        self.assertEqual(self.erros, [], f"erros no navegador: {self.erros}")
+
+    def test_3_cai_no_formulario_e_diz_por_que(self):
+        """Com saldo informado mas sem fatos, o certo é o formulário com o aviso — não a
+        projeção, que fecharia as contas contra saída zero em toda conta."""
+        pg = self.pg
+        self.assertFalse(pg.evaluate("SB_PAINEL.estado().completo"))
+        self.assertEqual(pg.locator("#sbfSalvar").count(), 1)
+        self.assertIn("ainda não foram publicadas", pg.inner_text("body"))
+
+    def test_4_o_que_ja_estava_gravado_continua_na_tela(self):
+        """O formulário não pode aparecer vazio: quem digitou na semana passada tem de
+        ver o que digitou, senão parece que a gravação se perdeu."""
+        self.assertIn("20.000", self.pg.input_value(
+            'input.sbf[data-campo=saldo][data-chave="LUXOR INVESTIMENTOS"]'))
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

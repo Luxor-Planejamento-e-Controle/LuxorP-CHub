@@ -142,11 +142,25 @@ window.CP_CADASTRO = (function () {
         '<svg class="ic" width="15" height="15" viewBox="0 0 24 24" fill="none" ' +
           'stroke="currentColor" stroke-width="1.8" stroke-linecap="round">' +
           '<path d="M12 8v4M12 16h.01M12 22a10 10 0 100-20 10 10 0 000 20z"/></svg>' +
-        '<div><b>Este é o cadastro, não o resultado.</b> O batimento roda no Azure com ' +
-        'os títulos do Bimer — uma alteração aqui aparece nos números do painel na ' +
-        '<b>próxima execução</b>, não na hora. Fornecedor que saiu deve ser marcado ' +
-        '<b>inativo</b> com o motivo, e não apagado: apagar perde o histórico e faz a ' +
-        'saída voltar a ser um sumiço sem explicação.</div>' +
+        '<div>' +
+          /* Chegar aqui tem DOIS motivos, e a tela precisa dizer qual é.
+           *
+           * Sem resultado publicado o painel não existe, e quem abre fica sem entender
+           * por que só vê cadastro — foi o que aconteceu na primeira semana. Dizer "o
+           * ETL ainda não rodou" responde a pergunta que a pessoa está fazendo; o texto
+           * genérico sobre o que é o cadastro, não. */
+          (estado && estado.temPainel
+            ? '<b>Este é o cadastro, não o resultado.</b> O batimento roda no Azure com ' +
+              'os títulos do Bimer — uma alteração aqui aparece nos números do painel ' +
+              'na <b>próxima execução</b>, não na hora. '
+            : '<b>O painel ainda não foi publicado.</b> O batimento roda no Azure toda ' +
+              'segunda de manhã e publica o resultado; até a primeira execução, o que ' +
+              'existe é este cadastro. Ele já é útil: é daqui que o batimento lê quem ' +
+              'são os fornecedores fixos, então revisar agora vale para a primeira ' +
+              'rodada. ') +
+          'Fornecedor que saiu deve ser marcado <b>inativo</b> com o motivo, e não ' +
+          'apagado: apagar perde o histórico e faz a saída voltar a ser um sumiço sem ' +
+          'explicação.</div>' +
       '</div>' +
 
       (probs.length ? '<div class="erro-box"><b>' + probs.length +

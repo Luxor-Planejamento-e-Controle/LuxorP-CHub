@@ -140,7 +140,16 @@ var SB_DADOS = (function () {
       janela: fatos && fatos.meta ? [fatos.meta.janela_inicio, fatos.meta.janela_fim] : null,
       fatosGeradosEm: fatos && fatos.meta ? fatos.meta.gerado_em : null,
       faltando: faltando,
-      completo: faltando.length === 0 && linhas.length > 0,
+      /* Sem o arquivo do bucket, `a_pagar_por_conta` vem vazio e TODA conta fica com
+       * saída zero. A projeção continua fechando as contas e parece completa — só que
+       * otimista pelo valor inteiro da semana. É a pior forma de errar, então a tela
+       * precisa poder dizer que o ETL ainda não publicou. */
+      temFatos: !!(fatos && fatos.meta && fatos.meta.janela_inicio),
+      /* Saldo digitado não basta: sem os fatos não há semana, e a projeção seria a
+       * soma das entradas contra saída nenhuma. Por isso `temFatos` entra aqui e não
+       * só no aviso — é o que decide se existe painel a montar. */
+      completo: faltando.length === 0 && linhas.length > 0
+                && !!(fatos && fatos.meta && fatos.meta.janela_inicio),
       contas: linhas.map(function (l) { return porChaveAnalise[l.chave] || l; }),
       titulos: (fatos && fatos.titulos) || [],
       provisoes: (provisoes || []).map(function (pr) {

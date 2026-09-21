@@ -141,7 +141,17 @@ window.SB_FORM = (function () {
     var faltam = estado.faltando.length;
     var prontas = total - faltam;
 
-    var aviso = faltam
+    /* Sem os fatos publicados, dizer "as saídas já vêm da API" seria falso: elas estão
+     * ZERADAS, e a projeção fecharia as contas parecendo completa — otimista pelo valor
+     * inteiro da semana. É a pior forma de errar, então a tela diz o que houve em vez
+     * de deixar a pessoa confiar num número que não existe. */
+    var aviso = !estado.temFatos
+      ? '<b>As saídas da semana ainda não foram publicadas.</b> O robô busca os títulos ' +
+        'no Bimer toda terça de manhã e publica; até lá, as saídas aparecem zeradas e a ' +
+        'projeção fica <b>otimista</b> — não use para decidir resgate. Informar os ' +
+        'saldos agora não tem problema: eles ficam guardados e a projeção se completa ' +
+        'quando o robô rodar.'
+      : faltam
       ? '<b>Informe os saldos para ver a projeção.</b> As <b>saídas</b> já vêm da API do ' +
         'Bimer; o saldo de cada conta e as entradas previstas seguem manuais até haver ' +
         'API dos bancos. O saldo das aplicações é o que mostra se há dinheiro ' +

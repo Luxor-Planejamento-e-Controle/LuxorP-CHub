@@ -330,9 +330,13 @@ table.data .sub2.fixo{text-align:right;margin-top:3px;color:var(--teal-light)}
 </header>
 
 <div class="content" id="content">
+  <!-- Só aparece enquanto o JS não substituiu o conteúdo. Se ficar visível, algo
+       quebrou no boot: no hub não há script para ninguém rodar, os dados vêm do
+       Supabase. O texto herdado do painel local mandava rodar `extrair_dados.py`, que
+       aqui não existe — instrução que não ajuda quem lê. -->
   <div class="empty" id="semDados">
     <div class="big">◔</div>
-    <div>Dados não carregados.<br>Rode <code>python extrair_dados.py</code> e recarregue esta página.</div>
+    <div>Carregando…</div>
   </div>
 </div>
 
@@ -1076,13 +1080,23 @@ function mostrarFormulario(){
     const linhas = SB_FORM.coletar(estadoAtual.semana);
     btn.disabled = true;
     document.getElementById('sbfStatus').textContent = 'salvando...';
+    /* Dois try separados de propósito. Um só faria a falha de QUALQUER etapa dizer
+       "não foi possível salvar" — inclusive quando a gravação deu certo e quem quebrou
+       foi o desenho da tela seguinte. Quem lê essa mensagem digita tudo de novo à toa. */
     try{
       await window.SB_FONTE.salvar(linhas);
+    }catch(e){
+      btn.disabled = false;
+      document.getElementById('sbfStatus').textContent = 'não foi possível salvar: ' + e.message;
+      return;
+    }
+    try{
       await carregarEstado();
       decidirTela();
     }catch(e){
       btn.disabled = false;
-      document.getElementById('sbfStatus').textContent = 'não foi possível salvar: ' + e.message;
+      document.getElementById('sbfStatus').textContent =
+        'saldos gravados, mas a tela não recarregou: ' + e.message;
     }
   };
 }
