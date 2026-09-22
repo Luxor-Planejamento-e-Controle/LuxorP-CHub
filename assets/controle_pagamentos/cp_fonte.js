@@ -162,6 +162,10 @@ window.CP_FONTE = (function () {
     });
   }
 
+  /* `cliente` sai daqui para quem mais precisar falar com o Supabase nesta página — hoje
+   * o botão "Atualizar agora". Ver o comentário equivalente em sb_fonte.js: um segundo
+   * client criaria dois GoTrueClient no mesmo contexto, disputando o lock de renovação de
+   * token, e o fetch passa a falhar antes de sair. Um client por página. */
   return { carregar: carregar, salvarCadastro: salvarCadastro,
-           chaveDe: chaveDe, iguais: iguais };
+           chaveDe: chaveDe, iguais: iguais, cliente: cliente };
 })();

@@ -997,6 +997,8 @@ function ligar(){
     painel: 'saldo_bancario',
     botao:  document.getElementById('btReprocessar'),
     status: document.getElementById('reprocStatus'),
+    // o MESMO client que o painel usa para ler e gravar — ver sb_fonte.js
+    cliente: () => window.SB_FONTE.cliente(),
     lerCarimbo: async () => {
       const d = await window.SB_FONTE.carregar();
       return d.fatos && d.fatos.meta ? d.fatos.meta.gerado_em : null;

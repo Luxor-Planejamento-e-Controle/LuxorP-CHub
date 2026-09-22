@@ -159,6 +159,28 @@ class Base(unittest.TestCase):
     def test_7_sem_erro_de_console(self):
         self.assertEqual(self.erros, [], f"erros no navegador: {self.erros}")
 
+    def test_8_um_unico_client_de_autenticacao(self):
+        """Dois GoTrueClient no mesmo contexto disputam o storage de sessão e o lock de
+        renovação de token. Quando esse lock trava, o fetch falha ANTES de sair e o
+        supabase-js reporta "Failed to send a request to the Edge Function" — erro de rede
+        para um problema que não é de rede.
+
+        Visto em produção: aqui passava e no hub falhava, porque SEM SESSÃO não há refresh
+        para disputar. O teste não consegue criar sessão real, mas consegue provar a causa
+        — que o botão reusa o client do painel em vez de criar o seu.
+        """
+        avisos = []
+        self.pg.on("console", lambda m: avisos.append(m.text)
+                   if "GoTrueClient" in m.text else None)
+        # o segundo client só nasceria NO CLIQUE, não no carregamento — checar só o boot
+        # deixava o teste passar com o defeito presente
+        self.clicar()
+        self.pg.wait_for_timeout(1500)
+        duplicados = [a for a in avisos if "Multiple GoTrueClient" in a]
+        self.assertEqual(duplicados, [],
+                         "mais de um client de autenticação: o botão criou o seu em vez "
+                         "de reusar o do painel")
+
 
 class TestSaldoBancario(Base):
     PAINEL = "saldo_bancario"
