@@ -30,7 +30,7 @@ ESTADO_SB = {
     "contas": [{"chave": "LUXOR INVESTIMENTOS", "conta": "Luxor Investimentos - Itau",
                 "banco": "ITAU", "colchao": 300.0, "ativa": True, "investimentos": []}],
     "entradas": {"2026-09-23": [{"chave": "LUXOR INVESTIMENTOS", "saldo": 50000.0,
-                                 "a_receber": 0, "por": "f@luxor.com.br",
+                                 "a_receber": 0, "por": "fulano@luxor.com.br",
                                  "em": "2026-09-23T10:00:00Z"}]},
 }
 
@@ -81,7 +81,7 @@ class Base(unittest.TestCase):
             return route.continue_()
 
         cls.pg.route("**/*.supabase.co/**", rota)
-        cls.pg.add_init_script("window.HUB = {email:'f@luxor.com.br'};")
+        cls.pg.add_init_script("window.HUB = {email:'fulano@luxor.com.br'};")
         cls.pg.goto((AQUI / cls.PAINEL / "index.html").as_uri())
         cls.pg.wait_for_timeout(1500)
 
