@@ -569,8 +569,14 @@ function render(){
       digitados${D.data_saldo ? `, e os desta semana foram informados em
       <b>${fmt.iso(D.data_saldo)}</b>` : ''}; as <b>provisões</b> ficam na aba de
       títulos.</div>
+      <!-- flex-shrink:0 para os dois botões ficarem lado a lado: sem isso o texto do
+           aviso come o espaço, o contêiner quebra a linha e um vai parar embaixo do
+           outro. O flex-wrap continua, para eles empilharem em tela estreita — ali
+           empilhar é o certo.
+           (sem crase neste comentário: ele vive dentro de um template literal, e a
+           crase fecharia a string) -->
       <div style="margin-left:auto;align-self:center;display:flex;gap:8px;
-                  align-items:center;flex-wrap:wrap">
+                  align-items:center;flex-wrap:wrap;flex-shrink:0">
         <span class="sub" id="reprocStatus"></span>
         <button class="btn-ghost" id="btEditarSaldos" type="button"
                 style="white-space:nowrap">Corrigir saldos</button>
