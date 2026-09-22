@@ -262,7 +262,10 @@ table.data tr.alterado td{background:var(--warn-soft)}
 }
 .btn-lixo:hover{border-color:var(--neg);color:var(--neg)}
 .aviso-edicao{
-  margin-top:12px;font-size:12px;color:var(--ink-2);display:flex;gap:8px;align-items:flex-start;
+  /* A margem de baixo separa os botões do quadro de saldos. Sem ela o "Corrigir saldos"
+     e o "Atualizar agora" encostam na borda do card e parecem pertencer à tabela — são
+     ações da tela inteira, não da tabela. */
+  margin:12px 0 20px;font-size:12px;color:var(--ink-2);display:flex;gap:8px;align-items:flex-start;
 }
 .erro-box{
   margin-bottom:14px;padding:11px 14px;border-radius:var(--r-sm);font-size:12.5px;
