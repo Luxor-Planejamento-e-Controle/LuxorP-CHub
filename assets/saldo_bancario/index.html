@@ -256,6 +256,15 @@ table.data td input:focus,table.data td select:focus{border-color:var(--orange);
 table.data td input.num{text-align:right}
 table.data tr.novo td{background:var(--pos-soft)}
 table.data tr.alterado td{background:var(--warn-soft)}
+/* Riscada e apagada: a linha continua na tela para dar como desfazer, mas tem de ficar
+   claro num relance que ela NÃO entra na conta desta semana. */
+table.data tr.removido td{background:var(--neg-soft);opacity:.55}
+table.data tr.removido input,table.data tr.removido select{text-decoration:line-through}
+/* De onde a linha veio. Só aparece no modo de edição, onde provisão e título do Bimer
+   convivem na mesma tabela e o que dá para editar em cada uma é diferente. */
+.origem{font-size:9px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3);
+  border:1px solid var(--line);border-radius:4px;padding:1px 4px;margin-left:6px;
+  vertical-align:middle}
 .btn-lixo{
   background:transparent;border:1px solid var(--line);color:var(--ink-2);
   border-radius:6px;width:28px;height:26px;cursor:pointer;display:grid;place-items:center;padding:0;
@@ -828,16 +837,24 @@ function linhaEditavel(t, tipo){
     vencimento: t.vencimento || '',
     valor: Math.abs(t.valor || 0),
     nova: t.id == null,
+    /* Provisão e título do Bimer são editados na mesma tabela mas gravados de formas
+       diferentes: a provisão inteira, o título como um AJUSTE preso à `ref`. Sem guardar
+       a origem aqui, o aplicar não teria como separar os dois na hora de salvar. */
+    doBimer: t.provisao === false,
+    ref: t.ref || null,
+    removido: false,
   };
 }
 
 function entrarEdicao(){
-  /* Só as PROVISÕES. Os títulos do Bimer ficam de fora porque não são graváveis daqui:
-     a próxima execução do ETL republica o arquivo e qualquer edição some. Mostrar campo
-     editável para eles seria prometer algo que não acontece — e o jeito de descobrir
-     seria o número voltar sozinho na quarta seguinte. */
+  /* Provisões E títulos do Bimer, na mesma tabela.
+     Os títulos entram porque agora são graváveis: o que se guarda não é o título
+     editado — que a próxima execução do ETL sobrescreveria — e sim um AJUSTE preso à
+     `ref`, reaplicado sobre o título republicado enquanto a semana for a mesma.
+     Provisões primeiro: são poucas e é o que se mexe com mais frequência. */
   E = {
-    linhas: D.titulos.filter(t => t.provisao).map(t => linhaEditavel(t, 'saida')),
+    linhas: D.titulos.filter(t => t.provisao).map(t => linhaEditavel(t, 'saida'))
+      .concat(D.titulos.filter(t => !t.provisao).map(t => linhaEditavel(t, 'saida'))),
   };
   E.origem = JSON.stringify(E.linhas);
   erroEdicao = null;
@@ -859,8 +876,12 @@ const contarMudancas = () => {
   const uids = new Set(E.linhas.map(l => l.uid));
   return {
     novas: E.linhas.filter(l => l.nova).length,
-    alteradas: E.linhas.filter(l => !l.nova && mudou(l)).length,
-    excluidas: orig.filter(o => !uids.has(o.uid)).length,
+    alteradas: E.linhas.filter(l => !l.nova && !l.removido && mudou(l)).length,
+    /* Provisão apagada some da lista; título do Bimer fica, marcado como removido — ele
+       volta no próximo ETL de qualquer jeito, e some-lo da tela tiraria de quem editou a
+       chance de desfazer. Os dois contam como exclusão porque é o que são para quem lê. */
+    excluidas: orig.filter(o => !uids.has(o.uid)).length
+             + E.linhas.filter(l => l.removido).length,
   };
 };
 const temMudanca = () => {
@@ -882,24 +903,42 @@ function adicionar(tipo){
 
 async function aplicar(){
   const m = contarMudancas();
-  const vazias = E.linhas.filter(l => !l.valor || !l.vencimento || !l.chave);
+  // linha do Bimer marcada para remover não precisa estar preenchida — vai sumir
+  const vazias = E.linhas.filter(l => !l.removido && (!l.valor || !l.vencimento || !l.chave));
   if(vazias.length){
     erroEdicao = `${vazias.length} linha(s) sem conta, vencimento ou valor. `
       + 'Preencha ou remova antes de aplicar.';
     return render();
   }
-  if(!confirm(`Gravar as provisões da semana?\n\n`
+  if(!confirm(`Gravar as saídas da semana?\n\n`
     + `${m.novas} nova(s), ${m.alteradas} alterada(s), ${m.excluidas} excluída(s).`)) return;
 
   salvando = true; erroEdicao = null; render();
   try{
-    await window.SB_FONTE.salvarProvisoes(E.linhas.map(l => ({
+    /* Duas listas, gravadas juntas: a provisão é guardada inteira; o título do Bimer
+       vira um ajuste preso à `ref`, e só entra se de fato mudou — gravar ajuste "igual
+       ao original" encheria o documento de linhas que não fazem nada e ainda sobreviveria
+       a uma correção no Bimer, continuando a aplicar o valor de antes. */
+    const provisoes = E.linhas.filter(l => !l.doBimer).map(l => ({
       chave: l.chave, descricao: l.pessoa,
       // o sinal é da coluna, não do que se digita: quem lança uma saída escreve o
       // valor, não o valor negativo
       valor: Math.abs(l.valor || 0),
       vencimento: l.vencimento,
-    })));
+    }));
+
+    const ajustes = E.linhas.filter(l => l.doBimer && (l.removido || mudou(l)))
+      .map(l => {
+        if(l.removido) return { ref: l.ref, removido: true };
+        const orig = JSON.parse(E.origem).find(x => x.uid === l.uid) || {};
+        const a = { ref: l.ref };
+        if(Math.abs(l.valor || 0) !== Math.abs(orig.valor || 0)) a.valor = Math.abs(l.valor || 0);
+        if(l.vencimento !== orig.vencimento) a.vencimento = l.vencimento;
+        if(l.chave !== orig.chave) a.chave = l.chave;
+        return a;
+      });
+
+    await window.SB_FONTE.salvarProvisoes(provisoes, ajustes);
     /* Recarrega do zero em vez de recalcular aqui: a provisão muda o "saldo restante",
        a sugestão de resgate e o fluxo dia a dia. Refazer essa conta na tela seria uma
        segunda implementação do que o SB_DADOS já faz. */
@@ -962,18 +1001,28 @@ function corpoEdicao(){
 
   const visiveis = E.linhas.filter(l => !F.conta || l.chave === F.conta);
   document.getElementById('tbody').innerHTML = visiveis.length ? visiveis.map(l => {
-    const cls = l.nova ? 'novo' : (mudou(l) ? 'alterado' : '');
+    const cls = [l.nova ? 'novo' : (!l.removido && mudou(l) ? 'alterado' : ''),
+                 l.removido ? 'removido' : ''].filter(Boolean).join(' ');
+    /* O nº do título é do Bimer e não se inventa: deixá-lo editável sugeriria que dá
+       para apontar o ajuste a outro título, e não dá — é a `ref` que manda. */
+    const trava = l.doBimer ? 'disabled' : '';
     return `<tr class="${cls}" data-uid="${esc(l.uid)}">
-      <td>${stTag(l.tipo)}</td>
-      <td><input data-c="pessoa" value="${esc(l.pessoa)}" placeholder="fornecedor / cliente"></td>
-      <td><select data-c="chave">${opts(l.chave)}</select></td>
-      <td><input data-c="titulo" value="${esc(l.titulo)}" placeholder="nº"></td>
-      <td><input data-c="vencimento" type="date" value="${esc(l.vencimento||'')}"></td>
+      <td>${stTag(l.tipo)}${l.doBimer ? ' <span class="origem">Bimer</span>' : ''}</td>
+      <td><input data-c="pessoa" value="${esc(l.pessoa)}" placeholder="fornecedor / cliente"
+                 ${trava}></td>
+      <td><select data-c="chave" ${l.removido?'disabled':''}>${opts(l.chave)}</select></td>
+      <td><input data-c="titulo" value="${esc(l.titulo)}" placeholder="nº" ${trava}></td>
+      <td><input data-c="vencimento" type="date" value="${esc(l.vencimento||'')}"
+                 ${l.removido?'disabled':''}></td>
       <td><input data-c="valor" class="num" type="number" step="0.01" min="0"
-                 value="${l.valor||''}"></td>
+                 value="${l.valor||''}" ${l.removido?'disabled':''}></td>
       <td style="text-align:center">
-        <button class="btn-lixo" data-del="${esc(l.uid)}" title="Excluir esta linha"
-                type="button">${svg('M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14',12)}</button></td>
+        <button class="btn-lixo" data-del="${esc(l.uid)}"
+                title="${l.doBimer ? (l.removido ? 'Trazer de volta para a projeção'
+                                                 : 'Tirar da projeção desta semana')
+                                   : 'Excluir esta linha'}"
+                type="button">${svg(l.removido ? 'M3 12a9 9 0 1 0 3-6.7M3 4v4h4'
+                                               : 'M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14',12)}</button></td>
     </tr>`;
   }).join('') : `<tr><td colspan="7"><div class="empty">Nenhuma linha${
       F.conta?' nesta conta':''}. Use "Adicionar saída" abaixo.</div></td></tr>`;
@@ -1035,7 +1084,12 @@ function ligar(){
     tb.addEventListener('click', ev => {
       const b = ev.target.closest('[data-del]');
       if(!b) return;
-      E.linhas = E.linhas.filter(x => x.uid !== b.dataset.del);
+      const l = E.linhas.find(x => x.uid === b.dataset.del);
+      /* Título do Bimer ALTERNA em vez de sumir: ele volta no próximo ETL de qualquer
+         forma, e apagá-lo da tela tiraria de quem clicou sem querer a chance de desfazer
+         antes de gravar. Provisão é nossa, some mesmo. */
+      if(l && l.doBimer) l.removido = !l.removido;
+      else E.linhas = E.linhas.filter(x => x.uid !== b.dataset.del);
       render();
     });
   }
@@ -1083,7 +1137,7 @@ async function carregarEstado(){
   const d = await window.SB_FONTE.carregar();
   estadoAtual = SB_DADOS.montar(d.fatos, d.contas, d.entradas,
                                 d.hoje ? new Date(d.hoje) : new Date(),
-                                d.provisoes);
+                                d.provisoes, d.ajustes);
   D = SB_DADOS.paraSbData(estadoAtual);
   return estadoAtual;
 }

@@ -396,10 +396,13 @@ class TestPainelSaldoBancario(unittest.TestCase):
 
         pg.click("#btEditar")
         pg.wait_for_timeout(500)
-        # sem provisão, a tabela mostra só a linha de estado vazio — e NENHUM título do
-        # Bimer, que é o ponto: eles não são editáveis daqui
-        self.assertEqual(pg.locator('#tbody tr[data-uid]').count(), 0,
-                         "começa sem provisão — e o título do Bimer NÃO entra aqui")
+        # Agora os títulos do Bimer ENTRAM na edição — eles viram ajustes presos à `ref`,
+        # que sobrevivem à republicação do ETL. O que não pode acontecer é provisão nascer
+        # sozinha: tudo que está aqui neste momento veio do Bimer.
+        uids = pg.eval_on_selector_all('#tbody tr[data-uid]', "ts => ts.map(t => t.dataset.uid)")
+        self.assertEqual(len(uids), len(FATOS["titulos"]),
+                         "os títulos do Bimer entram; provisão nenhuma ainda")
+        self.assertTrue(all(u.startswith("saida:t") for u in uids), uids)
 
         pg.click("#btAddSaida")
         pg.wait_for_timeout(400)
@@ -598,6 +601,223 @@ class TestSemFatosPublicados(unittest.TestCase):
 
     def test_4_sem_erro_de_console(self):
         self.assertEqual(self.erros, [], f"erros no navegador: {self.erros}")
+
+
+class TestAjustesEmTitulosDoBimer(unittest.TestCase):
+    """Editar um título que veio da API — valor, vencimento, conta, ou tirar da projeção.
+
+    O que se guarda NÃO é o título editado: é um ajuste preso a uma `ref`, reaplicado
+    sobre o título que o ETL republica. Sem isso a edição se perderia na quarta seguinte,
+    e o jeito de descobrir seria o número voltar sozinho.
+
+    Os títulos aqui reproduzem o que os dados reais têm de pior para identificar uma
+    linha: dois dividindo o número (parcelas de luz) e dois iguais em tudo menos o valor.
+    É onde uma chave fraca aplicaria o ajuste na linha errada — e a conta bateria mesmo
+    assim no total, escondendo o erro.
+    """
+
+    FATOS = {
+        "meta": {"janela_inicio": "2026-09-23", "janela_fim": "2026-09-30",
+                 "gerado_em": "22/09/2026 08:00"},
+        "a_pagar_por_conta": {"LUXOR INVESTIMENTOS": 3000.0, "TARITUBA": 1500.0},
+        "titulos": [
+            {"conta": "LUXOR INVESTIMENTOS", "fornecedor": "ALUGUEL", "titulo": "A1",
+             "emissao": "2026-09-01", "vencimento": "2026-09-24", "valor": 1000.0},
+            # mesmo número, vencimentos diferentes — parcelas, como a conta de luz real
+            {"conta": "LUXOR INVESTIMENTOS", "fornecedor": "LUZ", "titulo": "LIGHT2026",
+             "emissao": "2026-09-08", "vencimento": "2026-09-25", "valor": 800.0},
+            {"conta": "LUXOR INVESTIMENTOS", "fornecedor": "LUZ", "titulo": "LIGHT2026",
+             "emissao": "2026-09-08", "vencimento": "2026-09-28", "valor": 1200.0},
+            {"conta": "TARITUBA", "fornecedor": "RACAO", "titulo": "R7",
+             "emissao": "2026-09-02", "vencimento": "2026-09-26", "valor": 1500.0},
+        ],
+    }
+    ESTADO = {
+        "contas": [
+            {"chave": "LUXOR INVESTIMENTOS", "conta": "Luxor Investimentos - Itau",
+             "banco": "ITAU", "colchao": 1000, "ativa": True, "investimentos": []},
+            {"chave": "TARITUBA", "conta": "Tarituba - Sicredi",
+             "banco": "SICREDI", "colchao": 1000, "ativa": True, "investimentos": []},
+        ],
+        "entradas": {"2026-09-23": [
+            {"chave": "LUXOR INVESTIMENTOS", "saldo": 50000.0, "a_receber": 0,
+             "por": "fulano@luxor.com.br", "em": "2026-09-23T10:00:00Z"},
+            {"chave": "TARITUBA", "saldo": 30000.0, "a_receber": 0,
+             "por": "fulano@luxor.com.br", "em": "2026-09-23T10:00:00Z"}]},
+    }
+
+    @classmethod
+    def setUpClass(cls):
+        try:
+            from playwright.sync_api import sync_playwright
+        except ImportError:
+            raise unittest.SkipTest("playwright não instalado")
+        cls._pw = sync_playwright().start()
+        cls._b = cls._pw.chromium.launch()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls._b.close()
+        cls._pw.stop()
+
+    def abrir(self, estado=None, fatos=None):
+        """Página nova, estado próprio. Cada teste mexe no documento gravado, então
+        dividir a página entre eles faria um teste herdar o ajuste do outro."""
+        self.estado = estado if estado is not None else json.loads(json.dumps(self.ESTADO))
+        self.fatos = fatos or self.FATOS
+        erros = []
+        pg = self._b.new_page(viewport={"width": 1400, "height": 950})
+        pg.on("pageerror", lambda e: erros.append(str(e)))
+        self.erros = erros
+
+        def rota(route, request):
+            u = request.url
+            if "/storage/v1/object/" in u:
+                return route.fulfill(status=200, content_type="application/json",
+                                     body=json.dumps(self.fatos))
+            if "/rest/v1/app_state" in u and request.method in ("PATCH", "POST"):
+                self.estado = json.loads(request.post_data)["data"]
+                return route.fulfill(status=200, content_type="application/json",
+                                     body='[{"id":"saldo_bancario","updated_at":"z"}]')
+            if "/rest/v1/app_state" in u:
+                return route.fulfill(
+                    status=200, content_type="application/vnd.pgrst.object+json",
+                    body=json.dumps({"data": self.estado, "updated_at": "z"}))
+            return route.continue_()
+
+        pg.route("**/*.supabase.co/**", rota)
+        pg.add_init_script("window.HUB = {email:'fulano@luxor.com.br'};")
+        pg.goto((AQUI / "index.html").as_uri())
+        pg.wait_for_timeout(1400)
+        self.pg = pg
+        return pg
+
+    def tearDown(self):
+        if getattr(self, "pg", None):
+            self.assertEqual(self.erros, [], f"erros no navegador: {self.erros}")
+            self.pg.close()
+
+    # ------------------------------------------------------------------ helpers
+
+    def editar(self):
+        self.pg.click("#btEditar")
+        self.pg.wait_for_timeout(700)
+        return self.pg.evaluate(
+            """() => [...document.querySelectorAll('#tbody tr[data-uid]')].map(tr => ({
+                 uid: tr.dataset.uid, cls: tr.className,
+                 campos: Object.fromEntries([...tr.querySelectorAll('input,select')]
+                           .map(e => [e.dataset.c, e.value])) }))""")
+
+    def gravar(self):
+        self.pg.once("dialog", lambda d: d.accept())
+        self.pg.click("#btAplicar")
+        self.pg.wait_for_timeout(1600)
+
+    def aPagar(self, chave):
+        return self.pg.evaluate(
+            "c => (SB_PAINEL.estado().contas.find(x => x.chave === c) || {}).aPagar", chave)
+
+    def ajustes(self):
+        return (self.estado.get("ajustes") or {}).get("2026-09-23", [])
+
+    # ------------------------------------------------------------------ testes
+
+    def test_1_os_titulos_do_bimer_entram_na_edicao(self):
+        pg = self.abrir()
+        linhas = self.editar()
+        self.assertEqual(len(linhas), len(self.FATOS["titulos"]))
+        # o nº do título não se edita: é a `ref` que liga o ajuste, não o que está no campo
+        self.assertTrue(pg.locator('#tbody tr input[data-c="titulo"]').first.is_disabled())
+
+    def test_2_mudar_o_valor_muda_o_total_da_conta(self):
+        self.abrir()
+        linhas = self.editar()
+        alvo = linhas[0]["uid"]
+        antes = self.aPagar("LUXOR INVESTIMENTOS")
+
+        self.pg.fill(f'tr[data-uid="{alvo}"] input[data-c=valor]', "2500")
+        self.pg.dispatch_event(f'tr[data-uid="{alvo}"] input[data-c=valor]', "change")
+        self.gravar()
+
+        self.assertEqual(len(self.ajustes()), 1)
+        self.assertAlmostEqual(self.aPagar("LUXOR INVESTIMENTOS"), antes - 1000 + 2500, 2)
+
+    def test_3_remover_tira_da_projecao(self):
+        self.abrir()
+        linhas = self.editar()
+        alvo = linhas[0]["uid"]
+        antes = self.aPagar("LUXOR INVESTIMENTOS")
+
+        self.pg.click(f'tr[data-uid="{alvo}"] button[data-del]')
+        self.pg.wait_for_timeout(300)
+        cls = self.pg.get_attribute(f'tr[data-uid="{alvo}"]', "class")
+        self.assertIn("removido", cls, "a linha fica na tela, riscada, para dar desfazer")
+
+        self.gravar()
+        self.assertAlmostEqual(self.aPagar("LUXOR INVESTIMENTOS"), antes - 1000, 2)
+        self.assertEqual(self.pg.evaluate("SB_PAINEL.estado().titulos.length"),
+                         len(self.FATOS["titulos"]) - 1)
+
+    def test_4_trocar_a_conta_move_o_valor(self):
+        self.abrir()
+        linhas = self.editar()
+        alvo = linhas[0]["uid"]
+        antes_lx = self.aPagar("LUXOR INVESTIMENTOS")
+        antes_ta = self.aPagar("TARITUBA")
+
+        self.pg.select_option(f'tr[data-uid="{alvo}"] select[data-c=chave]', "TARITUBA")
+        self.gravar()
+
+        self.assertAlmostEqual(self.aPagar("LUXOR INVESTIMENTOS"), antes_lx - 1000, 2)
+        self.assertAlmostEqual(self.aPagar("TARITUBA"), antes_ta + 1000, 2)
+
+    def test_5_o_ajuste_sobrevive_a_republicacao_do_etl(self):
+        """A razão de existir do desenho. Editar o título direto se perderia aqui."""
+        self.abrir()
+        linhas = self.editar()
+        self.pg.fill(f'tr[data-uid="{linhas[0]["uid"]}"] input[data-c=valor]', "7777")
+        self.pg.dispatch_event(f'tr[data-uid="{linhas[0]["uid"]}"] input[data-c=valor]',
+                               "change")
+        self.gravar()
+        esperado = self.aPagar("LUXOR INVESTIMENTOS")
+        gravado = json.loads(json.dumps(self.estado))
+        self.pg.close()
+
+        novos = json.loads(json.dumps(self.FATOS))
+        novos["meta"]["gerado_em"] = "29/09/2026 08:00"      # o ETL rodou de novo
+        self.abrir(estado=gravado, fatos=novos)
+        self.assertAlmostEqual(self.aPagar("LUXOR INVESTIMENTOS"), esperado, 2)
+
+    def test_6_o_ajuste_gruda_na_linha_certa_entre_titulos_gemeos(self):
+        """Dois títulos dividem o número e o fornecedor, mudando só vencimento e valor.
+        Chave fraca aplicaria o ajuste no irmão — e o TOTAL bateria igual, escondendo o
+        erro. Por isso a conferência é no título, não na soma."""
+        self.abrir()
+        linhas = self.editar()
+        luz = [l for l in linhas if l["campos"]["titulo"] == "LIGHT2026"]
+        self.assertEqual(len(luz), 2, "o cenário depende dos dois gêmeos")
+
+        segundo = next(l for l in luz if l["campos"]["valor"] == "1200")
+        self.pg.fill(f'tr[data-uid="{segundo["uid"]}"] input[data-c=valor]', "50")
+        self.pg.dispatch_event(f'tr[data-uid="{segundo["uid"]}"] input[data-c=valor]',
+                               "change")
+        self.gravar()
+
+        vals = self.pg.evaluate(
+            """() => SB_PAINEL.estado().titulos
+                 .filter(t => t.titulo === 'LIGHT2026')
+                 .map(t => Math.abs(t.valor)).sort((a,b) => a-b)""")
+        self.assertEqual(vals, [50, 800], f"o ajuste caiu na linha errada: {vals}")
+
+    def test_7_ajuste_so_e_gravado_quando_algo_mudou(self):
+        """Entrar na edição e gravar sem mexer não pode encher o documento de ajustes
+        'iguais ao original' — que ainda sobreviveriam a uma correção no Bimer,
+        continuando a aplicar o valor de antes."""
+        self.abrir()
+        self.editar()
+        self.pg.evaluate("document.getElementById('btAplicar').disabled = false")
+        self.gravar()
+        self.assertEqual(self.ajustes(), [])
 
 
 class TestSaldosGravadosSemFatos(unittest.TestCase):
