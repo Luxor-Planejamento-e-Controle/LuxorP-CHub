@@ -1,8 +1,8 @@
-"""Extrai dados reais (Indicadores no Azure + DRE no Drive) e gera JS embutido
-para a versão offline do hub (file:// não faz fetch, então vira window.*).
+"""Extrai dados reais (Indicadores no Azure + DRE e Fluxo de Caixa locais) e gera
+JS embutido para a versão offline do hub (file:// não faz fetch, então vira window.*).
 
-Uso: python tools/build_data.py [indicadores|dre ...]
-     (sem argumento = os dois)
+Uso: python tools/build_data.py [indicadores|dre|fluxo ...]
+     (sem argumento = todos)
 Requer: pandas, pyarrow, azure-storage-blob, python-dotenv e a conn do Azure
 (pega do .env do FinancialIndicators).
 """
@@ -21,6 +21,11 @@ OUT.mkdir(parents=True, exist_ok=True)
 DRE_XLSX = os.environ.get(
     "DRE_HISTORICO",
     r"C:/Users/Arthur/repos/LuxorMonthlyP-CRoutines/DRE Data/DRE_Historico.xlsx")
+# Saída do FCDataExtractor (mesmo repo do DRE): uma base por fluxo de caixa,
+# Bases_FC/FC_{OPERACAO}__{Empresa}.xlsx, aba fato_fluxo.
+FC_DIR = Path(os.environ.get(
+    "FC_BASES",
+    r"C:/Users/Arthur/repos/LuxorMonthlyP-CRoutines/FCDataExtractor/Bases_FC"))
 FIN_ENV = Path(r"C:/Users/Arthur/repos/FinancialIndicators/.env")
 CONTAINER = "luxor-planejamento-e-controle"
 IND_BLOB = "LuxorControlDatabase/parquet/Indicadores_financeiros.parquet"
@@ -345,16 +350,108 @@ def build_dre():
     print(f"[dre] ytd={len(ytd_rows)} geral={len(ger_rows)} naturezas={len(payload['naturezas'])} -> dre.json/.js")
 
 
+# Operações na ordem do FCDataExtractor (OPERATIONS); rótulo = pasta de
+# Relatórios Gerenciais de onde a base sai.
+FC_OPERACOES = [("INVESTIMENTOS", "Investimentos"), ("AGRONEGOCIO", "Agronegócio"),
+                ("HARAS_FPG", "Haras e Fazenda PG"), ("IMOBILIARIA", "Imobiliária"),
+                ("PASSIVO", "Passivo")]
+FC_ABAS = ["Resumo", "Receitas", "Despesas"]
+# Mesmas faixas do Acumulado do DRE: faixa N = Jan até o mês N.
+FC_ACUMULADOS = [f"{m:02d}-Jan a {n}" for m, n in enumerate(
+    ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"], 1)]
+
+
+def build_fluxo():
+    """Fluxos de caixa de todas as entidades, no molde do DRE Orçado × Realizado.
+
+    Valor com sinal (ValorSinalizado: saída de caixa negativa), como no DRE, e
+    acumulado do ano pronto do ETL (ValorSinalizadoAcumulado, que já trata saldo
+    como a planilha: Saldo Inicial de janeiro, Saldo Final do mês). Aqui só se
+    agrega. A natureza é (aba, Natureza Ordenada): o mesmo nome existe no Resumo
+    e na aba de Receitas/Despesas, e somar os dois contaria a linha duas vezes.
+    """
+    arquivos = sorted(FC_DIR.glob("FC_*__*.xlsx"))
+    if not arquivos:
+        raise FileNotFoundError(f"nenhuma base FC_*.xlsx em {FC_DIR}")
+    cols = ["Operacao", "Empresa", "Data", "Aba", "Natureza Ordenada", "Ordem", "Nivel",
+            "Cenario", "ValorSinalizado", "ValorSinalizadoAcumulado"]
+    df = pd.concat([pd.read_excel(p, sheet_name="fato_fluxo", usecols=cols) for p in arquivos],
+                   ignore_index=True)
+    df = df.dropna(subset=["Natureza Ordenada"])
+    df["Data"] = pd.to_datetime(df["Data"])
+    op_ordem = {k: i for i, (k, _) in enumerate(FC_OPERACOES)}
+    op_nome = dict(FC_OPERACOES)
+    aba_ix = {a: i for i, a in enumerate(FC_ABAS)}
+
+    fluxos, naturezas, rows = [], {}, []
+    pares = sorted(df.groupby(["Operacao", "Empresa"]).groups,
+                   key=lambda k: (op_ordem.get(k[0], 99), k[1]))
+    for fi, (op, emp) in enumerate(pares):
+        d = df[(df["Operacao"] == op) & (df["Empresa"] == emp)]
+        # lista de naturezas na ordem da face do fluxo: aba, depois Ordem do ETL
+        nat = (d.groupby(["Aba", "Natureza Ordenada"])
+                .agg(ordem=("Ordem", "min"), sub=("Nivel", lambda s: bool((s != "conta").any())))
+                .reset_index())
+        nat["ai"] = nat["Aba"].map(aba_ix)
+        nat = nat.sort_values(["ai", "ordem"]).reset_index(drop=True)
+        lista, idx, vl = [], {}, None
+        for i, r in nat.iterrows():
+            nome = str(r["Natureza Ordenada"])
+            chave = _sem_acento(nome.split(" ", 1)[-1]).strip()
+            saldo = ""
+            if r["Aba"] == "Resumo":
+                saldo = "ini" if chave.startswith("saldo inicial") else "fim" if chave.startswith("saldo final") else ""
+                if chave == "variacao liquida":
+                    vl = i
+            lista.append([nome, int(r["ai"]), bool(r["sub"]), saldo])
+            idx[(r["Aba"], nome)] = i
+        if vl is None:
+            raise ValueError(f"{op}/{emp}: Resumo sem linha de Variação Líquida")
+        # último mês com Realizado: a planilha traz o ano inteiro, e depois do
+        # fechamento o Realizado é zero, não "ainda não aconteceu". Só conta (linha
+        # com código) decide: a planilha repete o último saldo nos meses abertos,
+        # e a VARIAÇÃO CAMBIAL do FO (sem código) já traz valor em set/2026.
+        rz = d[(d["Nivel"] == "conta") & (d["Cenario"] == "Realizado")
+               & (d["ValorSinalizado"].abs() > 0.005)]
+        ref = rz["Data"].max()
+        fluxos.append({"op": op_nome.get(op, op), "nome": emp, "vl": vl,
+                       "ref": ref.strftime("%Y-%m-%d")})
+        naturezas[fi] = lista
+
+        # Cenário que a planilha não traz fica null, não zero: o Orçado de
+        # despesa do FO em 2020 é #VALUE! na fonte, e zero ali seria orçamento zero.
+        g = (d.groupby(["Aba", "Natureza Ordenada", "Data", "Cenario"])
+              [["ValorSinalizado", "ValorSinalizadoAcumulado"]].sum(min_count=1).unstack("Cenario"))
+        for (aba, nome, data), v in g.iterrows():
+            vals = [None if pd.isna(x := v.get((c, cen))) else round(float(x), 2)
+                    for c in ("ValorSinalizado", "ValorSinalizadoAcumulado")
+                    for cen in ("Orçado", "Realizado")]
+            if not any(vals):
+                continue                       # linha zerada: o front lê ausência como 0
+            rows.append([fi, idx[(aba, nome)], data.strftime("%Y-%m-%d")] + vals)
+
+    payload = {
+        "fluxos": fluxos,
+        "abas": FC_ABAS,
+        "acumulados": FC_ACUMULADOS,
+        "naturezas": naturezas,
+        "rows": {"cols": ["fluxo", "natureza", "data", "orcado", "realizado", "orcadoAcum", "realizadoAcum"],
+                 "rows": rows},
+    }
+    write("fluxo", "FC_DATA", payload)
+    print(f"[fluxo] {len(fluxos)} fluxos, {len(rows)} linhas -> fluxo.json/.js")
+
+
 if __name__ == "__main__":
     if "--segmentos" in sys.argv:            # só lista, não gera nada
         listar_segmentos()
         sys.exit(0)
-    # Sem argumento = os dois, como sempre foi. Com argumento, só o pedido —
-    # o run_etl_indicadores.py atualiza indicadores sem mexer no dre.json.
-    alvos = [a for a in sys.argv[1:] if not a.startswith("-")] or ["indicadores", "dre"]
-    desconhecido = [a for a in alvos if a not in ("indicadores", "dre")]
+    # Sem argumento = todos. Com argumento, só o pedido — o
+    # run_etl_indicadores.py atualiza indicadores sem mexer no dre.json.
+    alvos = [a for a in sys.argv[1:] if not a.startswith("-")] or ["indicadores", "dre", "fluxo"]
+    desconhecido = [a for a in alvos if a not in ("indicadores", "dre", "fluxo")]
     if desconhecido:
-        sys.exit(f"Dataset inválido: {', '.join(desconhecido)}. Use indicadores e/ou dre.")
+        sys.exit(f"Dataset inválido: {', '.join(desconhecido)}. Use indicadores, dre e/ou fluxo.")
     # Falha de um dataset nao impede o outro, mas TEM que virar exit != 0: rodando
     # como job, sair 0 com o build quebrado faria o publish subir snapshot velho
     # como se fosse novo.
@@ -371,5 +468,11 @@ if __name__ == "__main__":
         except Exception as e:
             print("[dre] ERRO:", e, file=sys.stderr)
             falhou.append("dre")
+    if "fluxo" in alvos:
+        try:
+            build_fluxo()
+        except Exception as e:
+            print("[fluxo] ERRO:", e, file=sys.stderr)
+            falhou.append("fluxo")
     if falhou:
         sys.exit(f"build_data falhou em: {', '.join(falhou)}")

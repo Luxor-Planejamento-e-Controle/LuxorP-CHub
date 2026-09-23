@@ -57,6 +57,7 @@ const ROUTES = [
   {id:'', title:'Início', sub:'Hub de Planejamento & Controle', icon:'home', render:renderHome},
   {id:'indicadores', title:'Indicadores Financeiros', sub:'Cotações e variações por índice', icon:'ind', render:renderIndicadores},
   {id:'dre', title:'DRE — Orçado × Realizado', sub:'Comparativo orçado vs realizado', icon:'dre', render:renderDRE},
+  {id:'fluxo', title:'Fluxo de Caixa — Orçado × Realizado', sub:'Comparativo orçado vs realizado por fluxo de caixa', icon:'fluxo', render:renderFluxo},
   {id:'inadimplencia', title:'Controle de Inadimplência', sub:'', icon:'inad', render:renderInad},
   {id:'vendas', title:'Controle de Vendas HPG', sub:'Venda × valor no plantel — Haras Pao Grande', icon:'vendas', render:renderVendas},
   {id:'projetos', title:'Projetos', sub:'Controle de projetos de automação/BI', icon:'proj', render:renderProjetos},
@@ -71,6 +72,7 @@ function temDado(id, hub){
   if(hub.offline) return true;
   if(id==='indicadores')   return !!window.IND_DATA;
   if(id==='dre')           return !!window.DRE_DATA;
+  if(id==='fluxo')         return !!window.FC_DATA;
   if(id==='inadimplencia') return !!hub.inadHtml;
   if(id==='vendas')        return !!hub.vendasHtml;
   if(id==='saldo_bancario') return true;          // lê o bucket e app_state por conta própria
@@ -628,6 +630,217 @@ function renderDRE(el){
   };
   bindSeg('modelo',onComboChange); bindSeg('cc',onComboChange);
   document.getElementById('acc').onchange=draw;
+  draw();
+}
+
+/* ---- Fluxo de Caixa ---- */
+/* Mesmo molde do DRE Orçado × Realizado, um fluxo de caixa por vez. Natureza é
+   (aba, linha): o mesmo nome existe no Resumo e na aba de Receitas/Despesas, e
+   somar os dois contaria a linha duas vezes. Valor com sinal (saída de caixa
+   negativa) e acumulado do ano vêm prontos do ETL — o do saldo inclusive, que
+   não é soma: Saldo Inicial de janeiro, Saldo Final do mês. */
+let fcFora=null;   // um só "clique fora fecha o painel", não um por render
+function renderFluxo(el){
+  const D=window.FC_DATA;
+  if(!D){el.innerHTML='<div class="empty">Dados não carregados. Rode <code>python tools/build_data.py fluxo</code>.</div>';return;}
+  const NAT_ALL='Variação líquida';
+  // linhas por fluxo, separadas uma vez: [fluxo,natureza,data,orc,rea,orcAcum,reaAcum]
+  const porFluxo=D.fluxos.map(()=>[]);
+  for(const r of D.rows.rows) porFluxo[r[0]].push(r);
+  // null = cenário que a planilha não traz (Orçado de despesa do FO em 2020);
+  // linha ausente = zero
+  const soma=(a,b)=>a==null?b:b==null?a:a+b;
+  // fluxo pequeno (Tarituba, Shiva) em Mi vira "0,03 Mi" em tudo
+  const curto=v=>v==null?'—':Math.abs(v)>=1e6?fmt.mi(v):(v/1e3).toLocaleString('pt-BR',{minimumFractionDigits:1,maximumFractionDigits:1})+' mil';
+  const eixo=vals=>{const m=Math.max(0,...vals.filter(v=>v!=null).map(Math.abs));
+    return m>=1e6?v=>(v/1e6).toLocaleString('pt-BR',{maximumFractionDigits:1})+' Mi'
+                 :v=>(v/1e3).toLocaleString('pt-BR',{maximumFractionDigits:0})+' mil';};
+  const rs=v=>v==null?'':fmt.rs(v);
+  const semNum=s=>s.replace(/^\d+\s/,'');
+  const ops=[...new Set(D.fluxos.map(f=>f.op))];
+  let fi=0;
+  const natSel=new Set();           // índices em D.naturezas[fi]; vazio = Variação líquida
+  el.innerHTML=`
+    <div class="toolbar">
+      <div class="field"><label>Fluxo de Caixa</label>
+        <select id="fcFluxo">${ops.map(op=>`<optgroup label="${op}">${D.fluxos.map((f,i)=>f.op===op?`<option value="${i}">${f.nome}</option>`:'').join('')}</optgroup>`).join('')}</select></div>
+      <div class="field"><label>Acumulado</label>
+        <select id="fcAcc">${D.acumulados.map((a,i)=>`<option value="${i+1}">${a}</option>`).join('')}</select></div>
+      <div class="field" style="flex:1;min-width:260px"><label>Natureza</label>
+        <div class="ms" id="fcNatMs">
+          <button type="button" class="ms-btn" id="fcNatBtn"><span class="ms-txt">${NAT_ALL}</span></button>
+          <div class="ms-panel" id="fcNatPanel" hidden>
+            <div class="ms-head">
+              <input type="search" class="ms-search" id="fcNatSearch" placeholder="buscar natureza…">
+              <button type="button" class="ms-clear" id="fcNatClear">Limpar</button>
+            </div>
+            <label class="ms-all"><input type="checkbox" id="fcNatAll" checked> ${NAT_ALL}</label>
+            <div class="ms-list" id="fcNatList"></div>
+          </div>
+        </div></div>
+    </div>
+    <div class="ms-chips" id="fcNatChips"></div>
+    <div class="grid g-4" id="fcKpis" style="margin-bottom:16px"></div>
+    <div class="card"><div class="card-title"><h2>Orçado × Realizado por ano</h2><span class="muted" id="fcBarSub"></span></div><div id="fcBar" class="chart"></div></div>
+    <div class="card" style="margin-top:16px"><div class="card-title"><h2>Comparativo Orçado × Realizado (mensal)</h2></div>
+      <div id="fcMeasure" class="measure"></div>
+      <div id="fcLine" class="chart tall"></div></div>`;
+
+  const fluxoEl=document.getElementById('fcFluxo'), accEl=document.getElementById('fcAcc');
+  // Acumulado padrão = mês do último fechamento (a planilha traz o ano inteiro)
+  accEl.value=String(+D.fluxos[fi].ref.slice(5,7));
+
+  // ---- multi-select natureza (chips + limpar), como no DRE ----
+  const natList=document.getElementById('fcNatList'), natBtn=document.getElementById('fcNatBtn');
+  const natPanel=document.getElementById('fcNatPanel'), natAll=document.getElementById('fcNatAll');
+  const natChips=document.getElementById('fcNatChips'), natTxt=natBtn.querySelector('.ms-txt');
+  const rotulo=n=>`${n[0]} · ${D.abas[n[1]]}`;
+  const cbs=[];
+  function buildNatList(){
+    natList.innerHTML=''; cbs.length=0;
+    D.naturezas[fi].forEach((n,i)=>{
+      const lab=document.createElement('label');
+      const cb=document.createElement('input'); cb.type='checkbox'; cb.checked=natSel.has(i); cbs[i]=cb;
+      const txt=document.createElement('span'); txt.className='ms-name'; txt.textContent=n[0];
+      const s=document.createElement('span'); s.className='ms-sub'; s.textContent=D.abas[n[1]]+(n[1]&&n[2]?' · subtotal':'');
+      lab.appendChild(cb); lab.appendChild(txt); lab.appendChild(s);
+      cb.addEventListener('change',()=>{ if(cb.checked)natSel.add(i); else natSel.delete(i); refreshNat(); });
+      natList.appendChild(lab);
+    });
+  }
+  function refreshNat(){
+    natAll.checked=natSel.size===0;
+    natTxt.textContent=natSel.size?`${natSel.size} selecionada${natSel.size>1?'s':''}`:NAT_ALL;
+    natChips.innerHTML='';
+    [...natSel].forEach(i=>{
+      const n=D.naturezas[fi][i];
+      const chip=document.createElement('span'); chip.className='chip-sel';
+      const s=document.createElement('span'); s.textContent=rotulo(n); s.title=rotulo(n); chip.appendChild(s);
+      const x=document.createElement('button'); x.type='button'; x.className='chip-x'; x.textContent='×'; x.title='remover';
+      x.onclick=()=>{ natSel.delete(i); if(cbs[i])cbs[i].checked=false; refreshNat(); };
+      chip.appendChild(x); natChips.appendChild(chip);
+    });
+    draw();
+  }
+  function clearNat(){ natSel.clear(); natList.querySelectorAll('input').forEach(c=>c.checked=false); refreshNat(); }
+  // Troca de fluxo: índice é por fluxo, então a seleção passa pelo nome (sem o
+  // número de ordem, que muda de um fluxo pro outro). O que não existe no novo some.
+  function onFluxoChange(){
+    const antes=new Set([...natSel].map(i=>{const n=D.naturezas[fi][i];return n[1]+'|'+semNum(n[0]);}));
+    fi=+fluxoEl.value; natSel.clear();
+    D.naturezas[fi].forEach((n,i)=>{ if(antes.has(n[1]+'|'+semNum(n[0])))natSel.add(i); });
+    document.getElementById('fcNatSearch').value='';
+    buildNatList(); refreshNat();
+  }
+  natAll.addEventListener('change',()=>{ if(natAll.checked)clearNat(); else if(natSel.size===0)natAll.checked=true; });
+  document.getElementById('fcNatClear').onclick=clearNat;
+  natBtn.onclick=()=>{natPanel.hidden=!natPanel.hidden;};
+  document.getElementById('fcNatSearch').addEventListener('input',e=>{
+    const q=e.target.value.toLowerCase();
+    natList.querySelectorAll('label').forEach(l=>{l.style.display=l.textContent.toLowerCase().includes(q)?'':'none';});
+  });
+  if(fcFora) document.removeEventListener('click',fcFora);
+  fcFora=e=>{const ms=document.getElementById('fcNatMs'); if(ms&&!ms.contains(e.target))natPanel.hidden=true;};
+  document.addEventListener('click',fcFora);
+
+  const draw=()=>{
+    clearCharts();
+    const f=D.fluxos[fi], nats=D.naturezas[fi], rows=porFluxo[fi], mes=+accEl.value;
+    const sel=natSel.size?natSel:new Set([f.vl]);
+    // barras: acumulado do ano até o mês da faixa, por natureza
+    const anos=[...new Set(rows.map(r=>+r[2].slice(0,4)))].sort((a,b)=>a-b);
+    const porNat={};                               // natureza -> {ano: [orcAcum, reaAcum]}
+    for(const r of rows){
+      if(!sel.has(r[1])||+r[2].slice(5,7)!==mes)continue;
+      (porNat[r[1]]||(porNat[r[1]]={}))[+r[2].slice(0,4)]=[r[5],r[6]];
+    }
+    const val=(n,a,k)=>{const x=porNat[n]&&porNat[n][a];return x?x[k]:0;};
+    const barra=k=>anos.map(a=>[...sel].reduce((t,n)=>soma(t,val(n,a,k)),null));
+    const orc=barra(0), rea=barra(1);
+    // KPIs = período das barras, só nos anos com os dois cenários (senão o
+    // desvio compara sete anos de realizado com seis de orçado). Saldo não se
+    // soma entre anos: o Inicial é o do primeiro ano, o Final o do último.
+    const anosK=anos.filter((a,i)=>orc[i]!=null&&rea[i]!=null);
+    const tot=k=>[...sel].reduce((t,n)=>{
+      const tipo=nats[n][3];
+      const v=!anosK.length?null:tipo==='ini'?val(n,anosK[0],k):tipo==='fim'?val(n,anosK[anosK.length-1],k)
+        :anosK.reduce((s,a)=>soma(s,val(n,a,k)),null);
+      return soma(t,v);},null);
+    const totO=tot(0), totR=tot(1), dev=totO==null||totR==null?null:totR-totO;
+    const devPct=dev!=null&&totO!==0?dev/Math.abs(totO)*100:null;
+    const natDesc=natSel.size===0?'variação líquida':natSel.size===1?rotulo(nats[[...natSel][0]]):`${natSel.size} naturezas`;
+    document.getElementById('fcBarSub').textContent=`${f.nome} · ${D.acumulados[mes-1]} · ${natDesc}`;
+    document.getElementById('fcKpis').innerHTML=[
+      ['Orçado (acum.)',curto(totO),rs(totO),''],
+      ['Realizado (acum.)',curto(totR),rs(totR),''],
+      ['Desvio (Real − Orç)',curto(dev),rs(dev),cls(dev)],
+      ['Desvio %',fmt.pct(devPct),'',cls(devPct)],
+    ].map(([l,v,s,c])=>`<div class="card kpi"><div class="label">${l}</div><div class="val ${c}">${v}</div><div class="delta">${s||'&nbsp;'}</div></div>`).join('');
+    const lbl={show:true,position:'top',color:C.ink3,formatter:p=>p.value==null?'':curto(p.value)};
+    mkChart(document.getElementById('fcBar'),Object.assign(baseOpt(),{
+      grid:{left:64,right:24,top:34,bottom:34},
+      tooltip:Object.assign(baseOpt().tooltip,{valueFormatter:v=>v==null?'—':fmt.rs(v)}),
+      xAxis:axis({type:'category',data:anos}),
+      yAxis:axis({type:'value',axisLabel:{color:C.ink3,formatter:eixo(orc.concat(rea))}}),
+      series:[
+        {name:'Orçado',type:'bar',data:orc,itemStyle:{color:C.teal,borderRadius:[3,3,0,0]},barMaxWidth:38,label:lbl},
+        {name:'Realizado',type:'bar',data:rea,itemStyle:{color:C.orange,borderRadius:[3,3,0,0]},barMaxWidth:38,label:lbl},
+      ]
+    }));
+    // linha: valor do mês. Realizado para no último fechamento — depois dele a
+    // planilha traz zero, e a linha despencaria como se o caixa tivesse zerado.
+    const datas=[...new Set(rows.map(r=>r[2]))].sort(), ix=new Map(datas.map((d,i)=>[d,i]));
+    const gO=new Array(datas.length).fill(undefined), gR=new Array(datas.length).fill(undefined);
+    for(const r of rows){
+      if(!sel.has(r[1]))continue;
+      const i=ix.get(r[2]); gO[i]=soma(gO[i]??null,r[3]); gR[i]=soma(gR[i]??null,r[4]);
+    }
+    for(let i=0;i<datas.length;i++){
+      gO[i]=gO[i]===undefined?0:gO[i];
+      gR[i]=datas[i]>f.ref?null:gR[i]===undefined?0:gR[i];
+    }
+    const lineChart=mkChart(document.getElementById('fcLine'),Object.assign(baseOpt(),{
+      dataZoom:zoom(),
+      tooltip:Object.assign(baseOpt().tooltip,{valueFormatter:v=>v==null?'—':fmt.rs(v)}),
+      xAxis:axis({type:'category',data:datas,boundaryGap:false,axisLabel:{color:C.ink3,formatter:fmt.mesano}}),
+      yAxis:axis({type:'value',axisLabel:{color:C.ink3,formatter:eixo(gO.concat(gR))}}),
+      series:[
+        {name:'Orçado',type:'line',smooth:true,symbol:'none',data:gO,lineStyle:{color:C.teal,width:2},itemStyle:{color:C.teal}},
+        {name:'Realizado',type:'line',smooth:true,symbol:'none',data:gR,lineStyle:{color:C.orange,width:2.2},itemStyle:{color:C.orange}},
+      ]
+    }));
+    // BARRA = janela de tempo; CLIQUE+ARRASTA = mede recorte (não mexe no tempo)
+    const dm=document.getElementById('fcMeasure');
+    const vpct=(a0,a1)=>a0!=null&&a1!=null&&a0!==0?(a1-a0)/Math.abs(a0)*100:null;
+    const nD=datas.length;
+    const ultimo=(arr,i)=>{while(i>0&&arr[i]==null)i--;return i;};   // Realizado acaba no fechamento
+    const trecho=(nome,arr,lo,hi)=>{
+      if(arr[lo]==null||arr[hi]==null)return ` · ${nome} —`;
+      const d=arr[hi]-arr[lo];
+      return ` · ${nome} ${curto(arr[lo])} → ${curto(arr[hi])} <b class="${cls(d)}">(${curto(d)} · ${fmt.pct(vpct(arr[lo],arr[hi]))})</b>`;
+    };
+    const dmeasure=(lo,hi,label)=>{
+      dm.innerHTML=`${label} <b>${fmt.mesano(datas[lo])} → ${fmt.mesano(datas[hi])}</b>`
+        +trecho('Orçado',gO,lo,hi)+trecho('Realizado',gR,lo,ultimo(gR,hi))
+        +(label==='Janela'?' <span class="hint">· arraste p/ medir recorte</span>':'');
+    };
+    const dRange=(st,en)=>[Math.max(0,Math.floor(st/100*(nD-1))),Math.min(nD-1,Math.ceil(en/100*(nD-1)))];
+    const dArea=(a,b)=>lineChart.setOption({series:[{markArea:{silent:true,itemStyle:{color:'rgba(255,164,0,.16)'},data:[[{xAxis:datas[Math.min(a,b)]},{xAxis:datas[Math.max(a,b)]}]]}},{}]});
+    const dClear=()=>lineChart.setOption({series:[{markArea:{data:[]}},{}]});
+    let dwLo,dwHi;
+    const dApply=(st,en)=>{[dwLo,dwHi]=dRange(st,en);dmeasure(dwLo,dwHi,'Janela');dClear();};
+    lineChart.on('dataZoom',()=>{const dz=lineChart.getOption().dataZoom[0];dApply(dz.start,dz.end);});
+    dApply(0,100);
+    const zr=lineChart.getZr(); let meas=false,si=null,drg=false;
+    const idxAt=e=>{if(!lineChart.containPixel({gridIndex:0},[e.offsetX,e.offsetY]))return null;
+      return Math.max(0,Math.min(nD-1,Math.round(lineChart.convertFromPixel({xAxisIndex:0},e.offsetX))));};
+    zr.on('mousedown',e=>{const i=idxAt(e);if(i==null)return;meas=true;si=i;drg=false;});
+    zr.on('mousemove',e=>{if(!meas)return;const j=idxAt(e);if(j==null||j===si)return;drg=true;dmeasure(Math.min(si,j),Math.max(si,j),'Recorte');dArea(si,j);});
+    zr.on('mouseup',()=>{if(!meas)return;meas=false;if(!drg){dmeasure(dwLo,dwHi,'Janela');dClear();}});
+  };
+  buildNatList();
+  fluxoEl.onchange=onFluxoChange;
+  accEl.onchange=draw;
   draw();
 }
 

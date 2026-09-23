@@ -19,6 +19,7 @@ const HUB_OFFLINE = location.protocol === 'file:';
 const HUB_DATASETS = {
   indicadores:   { file:'indicadores.json',   json:'IND_DATA'    },
   dre:           { file:'dre.json',           json:'DRE_DATA'    },
+  fluxo:         { file:'fluxo.json',         json:'FC_DATA'     },
   inadimplencia: { file:'inadimplencia.html', html:'inadHtml'    },
   vendas:        { file:'vendas.html',        html:'vendasHtml'  },
   projetos:      null,
@@ -239,6 +240,7 @@ async function start(){
     window.HUB.dashboards = Object.keys(HUB_DATASETS).filter(d=>{
       if(d==='indicadores') return !!window.IND_DATA;
       if(d==='dre')         return !!window.DRE_DATA;
+      if(d==='fluxo')       return !!window.FC_DATA;
       return true;
     });
     hideGate(); window.hubBoot(); return;
