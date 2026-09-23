@@ -45,7 +45,13 @@ const ICON = {
   dre:'M4 20V10M10 20V4M16 20v-7M22 20H2', fluxo:'M3 12h18M3 6h18M3 18h12',
   part:'M12 2a10 10 0 100 20 10 10 0 000-20zM12 12l7-4', plantel:'M4 20V8l8-5 8 5v12M9 20v-6h6v6',
   inad:'M12 3l9 4v6c0 5-4 8-9 9-5-1-9-4-9-9V7z M12 8v4M12 15h.01', proj:'M9 11l3 3 8-8M20 12v7H4V5h11',
-  vendas:'M3 10.5V4h6.5L21 15.5 14.5 22 3 10.5z M7 7h.01'
+  vendas:'M3 10.5V4h6.5L21 15.5 14.5 22 3 10.5z M7 7h.01',
+  // Saldo Bancário e Controle de Pagamentos nasceram os dois com `proj`, o ícone de
+  // checklist — ficavam idênticos no menu, e ler o rótulo era a única forma de
+  // distinguir. Cifrão para o que se paga, moeda para o que se tem em caixa.
+  pagamentos:'M12 1.6v20.8M17 5.5H9.8a3.4 3.4 0 000 6.8h4.4a3.4 3.4 0 010 6.8H6.5',
+  moeda:'M12 21.5a9.5 9.5 0 110-19 9.5 9.5 0 010 19zM12 6.8v10.4'
+        + 'M14.6 9.6h-3.4a2 2 0 000 4h1.6a2 2 0 010 4H9.2'
 };
 const ROUTES = [
   {id:'', title:'Início', sub:'Hub de Planejamento & Controle', icon:'home', render:renderHome},
@@ -54,8 +60,8 @@ const ROUTES = [
   {id:'inadimplencia', title:'Controle de Inadimplência', sub:'', icon:'inad', render:renderInad},
   {id:'vendas', title:'Controle de Vendas HPG', sub:'Venda × valor no plantel — Haras Pao Grande', icon:'vendas', render:renderVendas},
   {id:'projetos', title:'Projetos', sub:'Controle de projetos de automação/BI', icon:'proj', render:renderProjetos},
-  {id:'saldo_bancario', title:'Saldo Bancário', sub:'Projeção de caixa da semana — Grupo Luxor', icon:'proj', render:renderSaldoBancario},
-  {id:'controle_pagamentos', title:'Controle de Pagamentos', sub:'Fornecedores fixos do mês e o que já foi pago', icon:'proj', render:renderControlePagamentos},
+  {id:'saldo_bancario', title:'Saldo Bancário', sub:'Projeção de caixa da semana — Grupo Luxor', icon:'moeda', render:renderSaldoBancario},
+  {id:'controle_pagamentos', title:'Controle de Pagamentos', sub:'Fornecedores fixos do mês e o que já foi pago', icon:'pagamentos', render:renderControlePagamentos},
 ];
 // Rotas que o usuário logado pode abrir (Início sempre). Fora da allowlist a
 // aba nem aparece — e o dado dela nem foi baixado (ver assets/auth.js).

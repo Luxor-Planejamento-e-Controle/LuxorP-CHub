@@ -198,5 +198,12 @@ window.SB_FONTE = (function () {
     return provs[semana];
   }
 
-  return { carregar: carregar, salvar: salvar, salvarProvisoes: salvarProvisoes };
+  /* `cliente` sai daqui para quem mais precisar falar com o Supabase nesta página —
+   * hoje o botão "Atualizar agora". Criar um segundo client faria dois GoTrueClient no
+   * mesmo contexto, disputando o mesmo storage de sessão e o lock de renovação de token:
+   * quando esse lock trava, o fetch falha ANTES de sair, e o supabase-js reporta
+   * "Failed to send a request to the Edge Function" — erro de rede para um problema que
+   * não é de rede. Um client por página. */
+  return { carregar: carregar, salvar: salvar, salvarProvisoes: salvarProvisoes,
+           cliente: cliente };
 })();

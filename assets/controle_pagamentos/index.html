@@ -719,6 +719,8 @@ function ligar(){
     painel: 'controle_pagamentos',
     botao:  document.getElementById('btReprocessar'),
     status: document.getElementById('reprocStatus'),
+    // o MESMO client que o painel usa para ler e gravar — ver cp_fonte.js
+    cliente: () => window.CP_FONTE.cliente(),
     lerCarimbo: async () => {
       const d = await window.CP_FONTE.carregar();
       return d.resultado ? d.resultado.gerado_em : null;

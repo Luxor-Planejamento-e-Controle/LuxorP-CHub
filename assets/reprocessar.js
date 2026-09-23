@@ -24,11 +24,19 @@ window.HUB_REPROCESSAR = (function () {
   var INTERVALO = 5000;      // de quanto em quanto se relê o carimbo
   var LIMITE = 5 * 60000;    // quando desistir de esperar (o CP leva ~2 min)
 
-  function cliente() {
-    if (!window.supabase || !window.SUPABASE_URL) {
-      throw new Error('supabase-js não carregou');
-    }
-    return window.supabase.createClient(window.SUPABASE_URL, window.SUPABASE_ANON_KEY);
+  /* O client vem de fora, do mesmo módulo que o painel já usa para ler e gravar.
+   *
+   * Criar um aqui parecia inofensivo e não é: dois GoTrueClient no mesmo contexto
+   * disputam o storage de sessão e o lock de renovação de token. Quando o lock trava, o
+   * fetch falha ANTES de sair, e o supabase-js reporta "Failed to send a request to the
+   * Edge Function" — mensagem de erro de rede para um problema que não é de rede.
+   *
+   * Só aparece para quem tem sessão de verdade: sem sessão não há refresh para disputar,
+   * então o teste passava e o hub falhava. */
+  function cliente(opcoes) {
+    var sb = opcoes.cliente && opcoes.cliente();
+    if (!sb) throw new Error('cliente do Supabase não disponível');
+    return sb;
   }
 
   function esperar(ms) {
@@ -82,7 +90,7 @@ window.HUB_REPROCESSAR = (function () {
       try {
         var antes = await opcoes.lerCarimbo();
 
-        var r = await cliente().functions.invoke('reprocessar', {
+        var r = await cliente(opcoes).functions.invoke('reprocessar', {
           body: { painel: opcoes.painel }
         });
         if (r.error) {
@@ -90,6 +98,13 @@ window.HUB_REPROCESSAR = (function () {
            * resposta de erro; r.error.message sozinho diz só "non-2xx status code". */
           var detalhe = '';
           try { detalhe = (await r.error.context.json()).erro || ''; } catch (e) { }
+          /* Quando não houve resposta nenhuma, o supabase-js diz "Failed to send a request
+           * to the Edge Function" — que soa como serviço fora do ar e quase nunca é.
+           * Trocar por algo que diga o que fazer. */
+          if (!detalhe && /failed to send/i.test(r.error.message || '')) {
+            throw new Error('o pedido não chegou ao servidor. Recarregue a página e tente '
+                            + 'de novo; se continuar, avise a Controladoria.');
+          }
           throw new Error(detalhe || r.error.message);
         }
 

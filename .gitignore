@@ -50,3 +50,7 @@ __MACOSX/
 ._*
 Thumbs.db
 desktop.ini
+
+# Arquivos de trabalho do Supabase CLI (project ref, versao do CLI). Nao sao segredo,
+# mas mudam a cada comando e sujam o diff de quem usa o CLI.
+supabase/.temp/
