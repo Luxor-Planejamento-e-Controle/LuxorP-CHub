@@ -13,6 +13,11 @@ Uso: python assets/controle_pagamentos/test_painel.py   (da raiz do repo do hub)
 import json
 import pathlib
 import unittest
+
+class TestProvaQueOCIFalha(unittest.TestCase):
+    def test_falha_de_proposito(self):
+        self.fail("quebra proposital: provando que o job fica vermelho")
+
 import urllib.parse
 
 AQUI = pathlib.Path(__file__).resolve().parent
