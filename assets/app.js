@@ -56,8 +56,8 @@ const ICON = {
 const ROUTES = [
   {id:'', title:'Início', sub:'Hub de Planejamento & Controle', icon:'home', render:renderHome},
   {id:'indicadores', title:'Indicadores Financeiros', sub:'Cotações e variações por índice', icon:'ind', render:renderIndicadores},
-  {id:'dre', title:'DRE — Orçado × Realizado', sub:'Comparativo orçado vs realizado', icon:'dre', render:renderDRE},
   {id:'fluxo', title:'Fluxo de Caixa — Orçado × Realizado', sub:'Comparativo orçado vs realizado por fluxo de caixa', icon:'fluxo', render:renderFluxo},
+  {id:'dre', title:'DRE — Orçado × Realizado', sub:'Comparativo orçado vs realizado', icon:'dre', render:renderDRE},
   {id:'inadimplencia', title:'Controle de Inadimplência', sub:'', icon:'inad', render:renderInad},
   {id:'vendas', title:'Controle de Vendas HPG', sub:'Venda × valor no plantel — Haras Pao Grande', icon:'vendas', render:renderVendas},
   {id:'projetos', title:'Projetos', sub:'Controle de projetos de automação/BI', icon:'proj', render:renderProjetos},
