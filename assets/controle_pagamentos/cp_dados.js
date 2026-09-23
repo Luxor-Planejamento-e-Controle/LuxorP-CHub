@@ -16,6 +16,33 @@ var CP_DADOS = (function () {
   var MESES = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago',
                'set', 'out', 'nov', 'dez'];
 
+  /* As empresas do grupo, escritas EXATAMENTE como o ETL as escreve.
+   *
+   * Isto não é uma lista de conveniência para preencher um campo: é a mesma grafia que
+   * `shared_alterdata/titulos_pagar.py` usa para casar título com fornecedor. Um cadastro
+   * com "CONDOMINIO HPG" sem acento, ou "FPG" abreviado, nunca casa com título nenhum —
+   * e o fornecedor aparece como "Não Recebido" todo mês, sem que nada pareça errado.
+   *
+   * Por isso o campo é uma escolha e não um texto livre, e por isso a lista vem completa
+   * com as doze, mesmo que só dez tenham fornecedor hoje: LUXOR RB1 e CARMEN ainda não
+   * têm, e com uma lista tirada do próprio cadastro elas seriam impossíveis de cadastrar.
+   *
+   * Se o ETL ganhar uma empresa, esta lista precisa acompanhar. */
+  var EMPRESAS = [
+    'CARMEN - RESIDENCIA',
+    'CONDOMÍNIO HPG',
+    'FAZENDA PAO GRANDE',
+    'JAGURUNDI REPRODUÇÃO',
+    'LUXOR INVESTIMENTOS',
+    'LUXOR PARTICIPAÇÃO',
+    'LUXOR RB1',
+    'MS HORSE TRAINING',
+    'POOL FAMILIAR',
+    'SHIVA HOLDING S.A',
+    'TARITUBA',
+    'WALACI ANSELMO'
+  ];
+
   var MESES_LONGOS = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
                       'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
 
@@ -132,7 +159,7 @@ var CP_DADOS = (function () {
     return out;
   }
 
-  return { MESES: MESES, MESES_LONGOS: MESES_LONGOS,
+  return { MESES: MESES, MESES_LONGOS: MESES_LONGOS, EMPRESAS: EMPRESAS,
            montar: montar, normalizar: normalizar, paraCpData: paraCpData,
            ordenar: ordenar, problemas: problemas };
 })();

@@ -235,13 +235,17 @@ table.data tr.pend td:first-child{box-shadow:inset 3px 0 0 var(--neg)}
 
 /* Campos do cadastro: padrão de controle do hub (altura --ctl-h, fundo --surface),
    o mesmo de qualquer outro campo do produto. */
-table.data input.cpc{
+table.data input.cpc,table.data select.cpc{
   background:var(--surface);border:1px solid var(--line);color:var(--ink);
   height:var(--ctl-h);padding:0 10px;border-radius:var(--r-sm);
   font:inherit;font-size:13px;max-width:100%;
 }
-table.data input.cpc:focus{border-color:var(--orange);outline:none}
+table.data input.cpc:focus,table.data select.cpc:focus{border-color:var(--orange);outline:none}
 table.data input.cpc::placeholder{color:var(--ink-3)}
+/* Empresa gravada com grafia que o robô não reconhece. Não é erro de digitação inofensivo:
+   o batimento casa título com fornecedor por este nome, então a linha nunca casaria e
+   apareceria "Não Recebido" todo mês. A borda avisa; o valor fica, para quem vê decidir. */
+table.data select.cpc[data-fora]{border-color:var(--warn);background:var(--warn-soft)}
 table.data.cadastro td{vertical-align:top;padding-top:9px;padding-bottom:9px}
 table.data.cadastro tr.inativo td{opacity:.6}
 table.data.cadastro tr.inativo td:first-child{box-shadow:inset 3px 0 0 var(--ink-3)}
