@@ -9,12 +9,20 @@ A chamada à Edge Function sai como POST para /functions/v1/reprocessar; o supab
 monta essa requisição, então interceptá-la também prova que o invoke() está sendo usado
 certo.
 
+O QUE A REDE INTERCEPTADA **NÃO** PROVA — e custou uma quebra em produção: interceptar a
+rota mata o preflight. O navegador só pergunta "posso mandar estes cabeçalhos?" quando a
+requisição sai de verdade, e a resposta vem da função PUBLICADA, não deste código. Por
+isso a última classe daqui sai para a rede: é o único jeito de testar o CORS real.
+
 Uso: python assets/test_reprocessar.py   (da raiz do repo do hub)
 """
 
 import json
 import pathlib
+import re
 import unittest
+import urllib.error
+import urllib.request
 
 AQUI = pathlib.Path(__file__).resolve().parent
 
@@ -234,6 +242,118 @@ class TestControlePagamentos(Base):
         # o carimbo do arquivo aparece no rodapé; é o sinal mais direto de que a tela
         # foi redesenhada com o conteúdo novo, e não só com o estado antigo em memória
         return "15:42" in self.pg.inner_text("body")
+
+
+class TestCorsDaFuncaoPublicada(unittest.TestCase):
+    """O preflight REAL, contra a Edge Function que está no ar.
+
+    Regressão de uma quebra em produção: o botão respondia "o pedido não chegou ao
+    servidor" porque o preflight autorizava só `authorization, content-type, apikey` — e o
+    supabase-js manda `x-client-info` em toda requisição. O navegador pede permissão, não
+    recebe, e bloqueia a chamada ANTES de sair; o supabase-js reporta isso como erro de
+    envio.
+
+    Nenhum teste pegava: os de navegador interceptam a rota, e rota interceptada não faz
+    preflight. Só sai daqui para a rede.
+
+    Os cabeçalhos testados não são uma lista escrita à mão — são os que o supabase-js
+    desta página de fato envia, capturados do bundle. Lista à mão envelheceria junto com
+    a biblioteca, que é exatamente como o defeito nasceu.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        try:
+            from playwright.sync_api import sync_playwright
+        except ImportError:
+            raise unittest.SkipTest("playwright não instalado")
+
+        cfg = (AQUI / "saldo_bancario" / "config.js").read_text(encoding="utf-8")
+        cls.url = re.search(r'SUPABASE_URL\s*=\s*"([^"]+)"', cfg).group(1).rstrip("/")
+
+        # Os cabeçalhos vêm de uma chamada de VERDADE do supabase-js, capturada na saída.
+        # Lê-los do bundle minificado seria adivinhação — foi o que falhou primeiro, com
+        # `X-Client-Info` escrito em maiúsculas e um regex de minúsculas.
+        capturados = {}
+        estado = {"contas": ESTADO_SB["contas"], "entradas": {}, "provisoes": {}}
+
+        with sync_playwright() as p:
+            b = p.chromium.launch()
+            pg = b.new_page(viewport={"width": 1280, "height": 900})
+
+            def rota(route, request):
+                u = request.url
+                if "/functions/v1/" in u:
+                    capturados.update(request.all_headers())
+                    return route.fulfill(status=202, content_type="application/json",
+                                         body='{"aceito":true}')
+                if "/storage/v1/object/" in u:
+                    return route.fulfill(status=200, content_type="application/json",
+                                         body=json.dumps(FATOS_SB))
+                if "/rest/v1/app_state" in u and request.method in ("PATCH", "POST"):
+                    estado.update(json.loads(request.post_data)["data"])
+                    return route.fulfill(status=200, content_type="application/json",
+                                         body='[{"id":"x","updated_at":"y"}]')
+                if "/rest/v1/app_state" in u:
+                    return route.fulfill(
+                        status=200,
+                        content_type="application/vnd.pgrst.object+json",
+                        body=json.dumps({"data": estado, "updated_at": "y"}))
+                return route.continue_()
+
+            pg.route("**/*.supabase.co/**", rota)
+            pg.add_init_script("window.HUB = {email:'fulano@luxor.com.br'};")
+            pg.goto((AQUI / "saldo_bancario" / "index.html").as_uri())
+            pg.wait_for_timeout(1400)
+            campos = pg.locator("input.sbf[data-campo=saldo]")
+            for i in range(campos.count()):
+                campos.nth(i).fill("100.000,00")
+            pg.click("#sbfSalvar")
+            pg.wait_for_timeout(1600)
+            pg.click("#btReprocessar")
+            pg.wait_for_timeout(1200)
+            b.close()
+
+        # o navegador só pede permissão para os que não são "simples"
+        simples = {"accept", "accept-language", "content-language", "referer",
+                   "user-agent", "sec-fetch-mode", "sec-fetch-site", "sec-fetch-dest",
+                   "origin", "host", "connection", "accept-encoding", "sec-ch-ua",
+                   "sec-ch-ua-mobile", "sec-ch-ua-platform", "content-length"}
+        cls.cabecalhos = sorted(k for k in capturados
+                                if k.lower() not in simples and not k.startswith(":"))
+
+    def _preflight(self, pedidos):
+        req = urllib.request.Request(
+            f"{self.url}/functions/v1/reprocessar", method="OPTIONS")
+        req.add_header("Origin", "https://lxplanejamentoecontrole.netlify.app")
+        req.add_header("Access-Control-Request-Method", "POST")
+        req.add_header("Access-Control-Request-Headers", ", ".join(pedidos))
+        try:
+            with urllib.request.urlopen(req, timeout=25) as r:
+                return r.status, {k.lower(): v for k, v in r.headers.items()}
+        except urllib.error.URLError as e:
+            raise unittest.SkipTest(f"sem rede para falar com o Supabase: {e}")
+
+    def test_1_a_lib_manda_mais_que_o_obvio(self):
+        """Se a captura trouxesse só os três óbvios, o teste abaixo não provaria nada —
+        e o defeito real era justamente um quarto cabeçalho."""
+        self.assertIn("x-client-info", self.cabecalhos,
+                      f"não capturei os cabeçalhos da lib: {self.cabecalhos}")
+
+    def test_2_o_preflight_autoriza_o_que_a_lib_envia(self):
+        status, h = self._preflight(self.cabecalhos)
+        self.assertEqual(status, 200)
+
+        permitidos = {c.strip().lower()
+                      for c in h.get("access-control-allow-headers", "").split(",")}
+        faltando = [c for c in self.cabecalhos if c not in permitidos]
+        self.assertEqual(faltando, [], f"o navegador bloquearia por causa de: {faltando}")
+        self.assertIn(h.get("access-control-allow-origin"),
+                      ("*", "https://lxplanejamentoecontrole.netlify.app"))
+
+    def test_3_metodo_post_liberado(self):
+        _s, h = self._preflight(["authorization", "content-type"])
+        self.assertIn("POST", h.get("access-control-allow-methods", ""))
 
 
 if __name__ == "__main__":

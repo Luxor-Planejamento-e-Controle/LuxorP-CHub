@@ -28,14 +28,34 @@ import { createClient } from 'jsr:@supabase/supabase-js@2'
 const ORIGENS = (Deno.env.get('HUB_ORIGENS') ?? '*')
   .split(',').map((o) => o.trim()).filter(Boolean)
 
+/* O supabase-js manda mais cabeçalhos do que os óbvios — `x-client-info` em toda
+ * requisição, e `x-supabase-api-version` nas versões novas. Se o preflight não autorizar
+ * TODOS, o navegador bloqueia a chamada antes de sair, e o supabase-js reporta isso como
+ * "Failed to send a request to the Edge Function" — erro de envio para um problema de
+ * permissão de cabeçalho.
+ *
+ * Foi assim que o botão quebrou em produção passando em todos os testes: curl não faz
+ * preflight sozinho, e o teste de navegador interceptava a rota antes da rede. O preflight
+ * de verdade só acontece contra a função publicada.
+ *
+ * Por isso aqui se ECOA o que o navegador pediu, em vez de manter uma lista à mão que
+ * envelhece a cada versão do supabase-js. Ecoar não afrouxa nada: quem decide o acesso é
+ * o JWT conferido abaixo, e CORS nunca foi controle de autorização — só impede que OUTRA
+ * página use a sessão de quem está no navegador. */
+const CABECALHOS_PADRAO = 'authorization, content-type, apikey, x-client-info, ' +
+  'x-supabase-api-version'
+
 function cors(req: Request): Record<string, string> {
   const origem = req.headers.get('Origin') ?? ''
   const permitida = ORIGENS.includes('*') ? '*'
     : (ORIGENS.includes(origem) ? origem : '')
+  const pedidos = req.headers.get('Access-Control-Request-Headers')
   return {
     'Access-Control-Allow-Origin': permitida,
-    'Access-Control-Allow-Headers': 'authorization, content-type, apikey',
+    'Access-Control-Allow-Headers': pedidos || CABECALHOS_PADRAO,
     'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    'Access-Control-Max-Age': '3600',
+    Vary: 'Origin, Access-Control-Request-Headers',
   }
 }
 

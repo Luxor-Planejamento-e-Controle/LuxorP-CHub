@@ -722,6 +722,35 @@ class TestAjustesEmTitulosDoBimer(unittest.TestCase):
 
     # ------------------------------------------------------------------ testes
 
+    def test_0_sem_ajuste_o_total_recalculado_bate_com_o_do_etl(self):
+        """A invariante que o recálculo assume, afirmada de verdade.
+
+        O painel deixou de ler `a_pagar_por_conta` do arquivo e passou a somar os títulos,
+        porque um ajuste muda a soma e o agregado do arquivo ficaria para trás. Isso só é
+        seguro porque os dois saem da MESMA lista no ETL (`fatos_logic.gerar_fatos`).
+
+        Havia um comentário dizendo isso e nenhum teste exigindo. Comentário não quebra o
+        CI quando alguém mexe no ETL — asserção quebra.
+        """
+        self.abrir()
+        for chave, esperado in self.FATOS["a_pagar_por_conta"].items():
+            self.assertAlmostEqual(self.aPagar(chave), esperado, 2,
+                                   f"{chave}: recálculo divergiu do agregado do ETL")
+
+    def test_0b_arredonda_como_o_etl(self):
+        """O ETL faz `round(soma, 2)`. Somando sem arredondar no fim, o painel carregaria
+        o ruído de ponto flutuante que o arquivo não tem — dois números que a tela
+        apresenta como o mesmo, diferindo em centavos."""
+        fatos = json.loads(json.dumps(self.FATOS))
+        # valores escolhidos para a soma binária não fechar redonda: 0.1+0.2 = 0.30000000000000004
+        fatos["titulos"] = [
+            dict(fatos["titulos"][0], valor=0.1),
+            dict(fatos["titulos"][0], valor=0.2, vencimento="2026-09-25"),
+        ]
+        fatos["a_pagar_por_conta"] = {"LUXOR INVESTIMENTOS": 0.3}
+        self.abrir(fatos=fatos)
+        self.assertEqual(self.aPagar("LUXOR INVESTIMENTOS"), 0.3)
+
     def test_1_os_titulos_do_bimer_entram_na_edicao(self):
         pg = self.abrir()
         linhas = self.editar()
@@ -755,8 +784,51 @@ class TestAjustesEmTitulosDoBimer(unittest.TestCase):
 
         self.gravar()
         self.assertAlmostEqual(self.aPagar("LUXOR INVESTIMENTOS"), antes - 1000, 2)
+        # continua NO ESTADO (para o editor achar) mas fora da tabela de títulos
         self.assertEqual(self.pg.evaluate("SB_PAINEL.estado().titulos.length"),
-                         len(self.FATOS["titulos"]) - 1)
+                         len(self.FATOS["titulos"]),
+                         "a linha removida não some do estado — some da conta")
+        self.assertEqual(
+            self.pg.evaluate("() => document.querySelectorAll('#tbody tr').length"),
+            len(self.FATOS["titulos"]) - 1,
+            "mas não aparece na tabela de títulos")
+
+    def test_3b_remover_e_desfazivel_DEPOIS_de_gravar(self):
+        """Achado pelo Arthur na revisão do PR #10, rodando o SB_DADOS no node.
+
+        A primeira versão DESCARTAVA a linha removida em `aplicarAjustes`. Ela não chegava
+        a `D.titulos`, e como o editor lê de lá, o botão "Trazer de volta" — com ícone e
+        tooltip próprios — nunca voltava a ser desenhado. Desfazer virava editar o
+        app_state à mão ou esperar a quarta.
+        """
+        self.abrir()
+        linhas = self.editar()
+        cheio = self.aPagar("LUXOR INVESTIMENTOS")
+
+        self.pg.click(f'tr[data-uid="{linhas[0]["uid"]}"] button[data-del]')
+        self.gravar()
+        gravado = json.loads(json.dumps(self.estado))
+        self.assertAlmostEqual(self.aPagar("LUXOR INVESTIMENTOS"), cheio - 1000, 2)
+
+        # sessão nova, como quem volta no dia seguinte
+        self.pg.close()
+        self.abrir(estado=gravado)
+        linhas = self.editar()
+
+        riscada = [l for l in linhas if "removido" in l["cls"]]
+        self.assertEqual(len(riscada), 1,
+                         "a linha removida tem de voltar ao editor, riscada")
+
+        self.pg.click(f'tr[data-uid="{riscada[0]["uid"]}"] button[data-del]')
+        self.pg.wait_for_timeout(300)
+        self.assertNotIn(
+            "removido",
+            self.pg.get_attribute(f'tr[data-uid="{riscada[0]["uid"]}"]', "class"))
+
+        self.gravar()
+        self.assertAlmostEqual(self.aPagar("LUXOR INVESTIMENTOS"), cheio, 2,
+                               "desfeito, o valor volta para a conta")
+        self.assertEqual(self.ajustes(), [], "e o ajuste some do documento")
 
     def test_4_trocar_a_conta_move_o_valor(self):
         self.abrir()
@@ -808,6 +880,54 @@ class TestAjustesEmTitulosDoBimer(unittest.TestCase):
                  .filter(t => t.titulo === 'LIGHT2026')
                  .map(t => Math.abs(t.valor)).sort((a,b) => a-b)""")
         self.assertEqual(vals, [50, 800], f"o ajuste caiu na linha errada: {vals}")
+
+    def test_6b_gravar_nao_apaga_ajuste_de_outra_sessao(self):
+        """Achado pelo Arthur na segunda revisão do PR #10 — e é o defeito mais grave
+        que apareceu nesta feature.
+
+        `salvarProvisoes` substitui os ajustes da semana inteiros. A tela mandava só o
+        DELTA desta sessão, medido contra `E.origem` — a foto de quando a edição abriu,
+        que já vem com os ajustes aplicados. Um título ajustado ontem e não tocado hoje
+        parecia intocado, ficava de fora da lista, e era apagado na gravação.
+
+        Quem editasse a conta A desfazia o ajuste da conta B sem aviso, e o número voltava
+        sozinho ao do ETL.
+
+        Os 37 testes anteriores passavam contra isso: todos abrem, editam e gravam UMA
+        vez. É o mesmo formato do defeito do CORS — o caminho estava coberto, a segunda
+        volta não.
+        """
+        self.abrir()
+        linhas = self.editar()
+
+        # sessão 1: ajusta o ALUGUEL (LUXOR)
+        aluguel = next(l for l in linhas if l["campos"]["pessoa"] == "ALUGUEL")
+        self.pg.fill(f'tr[data-uid="{aluguel["uid"]}"] input[data-c=valor]', "500")
+        self.pg.dispatch_event(f'tr[data-uid="{aluguel["uid"]}"] input[data-c=valor]',
+                               "change")
+        self.gravar()
+        luxor_ajustado = self.aPagar("LUXOR INVESTIMENTOS")
+        gravado = json.loads(json.dumps(self.estado))
+        self.assertEqual(len(self.ajustes()), 1)
+        self.pg.close()
+
+        # sessão 2: mexe SÓ na RAÇÃO (Tarituba), sem encostar no ALUGUEL
+        self.abrir(estado=gravado)
+        self.assertAlmostEqual(self.aPagar("LUXOR INVESTIMENTOS"), luxor_ajustado, 2,
+                               "o ajuste da sessão 1 tem de estar valendo ao abrir")
+        linhas = self.editar()
+        racao = next(l for l in linhas if l["campos"]["pessoa"] == "RACAO")
+        self.pg.fill(f'tr[data-uid="{racao["uid"]}"] input[data-c=valor]', "700")
+        self.pg.dispatch_event(f'tr[data-uid="{racao["uid"]}"] input[data-c=valor]',
+                               "change")
+        self.gravar()
+
+        refs = {a["ref"].split("|")[0] for a in self.ajustes()}
+        self.assertEqual(refs, {"LUXOR INVESTIMENTOS", "TARITUBA"},
+                         f"os dois ajustes têm de continuar valendo: {self.ajustes()}")
+        self.assertAlmostEqual(self.aPagar("LUXOR INVESTIMENTOS"), luxor_ajustado, 2,
+                               "o ALUGUEL não podia voltar ao valor do ETL")
+        self.assertAlmostEqual(self.aPagar("TARITUBA"), 700, 2)
 
     def test_7_ajuste_so_e_gravado_quando_algo_mudou(self):
         """Entrar na edição e gravar sem mexer não pode encher o documento de ajustes

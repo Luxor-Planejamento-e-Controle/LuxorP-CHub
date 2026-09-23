@@ -9,7 +9,7 @@ Requer a service_role key (ignora RLS) num .env local — NUNCA versionar:
     SUPABASE_URL=https://xxxx.supabase.co
     SUPABASE_SERVICE_ROLE_KEY=eyJ...
 
-Uso: python tools/publish_hub.py [indicadores dre ...]
+Uso: python tools/publish_hub.py [indicadores dre fluxo ...]
 """
 import sys
 from pathlib import Path
@@ -26,6 +26,7 @@ BUCKET = "hub-data"
 DATASETS = {
     "indicadores":   (ROOT / "assets/data/indicadores.json",        "indicadores.json",   "application/json"),
     "dre":           (ROOT / "assets/data/dre.json",                "dre.json",           "application/json"),
+    "fluxo":         (ROOT / "assets/data/fluxo.json",              "fluxo.json",         "application/json"),
     # PII: sai do bucket privado direto pro navegador de quem tem
     # `hub_can('inadimplencia')`. Nunca vira arquivo estático no Netlify.
     "inadimplencia": (ROOT / "assets/inadimplencia/dashboard.html", "inadimplencia.html", "text/html; charset=utf-8"),
@@ -40,7 +41,7 @@ GERADOR = {
 # Datasets com PII: ficam fora do padrão e saem com aviso.
 COM_PII = ("inadimplencia", "vendas")
 # Padrão do publish sem argumento. Os com PII são explícitos.
-PADRAO = ["indicadores", "dre"]
+PADRAO = ["indicadores", "dre", "fluxo"]
 
 
 def env():
