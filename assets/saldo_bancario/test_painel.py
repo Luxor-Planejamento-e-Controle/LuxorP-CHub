@@ -929,6 +929,38 @@ class TestAjustesEmTitulosDoBimer(unittest.TestCase):
                                "o ALUGUEL não podia voltar ao valor do ETL")
         self.assertAlmostEqual(self.aPagar("TARITUBA"), 700, 2)
 
+    def test_6c_corrigir_saldo_nao_apaga_provisao(self):
+        """Terceiro defeito do mesmo tipo, achado ao revisar a feature com a lente da
+        "segunda volta" que o Arthur apontou.
+
+        `salvar(linhas, provisoes)` fazia `provs[semana] = (provisoes || [])`. O formulário
+        de saldos chama `salvar(linhas)`, sem o segundo argumento — então **corrigir um
+        saldo apagava todas as provisões da semana**, levando junto o trabalho de outra
+        pessoa, sem nada na tela dizendo.
+
+        A distinção entre `undefined` ("não mexi") e `[]` ("apaguei todas") já estava
+        escrita em `salvarProvisoes` para os ajustes, com comentário e tudo. Faltava aqui.
+        Qualquer gravação que substitua uma lista inteira precisa dela.
+        """
+        estado = json.loads(json.dumps(self.ESTADO))
+        estado["provisoes"] = {"2026-09-23": [
+            {"chave": "TARITUBA", "descricao": "PROVISAO DE OUTRA PESSOA",
+             "valor": 6330.0, "vencimento": "2026-09-25",
+             "por": "outra@luxor.com.br", "em": "2026-09-23T09:00:00Z"}]}
+        self.abrir(estado=estado)
+
+        # corrige um saldo pelo formulário, sem encostar nas provisões
+        self.pg.click("#btEditarSaldos")
+        self.pg.wait_for_timeout(800)
+        self.pg.locator("input.sbf[data-campo=saldo]").first.fill("12.345,00")
+        self.pg.click("#sbfSalvar")
+        self.pg.wait_for_timeout(1600)
+
+        provs = (self.estado.get("provisoes") or {}).get("2026-09-23", [])
+        self.assertEqual(len(provs), 1,
+                         "a provisão de outra pessoa não pode sumir ao corrigir um saldo")
+        self.assertEqual(provs[0]["descricao"], "PROVISAO DE OUTRA PESSOA")
+
     def test_7_ajuste_so_e_gravado_quando_algo_mudou(self):
         """Entrar na edição e gravar sem mexer não pode encher o documento de ajustes
         'iguais ao original' — que ainda sobreviveriam a uma correção no Bimer,
