@@ -650,7 +650,7 @@ function renderFluxo(el){
   // null = cenário que a planilha não traz (Orçado de despesa do FO em 2020);
   // linha ausente = zero
   const soma=(a,b)=>a==null?b:b==null?a:a+b;
-  // fluxo pequeno (Tarituba, Shiva) em Mi vira "0,03 Mi" em tudo
+  // fluxo pequeno em Mi vira "0,03 Mi" em tudo
   const curto=v=>v==null?'—':Math.abs(v)>=1e6?fmt.mi(v):(v/1e3).toLocaleString('pt-BR',{minimumFractionDigits:1,maximumFractionDigits:1})+' mil';
   const eixo=vals=>{const m=Math.max(0,...vals.filter(v=>v!=null).map(Math.abs));
     return m>=1e6?v=>(v/1e6).toLocaleString('pt-BR',{maximumFractionDigits:1})+' Mi'
@@ -776,15 +776,18 @@ function renderFluxo(el){
       ['Desvio (Real − Orç)',curto(dev),rs(dev),cls(dev)],
       ['Desvio %',fmt.pct(devPct),'',cls(devPct)],
     ].map(([l,v,s,c])=>`<div class="card kpi"><div class="label">${l}</div><div class="val ${c}">${v}</div><div class="delta">${s||'&nbsp;'}</div></div>`).join('');
-    const lbl={show:true,position:'top',color:C.ink3,formatter:p=>p.value==null?'':curto(p.value)};
+    // rótulo do lado de fora da barra: em cima da positiva, embaixo da negativa
+    // (no "top" da negativa ele cai na linha do zero, em cima da barra vizinha)
+    const lbl={show:true,color:C.ink3,formatter:p=>p.value==null?'':curto(p.value)};
+    const barras=vs=>vs.map(v=>({value:v,label:{position:v<0?'bottom':'top'}}));
     mkChart(document.getElementById('fcBar'),Object.assign(baseOpt(),{
       grid:{left:64,right:24,top:34,bottom:34},
       tooltip:Object.assign(baseOpt().tooltip,{valueFormatter:v=>v==null?'—':fmt.rs(v)}),
       xAxis:axis({type:'category',data:anos}),
       yAxis:axis({type:'value',axisLabel:{color:C.ink3,formatter:eixo(orc.concat(rea))}}),
       series:[
-        {name:'Orçado',type:'bar',data:orc,itemStyle:{color:C.teal,borderRadius:[3,3,0,0]},barMaxWidth:38,label:lbl},
-        {name:'Realizado',type:'bar',data:rea,itemStyle:{color:C.orange,borderRadius:[3,3,0,0]},barMaxWidth:38,label:lbl},
+        {name:'Orçado',type:'bar',data:barras(orc),itemStyle:{color:C.teal,borderRadius:[3,3,0,0]},barMaxWidth:38,label:lbl},
+        {name:'Realizado',type:'bar',data:barras(rea),itemStyle:{color:C.orange,borderRadius:[3,3,0,0]},barMaxWidth:38,label:lbl},
       ]
     }));
     // linha: valor do mês. Realizado para no último fechamento — depois dele a
@@ -813,15 +816,18 @@ function renderFluxo(el){
     const dm=document.getElementById('fcMeasure');
     const vpct=(a0,a1)=>a0!=null&&a1!=null&&a0!==0?(a1-a0)/Math.abs(a0)*100:null;
     const nD=datas.length;
-    const ultimo=(arr,i)=>{while(i>0&&arr[i]==null)i--;return i;};   // Realizado acaba no fechamento
+    // ponta com dado dentro da janela: o Realizado acaba no fechamento e o
+    // Orçado do FO não existe em 2020
     const trecho=(nome,arr,lo,hi)=>{
+      while(lo<hi&&arr[lo]==null)lo++;
+      while(hi>lo&&arr[hi]==null)hi--;
       if(arr[lo]==null||arr[hi]==null)return ` · ${nome} —`;
       const d=arr[hi]-arr[lo];
       return ` · ${nome} ${curto(arr[lo])} → ${curto(arr[hi])} <b class="${cls(d)}">(${curto(d)} · ${fmt.pct(vpct(arr[lo],arr[hi]))})</b>`;
     };
     const dmeasure=(lo,hi,label)=>{
       dm.innerHTML=`${label} <b>${fmt.mesano(datas[lo])} → ${fmt.mesano(datas[hi])}</b>`
-        +trecho('Orçado',gO,lo,hi)+trecho('Realizado',gR,lo,ultimo(gR,hi))
+        +trecho('Orçado',gO,lo,hi)+trecho('Realizado',gR,lo,hi)
         +(label==='Janela'?' <span class="hint">· arraste p/ medir recorte</span>':'');
     };
     const dRange=(st,en)=>[Math.max(0,Math.floor(st/100*(nD-1))),Math.min(nD-1,Math.ceil(en/100*(nD-1)))];

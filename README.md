@@ -69,6 +69,9 @@ Fontes:
 - **DRE** — `DRE Data/DRE_Historico.xlsx` no Drive (Base YTD Unpivot + Base DRE
   Geral). Filtros do PBIX: Modelo (Caixa/Competência), Centro de Custo (FPG/HPG),
   Acumulado, Natureza Ordenada. Orçado × Realizado por ano + série mensal.
+- **Fluxo de Caixa** — `FCDataExtractor/Bases_FC/FC_*.xlsx` (aba `fato_fluxo`), uma
+  base por entidade/fluxo das 5 operações. Mesmo molde do DRE; natureza = aba + linha, valor com sinal
+  (`ValorSinalizado`) e acumulado do ETL (`ValorSinalizadoAcumulado`).
 
 ## Deploy no Netlify
 
