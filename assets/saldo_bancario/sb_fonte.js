@@ -156,18 +156,30 @@ window.SB_FONTE = (function () {
     /* As provisões vão numa lista separada, e não como campo da conta, porque são
      * MUITAS por conta e cada uma tem data própria — é o formato das linhas da Base CAP
      * da planilha, de onde elas vêm. Guardar como campo obrigaria a uma provisão só por
-     * conta, que é menos do que o processo já faz hoje. */
-    var provs = estado.provisoes || {};
-    provs[semana] = (provisoes || []).map(function (p) {
-      return {
-        chave: p.chave, semana: semana,
-        descricao: p.descricao || '',
-        valor: p.valor, vencimento: p.vencimento,
-        por: email, em: agora
-      };
-    });
-
-    var novo = Object.assign({}, estado, { entradas: entradas, provisoes: provs });
+     * conta, que é menos do que o processo já faz hoje.
+     *
+     * `undefined` quer dizer "não mexi nas provisões" e preserva o que está gravado;
+     * lista vazia quer dizer "apaguei todas". Sem essa distinção — e ela faltava aqui —
+     * o formulário de saldos, que chama `salvar(linhas)` sem segundo argumento, APAGAVA
+     * todas as provisões da semana. Corrigir um saldo levava junto o trabalho de
+     * provisão de outra pessoa, sem nada na tela dizendo.
+     *
+     * A mesma distinção já estava escrita em `salvarProvisoes` para os ajustes. Ela
+     * precisa valer nos dois lados: qualquer gravação que substitua uma lista inteira
+     * tem de saber diferenciar "vazio" de "não informado". */
+    var novo = Object.assign({}, estado, { entradas: entradas });
+    if (provisoes !== undefined) {
+      var provs = estado.provisoes || {};
+      provs[semana] = (provisoes || []).map(function (p) {
+        return {
+          chave: p.chave, semana: semana,
+          descricao: p.descricao || '',
+          valor: p.valor, vencimento: p.vencimento,
+          por: email, em: agora
+        };
+      });
+      novo.provisoes = provs;
+    }
     await gravar(sb, novo, agora);
   }
 
