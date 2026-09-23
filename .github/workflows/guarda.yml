@@ -82,6 +82,45 @@ jobs:
             python -m py_compile "$f" && echo "ok $f"
           done
 
+  testes:
+    name: Testes dos painéis
+    runs-on: ubuntu-latest
+    # Um navegador travado não pode segurar o runner por seis horas.
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+
+      - name: Playwright e Chromium
+        # As suítes abrem o painel num navegador de verdade e interceptam a rede. Não
+        # sobe servidor: cada teste faz goto() num file:// do próprio repo.
+        run: |
+          pip install --quiet playwright
+          python -m playwright install --with-deps chromium
+
+      - name: Suítes dos painéis
+        # A lista sai de `find`, não escrita à mão: arquivo de teste novo passa a rodar
+        # sozinho. Lista à mão envelhece — foi assim que a barreira de blueprints do repo
+        # das Functions ficou três pastas atrás do que ela devia conferir.
+        run: |
+          arquivos=$(find assets -name 'test_*.py' | sort)
+          if [ -z "$arquivos" ]; then
+            echo "::error::nenhum test_*.py em assets/ — o find não pode voltar vazio"
+            exit 1
+          fi
+          falhou=""
+          for f in $arquivos; do
+            echo "::group::$f"
+            python "$f" || falhou="$falhou%0A  - $f"
+            echo "::endgroup::"
+          done
+          if [ -n "$falhou" ]; then
+            echo "::error::suítes com falha:$falhou"
+            exit 1
+          fi
+          echo "todas as suítes passaram"
+
   # Portão único, e é ESTE o nome que a proteção da main exige.
   #
   # O GitHub publica um status por JOB ("PII e segredos", "Sintaxe") — nunca um com o
@@ -94,7 +133,7 @@ jobs:
   # alguém lembre de mexer na configuração do repositório.
   guarda:
     name: guarda
-    needs: [segredos, sintaxe]
+    needs: [segredos, sintaxe, testes]
     # `always()` para o portão rodar mesmo com um dependente falhando ou pulado: sem
     # isso ele seria PULADO junto, o status nunca sairia e o PR voltaria a esperar para
     # sempre — falha aberta, exatamente o que este job existe para impedir.
@@ -105,6 +144,8 @@ jobs:
         run: |
           echo "segredos: ${{ needs.segredos.result }}"
           echo "sintaxe:  ${{ needs.sintaxe.result }}"
+          echo "testes:   ${{ needs.testes.result }}"
           [ "${{ needs.segredos.result }}" = "success" ] || exit 1
           [ "${{ needs.sintaxe.result }}"  = "success" ] || exit 1
+          [ "${{ needs.testes.result }}"   = "success" ] || exit 1
           echo "guarda ok"
