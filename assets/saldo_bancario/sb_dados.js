@@ -101,7 +101,19 @@ var SB_DADOS = (function () {
 
       var a = porRef[ref];
       if (!a) { out.push(Object.assign({}, t, { ref: ref })); return; }
-      if (a.removido) return;                     // sai da projeção
+
+      /* Removido CONTINUA NA LISTA, marcado — não é descartado aqui.
+       *
+       * Descartar tornava a remoção irreversível: a linha não chegava a `D.titulos`, e
+       * como o editor lê de lá, o botão "Trazer de volta" nunca voltava a ser desenhado.
+       * Desfazer virava editar o app_state à mão ou esperar a quarta.
+       *
+       * Quem tira da conta é quem soma — `montar` e o fluxo filtram por `removido`. Aqui
+       * a lista é só a verdade sobre o que existe na semana. */
+      if (a.removido) {
+        out.push(Object.assign({}, t, { ref: ref, removido: true, ajustado: true }));
+        return;
+      }
 
       var novo = Object.assign({}, t, { ajustado: true, ref: ref });
       if (a.valor !== undefined && a.valor !== null) novo.valor = Number(a.valor);
@@ -150,7 +162,14 @@ var SB_DADOS = (function () {
      * outro, sem erro nenhum. */
     var aPagar = {};
     titulosAjustados.forEach(function (t) {
+      if (t.removido) return;        // está na lista para poder ser desfeito, não na conta
       aPagar[t.conta] = (aPagar[t.conta] || 0) + Math.abs(Number(t.valor) || 0);
+    });
+    /* Arredonda no FIM, como o ETL faz (`round(soma, 2)` em fatos_logic). Somar sem isso
+     * deixava o total com o ruído de ponto flutuante que o ETL não tem, e criava uma
+     * diferença de centavos entre dois números que a tela apresenta como o mesmo. */
+    Object.keys(aPagar).forEach(function (k) {
+      aPagar[k] = Math.round(aPagar[k] * 100) / 100;
     });
 
     var linhas = ativas.map(function (c) {
@@ -327,6 +346,8 @@ var SB_DADOS = (function () {
           valor: -(Number(t.valor) || 0),
           provisao: false,
           ajustado: !!t.ajustado,
+          // fora das somas e da projeção, mas presente para poder ser desfeito
+          removido: !!t.removido,
           ref: t.ref,          // vem de aplicarAjustes, calculado sobre o dado cru
           id: 't' + i
         });

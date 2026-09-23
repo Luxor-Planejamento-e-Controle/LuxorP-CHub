@@ -722,6 +722,35 @@ class TestAjustesEmTitulosDoBimer(unittest.TestCase):
 
     # ------------------------------------------------------------------ testes
 
+    def test_0_sem_ajuste_o_total_recalculado_bate_com_o_do_etl(self):
+        """A invariante que o recálculo assume, afirmada de verdade.
+
+        O painel deixou de ler `a_pagar_por_conta` do arquivo e passou a somar os títulos,
+        porque um ajuste muda a soma e o agregado do arquivo ficaria para trás. Isso só é
+        seguro porque os dois saem da MESMA lista no ETL (`fatos_logic.gerar_fatos`).
+
+        Havia um comentário dizendo isso e nenhum teste exigindo. Comentário não quebra o
+        CI quando alguém mexe no ETL — asserção quebra.
+        """
+        self.abrir()
+        for chave, esperado in self.FATOS["a_pagar_por_conta"].items():
+            self.assertAlmostEqual(self.aPagar(chave), esperado, 2,
+                                   f"{chave}: recálculo divergiu do agregado do ETL")
+
+    def test_0b_arredonda_como_o_etl(self):
+        """O ETL faz `round(soma, 2)`. Somando sem arredondar no fim, o painel carregaria
+        o ruído de ponto flutuante que o arquivo não tem — dois números que a tela
+        apresenta como o mesmo, diferindo em centavos."""
+        fatos = json.loads(json.dumps(self.FATOS))
+        # valores escolhidos para a soma binária não fechar redonda: 0.1+0.2 = 0.30000000000000004
+        fatos["titulos"] = [
+            dict(fatos["titulos"][0], valor=0.1),
+            dict(fatos["titulos"][0], valor=0.2, vencimento="2026-09-25"),
+        ]
+        fatos["a_pagar_por_conta"] = {"LUXOR INVESTIMENTOS": 0.3}
+        self.abrir(fatos=fatos)
+        self.assertEqual(self.aPagar("LUXOR INVESTIMENTOS"), 0.3)
+
     def test_1_os_titulos_do_bimer_entram_na_edicao(self):
         pg = self.abrir()
         linhas = self.editar()
@@ -755,8 +784,51 @@ class TestAjustesEmTitulosDoBimer(unittest.TestCase):
 
         self.gravar()
         self.assertAlmostEqual(self.aPagar("LUXOR INVESTIMENTOS"), antes - 1000, 2)
+        # continua NO ESTADO (para o editor achar) mas fora da tabela de títulos
         self.assertEqual(self.pg.evaluate("SB_PAINEL.estado().titulos.length"),
-                         len(self.FATOS["titulos"]) - 1)
+                         len(self.FATOS["titulos"]),
+                         "a linha removida não some do estado — some da conta")
+        self.assertEqual(
+            self.pg.evaluate("() => document.querySelectorAll('#tbody tr').length"),
+            len(self.FATOS["titulos"]) - 1,
+            "mas não aparece na tabela de títulos")
+
+    def test_3b_remover_e_desfazivel_DEPOIS_de_gravar(self):
+        """Achado pelo Arthur na revisão do PR #10, rodando o SB_DADOS no node.
+
+        A primeira versão DESCARTAVA a linha removida em `aplicarAjustes`. Ela não chegava
+        a `D.titulos`, e como o editor lê de lá, o botão "Trazer de volta" — com ícone e
+        tooltip próprios — nunca voltava a ser desenhado. Desfazer virava editar o
+        app_state à mão ou esperar a quarta.
+        """
+        self.abrir()
+        linhas = self.editar()
+        cheio = self.aPagar("LUXOR INVESTIMENTOS")
+
+        self.pg.click(f'tr[data-uid="{linhas[0]["uid"]}"] button[data-del]')
+        self.gravar()
+        gravado = json.loads(json.dumps(self.estado))
+        self.assertAlmostEqual(self.aPagar("LUXOR INVESTIMENTOS"), cheio - 1000, 2)
+
+        # sessão nova, como quem volta no dia seguinte
+        self.pg.close()
+        self.abrir(estado=gravado)
+        linhas = self.editar()
+
+        riscada = [l for l in linhas if "removido" in l["cls"]]
+        self.assertEqual(len(riscada), 1,
+                         "a linha removida tem de voltar ao editor, riscada")
+
+        self.pg.click(f'tr[data-uid="{riscada[0]["uid"]}"] button[data-del]')
+        self.pg.wait_for_timeout(300)
+        self.assertNotIn(
+            "removido",
+            self.pg.get_attribute(f'tr[data-uid="{riscada[0]["uid"]}"]', "class"))
+
+        self.gravar()
+        self.assertAlmostEqual(self.aPagar("LUXOR INVESTIMENTOS"), cheio, 2,
+                               "desfeito, o valor volta para a conta")
+        self.assertEqual(self.ajustes(), [], "e o ajuste some do documento")
 
     def test_4_trocar_a_conta_move_o_valor(self):
         self.abrir()

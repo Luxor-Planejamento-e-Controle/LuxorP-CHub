@@ -506,7 +506,9 @@ function arw(o, c){
 function render(){
   const contas = escopo();
   const chaves = new Set(contas.map(c => c.chave));
-  const tit = D.titulos.filter(t => chaves.has(t.chave));
+  /* `!t.removido` em toda leitura de projeção: a linha removida fica em D.titulos só
+     para o editor poder desfazê-la. Aqui ela não existe. */
+  const tit = D.titulos.filter(t => chaves.has(t.chave) && !t.removido);
   const rec = D.a_receber.filter(t => chaves.has(t.chave));
   const filtrado = contas.length !== D.contas.length;
 
@@ -516,7 +518,7 @@ function render(){
   document.getElementById('pageSub').textContent =
     `${fmt.iso(D.janela[0])} a ${fmt.iso(D.janela[1])} · saldo de ${fmt.iso(D.data_saldo)} · `
     + (filtrado ? `${contas[0] ? contas[0].conta : 'nenhuma conta'}`
-                : `${contas.length} contas · ${D.titulos.length} títulos a pagar`);
+                : `${contas.length} contas · ${D.titulos.filter(t => !t.removido).length} títulos a pagar`);
 
   const seg = (id, opts) => `<div class="seg" id="${id}">` + opts.map(o =>
       `<button type="button" data-v="${o.v}" class="${o.on?'on':''}">${o.html||esc(o.label)}</button>`
@@ -784,7 +786,7 @@ function tabelaFluxo(contas){
   if(!dias.length) return `<div class="empty">Sem janela de datas nos dados.</div>`;
 
   const porDia = {};   // chave|iso -> soma do movimento do dia
-  for(const t of [...D.titulos, ...D.a_receber]){
+  for(const t of [...D.titulos.filter(t => !t.removido), ...D.a_receber]){
     if(!t.vencimento) continue;
     const k = t.chave + '|' + t.vencimento;
     porDia[k] = (porDia[k]||0) + (t.valor||0);
@@ -842,7 +844,10 @@ function linhaEditavel(t, tipo){
        a origem aqui, o aplicar não teria como separar os dois na hora de salvar. */
     doBimer: t.provisao === false,
     ref: t.ref || null,
-    removido: false,
+    /* Já marcado se o título foi removido numa gravação anterior. Nascer sempre `false`
+       era o que tornava a remoção irreversível: a linha voltava ao editor parecendo
+       normal, e o botão de desfazer não tinha o que desfazer. */
+    removido: !!t.removido,
   };
 }
 
@@ -868,20 +873,29 @@ const mudou = l => {
   if(!E) return false;
   const orig = JSON.parse(E.origem).find(x => x.uid === l.uid);
   if(!orig) return true;
-  return ['chave','pessoa','titulo','vencimento','valor'].some(k => String(orig[k]) !== String(l[k]));
+  /* `removido` entra na comparação: sem ele, TRAZER DE VOLTA um título removido numa
+     gravação anterior não contava como mudança, e o botão Gravar ficava desabilitado —
+     dava para desfazer na tela e não dava para salvar o desfeito. */
+  return ['chave','pessoa','titulo','vencimento','valor','removido']
+    .some(k => String(orig[k]) !== String(l[k]));
 };
 const contarMudancas = () => {
   if(!E) return {novas:0, alteradas:0, excluidas:0};
   const orig = JSON.parse(E.origem);
   const uids = new Set(E.linhas.map(l => l.uid));
+  const antes = Object.fromEntries(orig.map(o => [o.uid, o]));
+  const era = l => !!(antes[l.uid] || {}).removido;
   return {
     novas: E.linhas.filter(l => l.nova).length,
+    /* Restaurar conta como alteração: é mudança que precisa ser gravada, e somar às
+       "excluídas" um número negativo seria pior de ler. */
     alteradas: E.linhas.filter(l => !l.nova && !l.removido && mudou(l)).length,
-    /* Provisão apagada some da lista; título do Bimer fica, marcado como removido — ele
-       volta no próximo ETL de qualquer jeito, e some-lo da tela tiraria de quem editou a
-       chance de desfazer. Os dois contam como exclusão porque é o que são para quem lê. */
+    /* Provisão apagada some da lista; título do Bimer fica, riscado — some-lo tornaria a
+       remoção irreversível, porque o editor lê de D.titulos. Contam juntos porque é o
+       que são para quem lê. Só o que foi removido AGORA: o que já estava removido de
+       antes não é mudança desta sessão de edição. */
     excluidas: orig.filter(o => !uids.has(o.uid)).length
-             + E.linhas.filter(l => l.removido).length,
+             + E.linhas.filter(l => l.removido && !era(l)).length,
   };
 };
 const temMudanca = () => {
@@ -930,13 +944,19 @@ async function aplicar(){
     const ajustes = E.linhas.filter(l => l.doBimer && (l.removido || mudou(l)))
       .map(l => {
         if(l.removido) return { ref: l.ref, removido: true };
+        /* Compara com o título como ele veio do ETL, não com o ajuste anterior: `origem`
+           é a foto de quando a edição abriu, e ela já traz os ajustes aplicados. */
         const orig = JSON.parse(E.origem).find(x => x.uid === l.uid) || {};
         const a = { ref: l.ref };
         if(Math.abs(l.valor || 0) !== Math.abs(orig.valor || 0)) a.valor = Math.abs(l.valor || 0);
         if(l.vencimento !== orig.vencimento) a.vencimento = l.vencimento;
         if(l.chave !== orig.chave) a.chave = l.chave;
         return a;
-      });
+      })
+      /* Ajuste só com `ref` não ajusta nada — é o que sobra quando a única mudança da
+         linha foi DESFAZER uma remoção. Guardá-lo encheria o documento de entradas
+         inertes que ainda sobreviveriam a uma correção no Bimer. */
+      .filter(a => Object.keys(a).length > 1);
 
     await window.SB_FONTE.salvarProvisoes(provisoes, ajustes);
     /* Recarrega do zero em vez de recalcular aqui: a provisão muda o "saldo restante",
@@ -1085,9 +1105,11 @@ function ligar(){
       const b = ev.target.closest('[data-del]');
       if(!b) return;
       const l = E.linhas.find(x => x.uid === b.dataset.del);
-      /* Título do Bimer ALTERNA em vez de sumir: ele volta no próximo ETL de qualquer
-         forma, e apagá-lo da tela tiraria de quem clicou sem querer a chance de desfazer
-         antes de gravar. Provisão é nossa, some mesmo. */
+      /* Título do Bimer ALTERNA em vez de sumir, e a razão NÃO é "ele volta no próximo
+         ETL" — não volta: o ajuste é reaplicado sobre o título republicado enquanto a
+         semana for a mesma, que é justamente o que o teste da republicação prova.
+         Alterna porque remover precisa ser desfazível: a linha fica riscada, dentro e
+         fora da gravação, e o mesmo botão traz de volta. Provisão é nossa, some mesmo. */
       if(l && l.doBimer) l.removido = !l.removido;
       else E.linhas = E.linhas.filter(x => x.uid !== b.dataset.del);
       render();
