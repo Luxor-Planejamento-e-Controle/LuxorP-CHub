@@ -89,6 +89,32 @@ window.CP_CADASTRO = (function () {
       (placeholder ? ' placeholder="' + esc(placeholder) + '"' : '') + '>';
   }
 
+  /* Empresa é ESCOLHA, não texto livre.
+   *
+   * O batimento casa fornecedor com título pelo nome da empresa, e a grafia tem de ser a
+   * mesma do ETL. Digitado, "CONDOMINIO HPG" sem acento passa sem reclamar e o fornecedor
+   * nunca casa com título nenhum — aparece "Não Recebido" todo mês, e nada na tela diz
+   * por quê. É o erro que este campo existe para não deixar acontecer.
+   *
+   * Valor fora da lista NÃO é descartado: vira uma opção própria, marcada. Trocar em
+   * silêncio pela primeira da lista corromperia o cadastro de quem abriu a tela por outro
+   * motivo, e deixar o select vazio esconderia o que está gravado. Marcado, quem vê
+   * decide. */
+  function campoEmpresa(uid, valor, largura) {
+    var lista = CP_DADOS.EMPRESAS.slice();
+    var foraDaLista = valor && lista.indexOf(valor) < 0;
+    if (foraDaLista) lista = [valor].concat(lista);
+
+    return '<select class="cpc" data-uid="' + uid + '" data-campo="empresa"' +
+      ' style="width:' + largura + 'px"' +
+      (foraDaLista ? ' data-fora="1" title="Esta grafia não é a que o robô usa para casar '
+                     + 'os títulos — escolha a da lista"' : '') + '>' +
+      (valor ? '' : '<option value="">— escolha —</option>') +
+      lista.map(function (e) {
+        return '<option' + (e === valor ? ' selected' : '') + '>' + esc(e) + '</option>';
+      }).join('') + '</select>';
+  }
+
   /* Os doze meses como fichas. Doze caixinhas de seleção seriam corretas e ilegíveis:
    * a pergunta que se faz aqui é "em que meses este fornecedor aparece", e a resposta é
    * um padrão visual (todos, um a cada três, só um), não doze respostas separadas. */
@@ -104,7 +130,7 @@ window.CP_CADASTRO = (function () {
 
   function linhaHtml(l) {
     return '<tr data-uid="' + l.uid + '"' + (l.ativo ? '' : ' class="inativo"') + '>' +
-      '<td>' + campoTexto(l.uid, 'empresa', l.empresa, 150, 'empresa') + '</td>' +
+      '<td>' + campoEmpresa(l.uid, l.empresa, 158) + '</td>' +
       '<td>' + campoTexto(l.uid, 'fornecedor', l.fornecedor, 220, 'fornecedor') +
         (l.ativo ? '' :
           '<div style="margin-top:5px">' +
@@ -242,13 +268,23 @@ window.CP_CADASTRO = (function () {
       /* 'input' altera o registro em memória sem redesenhar: redesenhar a cada tecla
        * tiraria o foco do campo. A tela só se redesenha quando a ESTRUTURA muda
        * (adicionar, remover, filtrar, ativar/desativar). */
+      /* `input.cpc, select.cpc`: a empresa virou lista de escolha, e `<select>` também
+       * dispara 'input' ao trocar. Escutar só input deixaria a troca de empresa mudar a
+       * tela sem mudar o registro — a tela mostrando uma coisa e o gravado sendo outra. */
       tb.addEventListener('input', function (ev) {
-        var alvo = ev.target.closest('input.cpc');
+        var alvo = ev.target.closest('input.cpc, select.cpc');
         if (!alvo) return;
         var l = acha(alvo.getAttribute('data-uid'));
         if (!l) return;
         var campo = alvo.getAttribute('data-campo');
         l[campo] = campo === 'contagem' ? (parseInt(alvo.value, 10) || 1) : alvo.value;
+        /* Escolhida uma da lista, o aviso de grafia fora do padrão perde a razão de
+         * existir — some na hora, sem esperar o próximo redesenho. */
+        if (campo === 'empresa' && alvo.dataset.fora &&
+            CP_DADOS.EMPRESAS.indexOf(alvo.value) >= 0) {
+          delete alvo.dataset.fora;
+          alvo.removeAttribute('title');
+        }
         marcarEstado();
       });
 
@@ -324,7 +360,7 @@ window.CP_CADASTRO = (function () {
         }));
         linhas[linhas.length - 1].uid = proximoUid++;
         render(el);
-        var campos = el.querySelectorAll('input.cpc[data-campo="empresa"]');
+        var campos = el.querySelectorAll('select.cpc[data-campo="empresa"]');
         if (campos.length) campos[campos.length - 1].focus();
       };
     }
