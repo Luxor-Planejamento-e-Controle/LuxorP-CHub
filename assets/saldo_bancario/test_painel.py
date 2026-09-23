@@ -881,6 +881,54 @@ class TestAjustesEmTitulosDoBimer(unittest.TestCase):
                  .map(t => Math.abs(t.valor)).sort((a,b) => a-b)""")
         self.assertEqual(vals, [50, 800], f"o ajuste caiu na linha errada: {vals}")
 
+    def test_6b_gravar_nao_apaga_ajuste_de_outra_sessao(self):
+        """Achado pelo Arthur na segunda revisão do PR #10 — e é o defeito mais grave
+        que apareceu nesta feature.
+
+        `salvarProvisoes` substitui os ajustes da semana inteiros. A tela mandava só o
+        DELTA desta sessão, medido contra `E.origem` — a foto de quando a edição abriu,
+        que já vem com os ajustes aplicados. Um título ajustado ontem e não tocado hoje
+        parecia intocado, ficava de fora da lista, e era apagado na gravação.
+
+        Quem editasse a conta A desfazia o ajuste da conta B sem aviso, e o número voltava
+        sozinho ao do ETL.
+
+        Os 37 testes anteriores passavam contra isso: todos abrem, editam e gravam UMA
+        vez. É o mesmo formato do defeito do CORS — o caminho estava coberto, a segunda
+        volta não.
+        """
+        self.abrir()
+        linhas = self.editar()
+
+        # sessão 1: ajusta o ALUGUEL (LUXOR)
+        aluguel = next(l for l in linhas if l["campos"]["pessoa"] == "ALUGUEL")
+        self.pg.fill(f'tr[data-uid="{aluguel["uid"]}"] input[data-c=valor]', "500")
+        self.pg.dispatch_event(f'tr[data-uid="{aluguel["uid"]}"] input[data-c=valor]',
+                               "change")
+        self.gravar()
+        luxor_ajustado = self.aPagar("LUXOR INVESTIMENTOS")
+        gravado = json.loads(json.dumps(self.estado))
+        self.assertEqual(len(self.ajustes()), 1)
+        self.pg.close()
+
+        # sessão 2: mexe SÓ na RAÇÃO (Tarituba), sem encostar no ALUGUEL
+        self.abrir(estado=gravado)
+        self.assertAlmostEqual(self.aPagar("LUXOR INVESTIMENTOS"), luxor_ajustado, 2,
+                               "o ajuste da sessão 1 tem de estar valendo ao abrir")
+        linhas = self.editar()
+        racao = next(l for l in linhas if l["campos"]["pessoa"] == "RACAO")
+        self.pg.fill(f'tr[data-uid="{racao["uid"]}"] input[data-c=valor]', "700")
+        self.pg.dispatch_event(f'tr[data-uid="{racao["uid"]}"] input[data-c=valor]',
+                               "change")
+        self.gravar()
+
+        refs = {a["ref"].split("|")[0] for a in self.ajustes()}
+        self.assertEqual(refs, {"LUXOR INVESTIMENTOS", "TARITUBA"},
+                         f"os dois ajustes têm de continuar valendo: {self.ajustes()}")
+        self.assertAlmostEqual(self.aPagar("LUXOR INVESTIMENTOS"), luxor_ajustado, 2,
+                               "o ALUGUEL não podia voltar ao valor do ETL")
+        self.assertAlmostEqual(self.aPagar("TARITUBA"), 700, 2)
+
     def test_7_ajuste_so_e_gravado_quando_algo_mudou(self):
         """Entrar na edição e gravar sem mexer não pode encher o documento de ajustes
         'iguais ao original' — que ainda sobreviveriam a uma correção no Bimer,

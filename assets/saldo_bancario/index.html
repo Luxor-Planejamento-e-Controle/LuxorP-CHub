@@ -844,6 +844,8 @@ function linhaEditavel(t, tipo){
        a origem aqui, o aplicar não teria como separar os dois na hora de salvar. */
     doBimer: t.provisao === false,
     ref: t.ref || null,
+    // o título como o ETL publicou; é contra ele que o ajuste é derivado no aplicar()
+    bruto: t.bruto || null,
     /* Já marcado se o título foi removido numa gravação anterior. Nascer sempre `false`
        era o que tornava a remoção irreversível: a linha voltava ao editor parecendo
        normal, e o botão de desfazer não tinha o que desfazer. */
@@ -941,21 +943,29 @@ async function aplicar(){
       vencimento: l.vencimento,
     }));
 
-    const ajustes = E.linhas.filter(l => l.doBimer && (l.removido || mudou(l)))
+    /* A lista vai COMPLETA, não o delta desta sessão.
+
+       `salvarProvisoes` substitui os ajustes da semana inteiros, então mandar só o que
+       mudou aqui apagava o resto. E "o que mudou" era medido contra `E.origem`, a foto de
+       quando a edição abriu — que já vem com os ajustes aplicados: um título ajustado
+       ontem e não tocado hoje parecia intocado e sumia. Quem gravasse mexendo numa conta
+       desfazia o ajuste de outra, sem aviso nenhum.
+
+       Comparando contra `l.bruto`, o que o ETL publicou, cada linha responde sozinha se
+       está ajustada — sem depender do que aconteceu antes nesta tela. */
+    const ajustes = E.linhas.filter(l => l.doBimer && l.bruto)
       .map(l => {
         if(l.removido) return { ref: l.ref, removido: true };
-        /* Compara com o título como ele veio do ETL, não com o ajuste anterior: `origem`
-           é a foto de quando a edição abriu, e ela já traz os ajustes aplicados. */
-        const orig = JSON.parse(E.origem).find(x => x.uid === l.uid) || {};
+        const b = l.bruto;
         const a = { ref: l.ref };
-        if(Math.abs(l.valor || 0) !== Math.abs(orig.valor || 0)) a.valor = Math.abs(l.valor || 0);
-        if(l.vencimento !== orig.vencimento) a.vencimento = l.vencimento;
-        if(l.chave !== orig.chave) a.chave = l.chave;
+        if(Math.abs(l.valor || 0) !== Math.abs(b.valor || 0)) a.valor = Math.abs(l.valor || 0);
+        if(l.vencimento !== b.vencimento) a.vencimento = l.vencimento;
+        if(l.chave !== b.conta) a.chave = l.chave;
         return a;
       })
-      /* Ajuste só com `ref` não ajusta nada — é o que sobra quando a única mudança da
-         linha foi DESFAZER uma remoção. Guardá-lo encheria o documento de entradas
-         inertes que ainda sobreviveriam a uma correção no Bimer. */
+      /* Ajuste só com `ref` não ajusta nada: é a linha que está igual ao que o ETL
+         publicou. Guardá-lo encheria o documento de entradas inertes que ainda
+         sobreviveriam a uma correção no Bimer. */
       .filter(a => Object.keys(a).length > 1);
 
     await window.SB_FONTE.salvarProvisoes(provisoes, ajustes);
