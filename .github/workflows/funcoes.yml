@@ -1,0 +1,129 @@
+name: funcoes
+
+# Publica as Edge Functions do Supabase a cada push na main que as toque.
+#
+# POR QUE EXISTE. O deploy era na mão (`supabase functions deploy`), e em 22 e
+# 23/09/2026 o repo e a produção ficaram diferentes duas vezes seguidas: a correção
+# vivia só no ar e a main guardava a versão quebrada. Quem rodasse um deploy a partir
+# do repo reimplantava o bug — no caso, o CORS que derrubava o botão "Atualizar agora",
+# com uma mensagem ("o pedido não chegou ao servidor") que não aponta para a causa.
+#
+# Pior: o teste que cobre isso (TestCorsDaFuncaoPublicada) mede a FUNÇÃO PUBLICADA, não
+# o arquivo. Com deploy manual ele fica verde mesmo com a main errada — a barreira e o
+# que ela deveria proteger apontavam para coisas diferentes.
+#
+# NA MAIN, E NÃO NA `live`. O site publica da `live`, semanalmente (ver publica.yml), e
+# é de propósito: cada deploy da Netlify custa crédito. A função não custa nada e não é
+# o site — é o servidor que o painel chama. Prender a correção dela ao ciclo semanal foi
+# exatamente o que doeu nas três rodadas de setembro.
+#
+# O PREÇO DISSO: por até uma semana a função no ar pode estar à frente do painel que a
+# chama. Enquanto o contrato não mudar — POST {painel} -> 202 — não há o que quebrar.
+# MUDANÇA DE CONTRATO tem que ser compatível com o painel antigo até a `live` alcançar,
+# ou sair junto com um `publica` manual.
+
+on:
+  push:
+    branches: [main]
+    # Só quando a função muda. Sem isso, todo push na main republicaria a função
+    # inteira sem nada ter mudado nela.
+    paths:
+      - 'supabase/functions/**'
+      - '.github/workflows/funcoes.yml'
+  workflow_dispatch:        # botão "Run workflow" — para republicar sem commit novo
+
+# Dois deploys ao mesmo tempo na mesma função é a forma mais boba de voltar atrás sem
+# querer: o mais lento sobrescreve o mais novo.
+concurrency:
+  group: deploy-edge-functions
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  publica-funcoes:
+    name: Publica as Edge Functions
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: denoland/setup-deno@v2
+        with: { deno-version: v2.x }
+
+      - name: Conferir o TypeScript antes de publicar
+        # `supabase functions deploy` empacota e sobe sem checar tipo nenhum: erro de
+        # tipo só aparece quando alguém clica. Este step é a única checagem estática que
+        # este código tem — o `guarda` confere sintaxe de JS e Python, não de TS.
+        #
+        # `--node-modules-dir=auto` NÃO é opcional: o jsr:@supabase/supabase-js puxa
+        # npm:@supabase/realtime-js, e sem a flag o check morre com "Could not find a
+        # matching package ... in the node_modules directory" — travando todo deploy.
+        # Medido, não suposto: sem ela o step falha sempre; com ela passa, e um erro de
+        # tipo plantado de propósito sai como TS2322 com exit 1.
+        run: |
+          arquivos=$(find supabase/functions -name 'index.ts' | sort)
+          if [ -z "$arquivos" ]; then
+            echo "::error::nenhum index.ts em supabase/functions/ — o find não pode voltar vazio"
+            exit 1
+          fi
+          for f in $arquivos; do
+            echo "::group::deno check $f"
+            deno check --node-modules-dir=auto "$f"
+            echo "::endgroup::"
+          done
+
+      - name: Supabase CLI
+        uses: supabase/setup-cli@v1
+        with: { version: latest }
+
+      - name: Publicar
+        # A lista sai de `find`, não escrita à mão: função nova passa a subir sozinha.
+        # Lista à mão envelhece — foi assim que a barreira de blueprints do repo das
+        # Functions ficou três pastas atrás do que devia conferir.
+        #
+        # O ref do projeto não é segredo (já aparece em comentário no index.ts e nos
+        # READMEs); o que é segredo é o token, que sai de
+        # supabase.com/dashboard/account/tokens.
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          PROJETO: hjducsxcolbspbkpflom
+        run: |
+          if [ -z "$SUPABASE_ACCESS_TOKEN" ]; then
+            echo "::error::falta o secret SUPABASE_ACCESS_TOKEN no repositório"
+            exit 1
+          fi
+          for d in supabase/functions/*/; do
+            nome=$(basename "$d")
+            echo "::group::deploy $nome"
+            supabase functions deploy "$nome" --project-ref "$PROJETO"
+            echo "::endgroup::"
+          done
+
+      - name: Conferir que a função no ar responde
+        # Barreira barata contra o deploy que "passa" e sobe algo que não roda: o
+        # preflight é a única coisa que dá para checar sem sessão de usuário, e é
+        # justamente onde as duas últimas quebras moraram.
+        run: |
+          url="https://hjducsxcolbspbkpflom.supabase.co/functions/v1/reprocessar"
+          resposta=$(curl -sS -o /dev/null -w '%{http_code}' -X OPTIONS "$url" \
+            -H 'Origin: https://lxplanejamentoecontrole.netlify.app' \
+            -H 'Access-Control-Request-Method: POST' \
+            -H 'Access-Control-Request-Headers: authorization, content-type, apikey, x-client-info' \
+            -D /tmp/h)
+          echo "preflight HTTP $resposta"
+          if [ "$resposta" != "200" ]; then
+            echo "::error::o preflight não voltou 200 — a função no ar não está servindo"
+            exit 1
+          fi
+          permitidos=$(grep -i '^access-control-allow-headers:' /tmp/h | tr 'A-Z' 'a-z')
+          echo "$permitidos"
+          for c in authorization content-type apikey x-client-info; do
+            case "$permitidos" in
+              *"$c"*) ;;
+              *) echo "::error::o preflight não autoriza '$c' — o navegador bloquearia a chamada"
+                 exit 1 ;;
+            esac
+          done
+          echo "função no ar autorizando o que o supabase-js envia"
