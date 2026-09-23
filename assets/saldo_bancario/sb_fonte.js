@@ -129,7 +129,8 @@ window.SB_FONTE = (function () {
       semana: semana,
       contas: estado.contas || [],
       entradas: (estado.entradas || {})[semana] || [],
-      provisoes: (estado.provisoes || {})[semana] || []
+      provisoes: (estado.provisoes || {})[semana] || [],
+      ajustes: (estado.ajustes || {})[semana] || []
     };
   }
 
@@ -176,7 +177,18 @@ window.SB_FONTE = (function () {
    * e o editor de provisões podem ser usados em momentos diferentes, e cada um só pode
    * escrever o que é dele. Uma função só, recebendo as duas listas, faria o editor
    * apagar os saldos toda vez que gravasse uma provisão. */
-  async function salvarProvisoes(provisoes) {
+  /* Grava provisões e ajustes numa tacada.
+   *
+   * Juntos porque saem da MESMA tela: quem edita as saídas da semana mexe nas duas
+   * coisas no mesmo formulário, e gravar em duas chamadas deixaria a guarda de
+   * concorrência recusar a segunda — ela compara com a versão que a tela leu, e a
+   * primeira gravação já teria mudado essa versão. Seria um erro de "outra pessoa
+   * gravou" contra a própria pessoa.
+   *
+   * AJUSTES são por SEMANA, como as provisões: o ETL busca os títulos que vencem na
+   * janela, então a lista muda toda quarta e um ajuste da semana passada não teria onde
+   * se aplicar. Semana nova começa limpa. */
+  async function salvarProvisoes(provisoes, ajustes) {
     var sb = cliente();
     var estado = (await lerEstado(sb)).doc;
     var semana = semanaAtual();
@@ -194,6 +206,23 @@ window.SB_FONTE = (function () {
     });
 
     var novo = Object.assign({}, estado, { provisoes: provs });
+
+    /* `undefined` quer dizer "não mexi nos ajustes" e preserva o que está gravado;
+     * lista vazia quer dizer "apaguei todos". Tratar os dois como a mesma coisa faria
+     * qualquer gravação de provisão apagar os ajustes da semana, sem aviso. */
+    if (ajustes !== undefined) {
+      var ajs = estado.ajustes || {};
+      ajs[semana] = (ajustes || []).map(function (a) {
+        var out = { ref: a.ref, semana: semana, por: email, em: agora };
+        if (a.removido) { out.removido = true; return out; }
+        if (a.valor !== undefined && a.valor !== null) out.valor = a.valor;
+        if (a.vencimento) out.vencimento = a.vencimento;
+        if (a.chave) out.chave = a.chave;
+        return out;
+      });
+      novo.ajustes = ajs;
+    }
+
     await gravar(sb, novo, agora);
     return provs[semana];
   }

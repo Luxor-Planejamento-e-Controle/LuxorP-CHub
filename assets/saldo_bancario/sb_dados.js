@@ -59,7 +59,83 @@ var SB_DADOS = (function () {
    * digitado nesta semana, o painel mostra o FORMULÁRIO em vez dos números. Mostrar a
    * projeção com metade das contas zeradas seria pior que não mostrar: ela pareceria
    * completa e diria que sobra dinheiro onde ninguém informou nada. */
-  function montar(fatos, contas, entradas, hoje, provisoes) {
+  /* Identidade de um título do Bimer, para um ajuste manual grudar na linha certa entre
+   * uma execução do ETL e a seguinte.
+   *
+   * Por que tantos campos: medido nos dados reais, nem (conta, título) nem
+   * (conta, título, fornecedor) é único — duas parcelas de luz dividem o número do
+   * título, e há duas linhas iguais em tudo menos o valor. Sem emissão e valor na chave,
+   * o ajuste de uma cairia na outra.
+   *
+   * Incluir o VALOR é de propósito: se o Bimer corrigir o valor, a chave muda e o ajuste
+   * deixa de valer. É o comportamento certo — o ajuste existia porque o número estava
+   * errado; corrigido na origem, ele não tem mais razão de ser.
+   *
+   * `ord` separa linhas idênticas em tudo. Qual delas recebe o ajuste é arbitrário, e
+   * tudo bem: sendo idênticas, o resultado na tela é o mesmo. */
+  function chaveTitulo(t, ord) {
+    return [t.conta, t.titulo, t.fornecedor, t.emissao, t.vencimento, t.valor, ord || 0]
+      .join('|');
+  }
+
+  /* Aplica os ajustes manuais sobre os títulos que vieram da API.
+   *
+   * Devolve a lista já ajustada, SEM os removidos. Quem chama não precisa saber se houve
+   * ajuste — é a mesma lista de antes, com outros números. */
+  function aplicarAjustes(titulos, ajustes) {
+    var porRef = {};
+    (ajustes || []).forEach(function (a) { if (a && a.ref) porRef[a.ref] = a; });
+
+    /* O `ref` é anexado SEMPRE, com ou sem ajuste, e calculado sobre o título como veio
+     * da API. Calculá-lo depois, a partir do título já ajustado, daria outra chave — o
+     * valor entra na chave —, e a tela gravaria o próximo ajuste numa referência que não
+     * existe. O primeiro ajuste funcionaria e o segundo não, que é o tipo de defeito que
+     * só aparece na segunda vez que alguém usa. */
+    var vistos = {};
+    var out = [];
+    (titulos || []).forEach(function (t) {
+      var base = chaveTitulo(t, 0);
+      var ord = vistos[base] || 0;
+      vistos[base] = ord + 1;
+      var ref = chaveTitulo(t, ord);
+
+      /* O título COMO VEIO DO ETL viaja junto, em `bruto`.
+       *
+       * É o que permite a tela derivar a lista de ajustes comparando cada linha com o
+       * original, em vez de com a foto de quando a edição abriu. A foto já traz os
+       * ajustes aplicados, então um título ajustado numa sessão ANTERIOR e não tocado
+       * nesta aparecia como "não mudou" e ficava de fora da lista — e como a gravação
+       * substitui a lista inteira, o ajuste de antes era apagado. Quem gravava mexendo
+       * numa conta desfazia o ajuste de outra, sem aviso. */
+      var bruto = { valor: t.valor, vencimento: t.vencimento, conta: t.conta };
+
+      var a = porRef[ref];
+      if (!a) { out.push(Object.assign({}, t, { ref: ref, bruto: bruto })); return; }
+
+      /* Removido CONTINUA NA LISTA, marcado — não é descartado aqui.
+       *
+       * Descartar tornava a remoção irreversível: a linha não chegava a `D.titulos`, e
+       * como o editor lê de lá, o botão "Trazer de volta" nunca voltava a ser desenhado.
+       * Desfazer virava editar o app_state à mão ou esperar a quarta.
+       *
+       * Quem tira da conta é quem soma — `montar` e o fluxo filtram por `removido`. Aqui
+       * a lista é só a verdade sobre o que existe na semana. */
+      if (a.removido) {
+        out.push(Object.assign({}, t, { ref: ref, bruto: bruto,
+                                        removido: true, ajustado: true }));
+        return;
+      }
+
+      var novo = Object.assign({}, t, { ajustado: true, ref: ref, bruto: bruto });
+      if (a.valor !== undefined && a.valor !== null) novo.valor = Number(a.valor);
+      if (a.vencimento) novo.vencimento = a.vencimento;
+      if (a.chave) novo.conta = a.chave;           // passa a sair de outra conta
+      out.push(novo);
+    });
+    return out;
+  }
+
+  function montar(fatos, contas, entradas, hoje, provisoes, ajustes) {
     /* Mesma âncora do sb_fonte: a semana é a da janela publicada. O relógio só entra
      * quando não há fatos — e aí não existe projeção para divergir dele. */
     var semana = (fatos && fatos.meta && fatos.meta.janela_inicio)
@@ -82,7 +158,30 @@ var SB_DADOS = (function () {
     (entradas || []).forEach(function (e) { digitado[e.chave] = e; });
 
     var ativas = (contas || []).filter(function (c) { return c.ativa !== false; });
-    var aPagar = (fatos && fatos.a_pagar_por_conta) || {};
+
+    /* Títulos da API com os ajustes manuais já aplicados. Tudo daqui para baixo enxerga
+     * só a lista ajustada — não há um caminho "com ajuste" e outro "sem". */
+    var titulosAjustados = aplicarAjustes((fatos && fatos.titulos) || [], ajustes);
+
+    /* O total por conta é RECALCULADO a partir dos títulos, e não lido do
+     * `a_pagar_por_conta` que o ETL publica.
+     *
+     * Os dois dão o mesmo número quando não há ajuste — o ETL gera os dois da mesma
+     * lista, e há teste exigindo que fechem. Mas um título ajustado ou removido muda a
+     * soma, e o agregado do arquivo continuaria com o valor de antes. Seria a pior
+     * divergência possível: a tabela mostrando um valor e o detalhe atrás dela mostrando
+     * outro, sem erro nenhum. */
+    var aPagar = {};
+    titulosAjustados.forEach(function (t) {
+      if (t.removido) return;        // está na lista para poder ser desfeito, não na conta
+      aPagar[t.conta] = (aPagar[t.conta] || 0) + Math.abs(Number(t.valor) || 0);
+    });
+    /* Arredonda no FIM, como o ETL faz (`round(soma, 2)` em fatos_logic). Somar sem isso
+     * deixava o total com o ruído de ponto flutuante que o ETL não tem, e criava uma
+     * diferença de centavos entre dois números que a tela apresenta como o mesmo. */
+    Object.keys(aPagar).forEach(function (k) {
+      aPagar[k] = Math.round(aPagar[k] * 100) / 100;
+    });
 
     var linhas = ativas.map(function (c) {
       var e = digitado[c.chave] || {};
@@ -151,7 +250,8 @@ var SB_DADOS = (function () {
       completo: faltando.length === 0 && linhas.length > 0
                 && !!(fatos && fatos.meta && fatos.meta.janela_inicio),
       contas: linhas.map(function (l) { return porChaveAnalise[l.chave] || l; }),
-      titulos: (fatos && fatos.titulos) || [],
+      // já ajustados e sem os removidos — ver aplicarAjustes
+      titulos: titulosAjustados,
       provisoes: (provisoes || []).map(function (pr) {
         return {
           chave: pr.chave, descricao: pr.descricao || '',
@@ -246,14 +346,22 @@ var SB_DADOS = (function () {
        * provisões eram linhas da Base CAP com título vazio, e apareciam na coluna
        * "Saídas da semana" junto com o resto.
        *
-       * `provisao: true` marca quais são editáveis. As do Bimer não são: editá-las aqui
-       * seria perdido na próxima execução do ETL, e mostrar um campo que não guarda é
-       * pior que não mostrar campo. */
-      titulos: (estado.titulos || []).map(function (t) {
+       * `provisao` distingue a origem, e as duas são editáveis por caminhos diferentes:
+       * a provisão é gravada inteira, o título do Bimer vira um AJUSTE guardado à parte
+       * (`ref` é o que liga o ajuste à linha). Editar o título direto seria perdido na
+       * próxima execução do ETL; guardar o ajuste, não — ele é reaplicado sobre o título
+       * republicado, enquanto a semana for a mesma. */
+      titulos: (estado.titulos || []).map(function (t, i) {
         return Object.assign({}, t, {
           chave: t.chave || t.conta,
           valor: -(Number(t.valor) || 0),
-          provisao: false
+          provisao: false,
+          ajustado: !!t.ajustado,
+          // fora das somas e da projeção, mas presente para poder ser desfeito
+          removido: !!t.removido,
+          ref: t.ref,          // vem de aplicarAjustes, calculado sobre o dado cru
+          bruto: t.bruto,      // o título como o ETL publicou — a base da comparação
+          id: 't' + i
         });
       }).concat((estado.provisoes || []).map(function (pr, i) {
         return {
@@ -291,7 +399,9 @@ var SB_DADOS = (function () {
   }
 
   return { montar: montar, quartaDaSemana: quartaDaSemana, iso: iso, totais: totais,
-           paraSbData: paraSbData };
+           paraSbData: paraSbData,
+           // expostos para o teste: são a regra que decide onde um ajuste gruda
+           chaveTitulo: chaveTitulo, aplicarAjustes: aplicarAjustes };
 })();
 
 if (typeof module !== 'undefined' && module.exports) module.exports = SB_DADOS;
