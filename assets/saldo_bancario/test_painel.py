@@ -946,7 +946,7 @@ class TestAjustesEmTitulosDoBimer(unittest.TestCase):
         estado["provisoes"] = {"2026-09-23": [
             {"chave": "TARITUBA", "descricao": "PROVISAO DE OUTRA PESSOA",
              "valor": 6330.0, "vencimento": "2026-09-25",
-             "por": "outra@luxor.com.br", "em": "2026-09-23T09:00:00Z"}]}
+             "por": "alguem@luxor.com.br", "em": "2026-09-23T09:00:00Z"}]}
         self.abrir(estado=estado)
 
         # corrige um saldo pelo formulário, sem encostar nas provisões
