@@ -413,7 +413,10 @@ def build_fluxo():
         # e a VARIAÇÃO CAMBIAL do FO (sem código) já traz valor em set/2026.
         rz = d[(d["Nivel"] == "conta") & (d["Cenario"] == "Realizado")
                & (d["ValorSinalizado"].abs() > 0.005)]
-        ref = rz["Data"].max()
+        # E o mês corrente nunca está fechado: a Controladoria lança no mês
+        # aberto (em 25/09/2026 o Condomínio HPG já tinha realizado de setembro)
+        # e sem o teto o painel abria em setembro, com o mês pela metade.
+        ref = min(rz["Data"].max(), pd.Timestamp.today().normalize().replace(day=1) - pd.Timedelta(days=1))
         fluxos.append({"op": op_nome.get(op, op), "nome": emp, "vl": vl,
                        "ref": ref.strftime("%Y-%m-%d")})
         naturezas[fi] = lista
