@@ -382,6 +382,136 @@ class TestSemResultadoPublicado(unittest.TestCase):
         self.assertEqual(self.erros, [], f"erros no navegador: {self.erros}")
 
 
+class TestViradaDeMes(unittest.TestCase):
+    """Últimos dias do mês: o ETL já publica o mês seguinte, e o painel abre nele.
+
+    O problema veio de olhar a automação rodar em 28/09/2026: havia 218 títulos lançados
+    para outubro, 65 vencendo dentro de uma semana, e o painel não mostrava nenhum. Quem
+    abria via setembro liquidado e concluía que não havia nada próximo.
+
+    A parte delicada não é abrir no mês novo — é o que ele MOSTRA. Um mês que não começou
+    tem quase tudo "não recebido", e com o vocabulário de sempre outubro abria com "92
+    exigem conferência" e uma barra quase toda vermelha. O número está certo; a leitura
+    é que estaria errada.
+
+    O relógio do navegador é fixado com `Date` falso: a regra depende de que dia é hoje,
+    e um teste que muda de resultado conforme o dia do mês não vale nada.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        try:
+            import playwright  # noqa: F401
+        except ImportError:
+            raise unittest.SkipTest("playwright não instalado")
+
+    def abrir(self, dia, com_outubro=True):
+        from playwright.sync_api import sync_playwright
+        if not hasattr(type(self), "_pw"):
+            type(self)._pw = sync_playwright().start()
+            type(self)._b = type(self)._pw.chromium.launch()
+
+        resultado = json.loads(json.dumps(RESULTADO))
+        out = json.loads(json.dumps(resultado["meses"][0]))
+        out.update({"id": "2026-10", "mes": 10, "rotulo": "Outubro 2026"})
+        # no mês que não começou, a maioria ainda não tem título lançado
+        out["fixos"] = [dict(f, status="nao_recebido") for f in out["fixos"]]
+        if com_outubro:
+            resultado["meses"].append(out)
+
+        cls = type(self)
+        cls.estado = {"fornecedores": json.loads(json.dumps(CADASTRO))}
+        cls.versao = "2026-09-01T00:00:00+00:00"
+        cls.gravacoes = []
+        cls.erros = []
+        pg = cls._b.new_page(viewport={"width": 1400, "height": 950})
+        pg.on("pageerror", lambda e: cls.erros.append(str(e)))
+
+        def rota(route, request):
+            if "/storage/v1/object/" in request.url:
+                return route.fulfill(status=200, content_type="application/json",
+                                     body=json.dumps(resultado))
+            if "/rest/v1/app_state" in request.url:
+                return route.fulfill(status=200,
+                                     content_type="application/vnd.pgrst.object+json",
+                                     body=json.dumps({"data": cls.estado,
+                                                      "updated_at": cls.versao}))
+            return route.continue_()
+
+        pg.route("**/*.supabase.co/**", rota)
+        # relógio fixo: a regra é "faltam menos de 7 dias para virar"
+        pg.add_init_script(f"""
+            const _real = Date;
+            const _fixo = new _real(2026, 8, {dia}, 10, 0, 0);   // 8 = setembro
+            window.Date = class extends _real {{
+                constructor(...a) {{ return a.length ? new _real(...a) : new _real(_fixo); }}
+                static now() {{ return _fixo.getTime(); }}
+            }};
+            window.HUB = {{email:'fulano@luxor.com.br'}};
+        """)
+        pg.goto((AQUI / "index.html").as_uri())
+        pg.wait_for_timeout(1500)
+        self.pg = pg
+        return pg
+
+    def tearDown(self):
+        if getattr(self, "pg", None):
+            self.assertEqual(self.erros, [], f"erros no navegador: {self.erros}")
+            self.pg.close()
+
+    def test_1_longe_da_virada_abre_no_mes_corrente(self):
+        pg = self.abrir(15)
+        self.assertEqual(pg.input_value("#fMes"), "2026-09")
+        rot = [o for o in pg.eval_on_selector_all("#fMes option", "os => os.map(o => o.textContent)")
+               if "Setembro" in o][0]
+        self.assertIn("em andamento", rot)
+
+    def test_2_na_ultima_semana_abre_no_mes_seguinte(self):
+        pg = self.abrir(28)
+        self.assertEqual(pg.input_value("#fMes"), "2026-10",
+                         "é onde está o que vence primeiro")
+        rot = [o for o in pg.eval_on_selector_all("#fMes option", "os => os.map(o => o.textContent)")
+               if "Setembro" in o][0]
+        self.assertIn("encerrando", rot)
+
+    def test_3_sem_o_mes_seguinte_publicado_nao_inventa(self):
+        """O painel não decide sozinho que existe outubro: quem publica é o ETL. Sem ele
+        no arquivo, abre no corrente como sempre."""
+        pg = self.abrir(28, com_outubro=False)
+        self.assertEqual(pg.input_value("#fMes"), "2026-09")
+
+    def test_4_o_mes_que_nao_comecou_nao_grita_pendencia(self):
+        """O número é o mesmo; o que muda é como a tela o chama. Com o vocabulário de
+        pendência, outubro abriria dizendo "exigem conferência" num mês que não começou."""
+        pg = self.abrir(28)
+        txt = pg.inner_text("body")
+        self.assertIn("Ainda não lançado", txt)
+        self.assertNotIn("exigem conferência", txt)
+        self.assertIn("Preparação do mês", txt)
+        self.assertIn("valor previsto", txt.lower())   # o CSS deixa maiúsculo
+        # a faixa do que falta é neutra, não vermelha
+        self.assertEqual(pg.locator(".meter .s-a_lancar").count(), 1)
+        self.assertEqual(pg.locator(".meter .s-nao_recebido").count(), 0)
+
+        # a TABELA foi o lugar que escapou na primeira tentativa: o resto da tela já
+        # dizia "ainda não lançado" e cada linha continuava dizendo "Não recebido"
+        linhas = pg.inner_text("#tbody")
+        self.assertNotIn("Não recebido", linhas,
+                         "a coluna Situação tem de acompanhar o resto da tela")
+        self.assertIn("Ainda não lançado", linhas)
+
+    def test_5_o_mes_corrente_continua_com_o_vocabulario_de_pendencia(self):
+        """Setembro não vira "preparação" só porque outubro apareceu: título que vence
+        dia 30 ainda é pendência acionável."""
+        pg = self.abrir(28)
+        pg.select_option("#fMes", "2026-09")
+        pg.wait_for_timeout(700)
+        txt = pg.inner_text("body")
+        self.assertIn("Não recebido", txt)
+        self.assertIn("Andamento do mês", txt)
+        self.assertNotIn("Ainda não lançado", txt)
+
+
 class TestEmpresaEhEscolha(unittest.TestCase):
     """Empresa no cadastro é lista de escolha, não texto livre.
 
