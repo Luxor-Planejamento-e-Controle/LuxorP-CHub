@@ -382,6 +382,201 @@ class TestSemResultadoPublicado(unittest.TestCase):
         self.assertEqual(self.erros, [], f"erros no navegador: {self.erros}")
 
 
+MESES_PT = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho",
+            "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"]
+
+
+class TestViradaDeMes(unittest.TestCase):
+    """Últimos dias do mês: o ETL já publica o mês seguinte, e o painel abre nele.
+
+    O problema veio de olhar a automação rodar em 28/09/2026: havia 218 títulos lançados
+    para outubro, 65 vencendo dentro de uma semana, e o painel não mostrava nenhum. Quem
+    abria via setembro liquidado e concluía que não havia nada próximo.
+
+    A parte delicada não é abrir no mês novo — é o que ele MOSTRA. Um mês que não começou
+    tem quase tudo "não recebido", e com o vocabulário de sempre outubro abria com "92
+    exigem conferência" e uma barra quase toda vermelha. O número está certo; a leitura
+    é que estaria errada.
+
+    O relógio do navegador é fixado com `Date` falso: a regra depende de que dia é hoje,
+    e um teste que muda de resultado conforme o dia do mês não vale nada.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        try:
+            import playwright  # noqa: F401
+        except ImportError:
+            raise unittest.SkipTest("playwright não instalado")
+
+    def abrir(self, dia, com_outubro=True, mes=9, seguinte_id=None):
+        from playwright.sync_api import sync_playwright
+        if not hasattr(type(self), "_pw"):
+            type(self)._pw = sync_playwright().start()
+            type(self)._b = type(self)._pw.chromium.launch()
+
+        resultado = json.loads(json.dumps(RESULTADO))
+        resultado["meses"][0].update({
+            "id": f"2026-{mes:02d}", "mes": mes,
+            "rotulo": f"{MESES_PT[mes - 1]} 2026"})
+        out = json.loads(json.dumps(resultado["meses"][0]))
+        # por padrão outubro; em dezembro o seguinte é janeiro do ANO seguinte
+        sid = seguinte_id or "2026-10"
+        ano_s, mes_s = int(sid[:4]), int(sid[5:])
+        out.update({"id": sid, "mes": mes_s, "ano": ano_s,
+                    "rotulo": f"{MESES_PT[mes_s - 1]} {ano_s}"})
+        # no mês que não começou, a maioria ainda não tem título lançado
+        out["fixos"] = [dict(f, status="nao_recebido") for f in out["fixos"]]
+        if com_outubro:
+            resultado["meses"].append(out)
+
+        cls = type(self)
+        cls.estado = {"fornecedores": json.loads(json.dumps(CADASTRO))}
+        cls.versao = "2026-09-01T00:00:00+00:00"
+        cls.gravacoes = []
+        cls.erros = []
+        pg = cls._b.new_page(viewport={"width": 1400, "height": 950})
+        pg.on("pageerror", lambda e: cls.erros.append(str(e)))
+
+        def rota(route, request):
+            if "/storage/v1/object/" in request.url:
+                return route.fulfill(status=200, content_type="application/json",
+                                     body=json.dumps(resultado))
+            if "/rest/v1/app_state" in request.url:
+                return route.fulfill(status=200,
+                                     content_type="application/vnd.pgrst.object+json",
+                                     body=json.dumps({"data": cls.estado,
+                                                      "updated_at": cls.versao}))
+            return route.continue_()
+
+        pg.route("**/*.supabase.co/**", rota)
+        # relógio fixo: a regra é "faltam menos de 7 dias para virar"
+        pg.add_init_script(f"""
+            const _real = Date;
+            const _fixo = new _real(2026, {mes - 1}, {dia}, 10, 0, 0);
+            window.Date = class extends _real {{
+                constructor(...a) {{ return a.length ? new _real(...a) : new _real(_fixo); }}
+                static now() {{ return _fixo.getTime(); }}
+            }};
+            window.HUB = {{email:'fulano@luxor.com.br'}};
+        """)
+        pg.goto((AQUI / "index.html").as_uri())
+        pg.wait_for_timeout(1500)
+        self.pg = pg
+        return pg
+
+    def tearDown(self):
+        if getattr(self, "pg", None):
+            self.assertEqual(self.erros, [], f"erros no navegador: {self.erros}")
+            self.pg.close()
+
+    def test_1_longe_da_virada_abre_no_mes_corrente(self):
+        pg = self.abrir(15)
+        self.assertEqual(pg.input_value("#fMes"), "2026-09")
+        rot = [o for o in pg.eval_on_selector_all("#fMes option", "os => os.map(o => o.textContent)")
+               if "Setembro" in o][0]
+        self.assertIn("em andamento", rot)
+
+    def test_2_na_ultima_semana_abre_no_mes_seguinte(self):
+        pg = self.abrir(28)
+        self.assertEqual(pg.input_value("#fMes"), "2026-10",
+                         "é onde está o que vence primeiro")
+        rot = [o for o in pg.eval_on_selector_all("#fMes option", "os => os.map(o => o.textContent)")
+               if "Setembro" in o][0]
+        self.assertIn("encerrando", rot)
+
+    def test_3_sem_o_mes_seguinte_publicado_nao_inventa(self):
+        """O painel não decide sozinho que existe outubro: quem publica é o ETL. Sem ele
+        no arquivo, abre no corrente como sempre."""
+        pg = self.abrir(28, com_outubro=False)
+        self.assertEqual(pg.input_value("#fMes"), "2026-09")
+
+    def test_4_o_mes_que_nao_comecou_nao_grita_pendencia(self):
+        """O número é o mesmo; o que muda é como a tela o chama. Com o vocabulário de
+        pendência, outubro abriria dizendo "exigem conferência" num mês que não começou."""
+        pg = self.abrir(28)
+        txt = pg.inner_text("body")
+        self.assertIn("Ainda não lançado", txt)
+        self.assertNotIn("exigem conferência", txt)
+        self.assertIn("Preparação do mês", txt)
+        self.assertIn("valor previsto", txt.lower())   # o CSS deixa maiúsculo
+        # a faixa do que falta é neutra, não vermelha
+        self.assertEqual(pg.locator(".meter .s-a_lancar").count(), 1)
+        self.assertEqual(pg.locator(".meter .s-nao_recebido").count(), 0)
+
+        # a TABELA foi o lugar que escapou na primeira tentativa: o resto da tela já
+        # dizia "ainda não lançado" e cada linha continuava dizendo "Não recebido"
+        linhas = pg.inner_text("#tbody")
+        self.assertNotIn("Não recebido", linhas,
+                         "a coluna Situação tem de acompanhar o resto da tela")
+        self.assertIn("Ainda não lançado", linhas)
+
+    def test_4b_nenhuma_marca_de_alarme_sobra_no_mes_futuro(self):
+        """Achado pelo Arthur: o texto do KPI já dizia "ainda não lançados" e o PONTO do
+        cartão continuava vermelho. Ele mediu a cor computada; eu tinha lido o diff.
+
+        Este teste mede a cor de TUDO que sinaliza o status, em vez de conferir classe por
+        classe. Uma marca nova que nasça vermelha cai aqui, mesmo que eu esqueça de somá-la
+        a alguma lista — que foi exatamente como o sexto e o sétimo lugares escaparam.
+        """
+        pg = self.abrir(28)
+        vermelhos = pg.evaluate("""() => {
+            const neg = getComputedStyle(document.documentElement)
+                          .getPropertyValue('--neg').trim();
+            const rgb = (c) => { const d = document.createElement('div');
+                d.style.color = c; document.body.appendChild(d);
+                const v = getComputedStyle(d).color; d.remove(); return v; };
+            const alvo = rgb(neg);
+            const out = [];
+            for (const el of document.querySelectorAll('.kpi *, .meter *, .legend *, #tbody *')) {
+                const s = getComputedStyle(el);
+                for (const [prop, v] of [['color', s.color],
+                                         ['background', s.backgroundColor],
+                                         ['box-shadow', s.boxShadow]]) {
+                    if (v && v.includes(alvo.replace('rgb(', '').replace(')', ''))) {
+                        out.push((el.className || el.tagName) + ' / ' + prop);
+                    }
+                }
+            }
+            return [...new Set(out)];
+        }""")
+        self.assertEqual(vermelhos, [],
+                         f"marcas de alarme num mês que não começou: {vermelhos}")
+
+    def test_4c_no_mes_corrente_o_alarme_continua_vermelho(self):
+        """O contrário do anterior: sem isto, apagar a cor em todo lugar passaria nos
+        dois testes e o painel perderia o sinal de pendência de verdade."""
+        pg = self.abrir(28)
+        pg.select_option("#fMes", "2026-09")
+        pg.wait_for_timeout(700)
+        n = pg.evaluate("""() => document.querySelectorAll(
+            '.meter .s-nao_recebido, .legend .st-nao_recebido, #tbody tr.pend').length""")
+        self.assertGreater(n, 0, "setembro tem pendência de verdade e ela tem de aparecer")
+
+    def test_4d_dezembro_acha_janeiro_do_ano_seguinte(self):
+        """Achado pelo Arthur. O predicado comparava `mes + 1` dentro do MESMO ano, e em
+        dezembro procurava um mês 13 — não achava nada justo na última semana do ano,
+        quando a antecipação mais serve: equipe de férias e janeiro já lançado.
+
+        Degradava sem quebrar (caía no mês corrente), que é o pior jeito de errar: ninguém
+        repara. Hoje o ETL não publica janeiro do ano seguinte, então isto só age quando
+        aquele lado mudar — fica certo desde já para os dois não terem de mudar juntos.
+        """
+        pg = self.abrir(29, mes=12, seguinte_id="2027-01")
+        self.assertEqual(pg.input_value("#fMes"), "2027-01")
+
+    def test_5_o_mes_corrente_continua_com_o_vocabulario_de_pendencia(self):
+        """Setembro não vira "preparação" só porque outubro apareceu: título que vence
+        dia 30 ainda é pendência acionável."""
+        pg = self.abrir(28)
+        pg.select_option("#fMes", "2026-09")
+        pg.wait_for_timeout(700)
+        txt = pg.inner_text("body")
+        self.assertIn("Não recebido", txt)
+        self.assertIn("Andamento do mês", txt)
+        self.assertNotIn("Ainda não lançado", txt)
+
+
 class TestEmpresaEhEscolha(unittest.TestCase):
     """Empresa no cadastro é lista de escolha, não texto livre.
 

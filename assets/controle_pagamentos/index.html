@@ -186,6 +186,9 @@ input[type=search]{min-width:230px}
 .meter span{display:block;transition:width .18s}
 .meter .s-recebido{background:var(--pos)}
 .meter .s-nao_recebido{background:var(--neg)}
+/* mês que não começou: o que falta lançar é neutro, não alarme */
+.meter .s-a_lancar{background:var(--ink-3)}
+.st-a_lancar .dot,.st-a_lancar .ic{color:var(--ink-3);background:var(--ink-3)}
 .meter .s-sem_cadastro{background:var(--warn)}
 .legend{display:flex;flex-wrap:wrap;gap:18px;font-size:12.5px;color:var(--ink-2)}
 .legend b{color:var(--ink);font-variant-numeric:tabular-nums}
@@ -335,9 +338,14 @@ const svg = (d, sz=13) =>
   + `stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="${d}"/></svg>`;
 
 /* Marca de status = ponto + ícone + rótulo em --ink (ver CSS para o porquê). */
-const stTag = k => {
+const stTag = (k, rotulo, classe) => {
   const m = stMeta(k);
-  return `<span class="st st-${k}"><span class="dot"></span>${svg(m.ico)}<span>${esc(m.label)}</span></span>`;
+  k = classe || k;
+  /* `rotulo` troca só o TEXTO, mantendo ícone e cor da classe — usado no mês que ainda
+     não começou, onde "não recebido" descreve errado o que é ausência de lançamento.
+     Sem isto a tabela continuava dizendo "Não recebido" linha a linha, enquanto o resto
+     da tela já dizia outra coisa. */
+  return `<span class="st st-${k}"><span class="dot"></span>${svg(m.ico)}<span>${esc(rotulo || m.label)}</span></span>`;
 };
 
 /* ---------- estado dos filtros ---------- */
@@ -419,9 +427,36 @@ function prazo(m, dia){
 const mesEhCorrente = m => m.ano === hoje.getFullYear() && m.mes === hoje.getMonth() + 1;
 const mesEncerrado  = m => (m.ano < hoje.getFullYear()) || (m.ano === hoje.getFullYear() && m.mes < hoje.getMonth() + 1);
 const mesFuturo     = m => !mesEhCorrente(m) && !mesEncerrado(m);
-/* Rótulo do mês: distingue o mês corrente (onde a pendência é acionável) do
-   futuro (planilha já preparada, pendência é só "o mês não chegou"). */
-const mesTag = m => mesEhCorrente(m) ? ' · em andamento' : (mesFuturo(m) ? ' · mês futuro' : '');
+
+/* Últimos dias do mês. Nessa faixa o ETL já publica o mês SEGUINTE, porque o que vence
+   "logo" passa a ser dele: em 28/09/2026 havia 218 títulos lançados para outubro, 65
+   vencendo dentro de uma semana, e o painel não mostrava nenhum.
+
+   O número vive nos dois lados (aqui e em `DIAS_ANTECIPA_MES`, no ETL) porque são
+   decisões diferentes: lá é O QUE PUBLICAR, aqui é ONDE ABRIR. Se divergirem, o pior que
+   acontece é o painel abrir no mês corrente com o seguinte disponível na lista. */
+const DIAS_ENCERRANDO = 7;
+const diasAteVirar = () => {
+  const ultimo = new Date(hoje.getFullYear(), hoje.getMonth() + 1, 0).getDate();
+  return ultimo - hoje.getDate();
+};
+const mesEncerrando = m => mesEhCorrente(m) && diasAteVirar() < DIAS_ENCERRANDO;
+
+/* Como chamar o status `nao_recebido` NA TELA. O dado não muda — o batimento é o
+   mesmo —, mas num mês que não começou "não recebido" descreve errado: soa como
+   pendência e é só ausência de lançamento. Uma função só, para o KPI, a legenda e o
+   filtro não divergirem entre si. */
+const rotuloPendente = m => mesFuturo(m) ? 'Ainda não lançado' : 'Não recebido';
+/* A CLASSE anda junto com o rótulo. Separadas, o texto dizia "ainda não lançado" e o
+   ponto do cartão continuava vermelho — o Arthur pegou medindo a cor computada, não
+   lendo o diff. Uma função para o texto e outra para a cor, sempre chamadas em par. */
+const classePendente = m => mesFuturo(m) ? 'a_lancar' : 'nao_recebido';
+
+/* Rótulo do mês: distingue o corrente (onde a pendência é acionável), o que está
+   virando, e o futuro (pendência é só "o mês não chegou"). */
+const mesTag = m => mesEncerrando(m) ? ' · encerrando'
+  : mesEhCorrente(m) ? ' · em andamento'
+  : (mesFuturo(m) ? ' · mês futuro' : '');
 
 function textoPrazo(m, dia){
   const p = prazo(m, dia);
@@ -565,7 +600,7 @@ function render(){
       <div class="field"><label>Situação</label>
         ${seg('fStatus', [
           {v:'todos',        label:`Todas (${total})`,                                   on:F.status==='todos'},
-          {v:'nao_recebido', html:`${svg(ST.nao_recebido.ico,12)} Não recebido (${nPend})`, on:F.status==='nao_recebido'},
+          {v:'nao_recebido', html:`${svg(ST.nao_recebido.ico,12)} ${rotuloPendente(m)} (${nPend})`, on:F.status==='nao_recebido'},
           {v:'recebido',     html:`${svg(ST.recebido.ico,12)} Recebido (${nRec})`,          on:F.status==='recebido'},
           {v:'sem_cadastro', html:`${svg(ST.sem_cadastro.ico,12)} Sem cadastro (${nSem})`,  on:F.status==='sem_cadastro'},
         ])}</div>
@@ -603,29 +638,41 @@ function render(){
                                   : `${m.titulos.n} títulos no mês`))}
       ${kpi('Recebidos', fmt.int(nRec),
              vs(nRec,'recebido') || (total ? `${pctRec.toFixed(0)}% do total` : ''), '', 'recebido')}
-      ${kpi('Não recebidos', fmt.int(nPend),
-             vs(nPend,'nao_recebido') || (nPend ? 'exigem conferência' : 'nada pendente'),
-             nPend ? 'destaque' : '', 'nao_recebido')}
+      ${/* Num mês que ainda não começou, "não recebido" não é pendência — é
+            "ainda não lançado". Com o rótulo de sempre, outubro abriria em 28/09
+            mostrando "92 exigem conferência", e o número só diria que o mês não chegou.
+            O status no dado continua o mesmo; muda o que a tela diz dele. */''}
+      ${mesFuturo(m)
+        ? kpi('Ainda não lançados', fmt.int(nPend),
+              nPend ? 'o mês ainda não começou' : 'tudo já lançado', '', classePendente(m))
+        : kpi('Não recebidos', fmt.int(nPend),
+              vs(nPend,'nao_recebido') || (nPend ? 'exigem conferência' : 'nada pendente'),
+              nPend ? 'destaque' : '', 'nao_recebido')}
       ${kpi('Sem cadastro', fmt.int(nSem),
              vs(nSem,'sem_cadastro') || (nSem ? 'cadastro a corrigir' : '—'), '', 'sem_cadastro')}
-      ${kpi('Valor pendente', vlrPend ? fmt.rs(vlrPend) : '—',
+      ${mesFuturo(m)
+        ? kpi('Valor previsto', vlrPend ? fmt.rs(vlrPend) : '—',
+              semValor ? `+ ${semValor} sem valor definido` : 'ainda a lançar')
+        : kpi('Valor pendente', vlrPend ? fmt.rs(vlrPend) : '—',
              semValor ? `+ ${semValor} sem valor definido` : (vlrPend ? 'valor conhecido' : ''))}
     </div>
 
     <div class="card">
       <div class="card-title">
-        <h2>Andamento${filtrado ? '' : ' do mês'}</h2>
+        <h2>${mesFuturo(m) ? 'Preparação' : 'Andamento'}${filtrado ? '' : ' do mês'}</h2>
         <span class="muted">${nRec} de ${total} fornecedores fixos já lançados${
           filtrado ? ` · ${esc(escopoTxt)}` : ''}</span>
       </div>
       <div class="meter" role="img" aria-label="${nRec} recebidos, ${nPend} não recebidos, ${nSem} sem cadastro, de ${total}">
         ${total && nRec  ? `<span class="s-recebido"     style="width:${nRec/total*100}%"  title="Recebido: ${nRec}"></span>`:''}
-        ${total && nPend ? `<span class="s-nao_recebido" style="width:${nPend/total*100}%" title="Não recebido: ${nPend}"></span>`:''}
+        ${/* No mês futuro a faixa do que falta é NEUTRA. Vermelha, ela lê como
+              "quase tudo atrasado" — e o mês nem começou. */''}
+        ${total && nPend ? `<span class="s-${classePendente(m)}" style="width:${nPend/total*100}%" title="${rotuloPendente(m)}: ${nPend}"></span>`:''}
         ${total && nSem  ? `<span class="s-sem_cadastro" style="width:${nSem/total*100}%"  title="Sem cadastro: ${nSem}"></span>`:''}
       </div>
       <div class="legend">
         <span class="st st-recebido"><span class="dot"></span>${svg(ST.recebido.ico)}Recebido <b>${nRec}</b></span>
-        <span class="st st-nao_recebido"><span class="dot"></span>${svg(ST.nao_recebido.ico)}Não recebido <b>${nPend}</b></span>
+        <span class="st st-${classePendente(m)}"><span class="dot"></span>${svg(ST.nao_recebido.ico)}${rotuloPendente(m)} <b>${nPend}</b></span>
         <span class="st st-sem_cadastro"><span class="dot"></span>${svg(ST.sem_cadastro.ico)}Sem cadastro <b>${nSem}</b></span>
       </div>
     </div>
@@ -670,7 +717,9 @@ function render(){
     const p = textoPrazo(m, f.venc_dia);
     const atrasado = mesEhCorrente(m) && f.status === 'nao_recebido'
                      && f.venc_dia != null && prazo(m, f.venc_dia).dias < 0;
-    return `<tr class="${f.status==='nao_recebido'?'pend':''}">
+    /* A barra lateral vermelha da linha. Num mês que não começou ela marcaria como
+       atrasado o que só não foi lançado ainda. */
+    return `<tr class="${f.status==='nao_recebido' && !mesFuturo(m) ?'pend':''}">
       <td>
         <div class="forn">${esc(f.fornecedor)}${f.ocorrencia>1?` <span class="sub2">#${f.ocorrencia}</span>`:''}</div>
         <div class="sub2">cód. ${esc(f.cod||'—')}</div>
@@ -683,7 +732,8 @@ function render(){
           ? `<div class="sub2">regra: ${esc(f.venc_orig)}</div>`:''}
       </td>
       <td class="num nowrap">${f.valor!=null?fmt.rs(f.valor):esc(f.valor_txt||'—')}</td>
-      <td>${stTag(f.status)}</td>
+      <td>${stTag(f.status, ...(f.status === 'nao_recebido'
+                                ? [rotuloPendente(m), classePendente(m)] : []))}</td>
       <td>${esc(f.obs||'')}${f.reajuste && f.reajuste!=='-' && f.reajuste!=='?'
             ? `<div class="sub2">reajuste: ${esc(f.reajuste)}</div>`:''}</td>
     </tr>`;
@@ -795,12 +845,30 @@ function mostrarCadastro(){
 function decidirTela(){
   if(estadoAtual && estadoAtual.temPainel){
     F.fonte = FONTES[0].id;
-    // Abre no MÊS CORRENTE, onde a pendência é acionável. Meses futuros já têm
-    // planilha preparada e mostrariam "77 não recebidos" só porque o mês não
-    // chegou — abrir ali daria alarme falso. Sem o mês corrente na base, cai no
-    // mais recente que existir.
+    /* Abre no MÊS CORRENTE, onde a pendência é acionável. Mês futuro já tem os fixos
+       preparados e mostraria "77 não recebidos" só porque o mês não chegou — abrir ali
+       daria alarme falso. Sem o mês corrente na base, cai no mais recente que existir.
+
+       EXCEÇÃO: na última semana, abre no mês SEGUINTE quando ele já existe. Ali o que
+       vence primeiro é dele, e era o que ninguém estava vendo. O corrente continua na
+       lista, marcado "encerrando", com os pendentes dele acionáveis — título que vence
+       dia 30 ainda pode ser pago. */
     const ms = dadosAtuais().meses;
-    F.mes = (ms.find(mesEhCorrente) || ms[ms.length - 1]).id;
+    const corrente = ms.find(mesEhCorrente);
+    /* Dezembro tem de achar janeiro do ano seguinte. A primeira versão comparava
+       `m.mes === corrente.mes + 1` dentro do mesmo ano, e em dezembro procurava um mês 13
+       — devolvia nada justo na última semana do ano, quando a antecipação mais serve:
+       equipe de férias e janeiro já lançado. Degradava sem quebrar, o que é o pior jeito
+       de errar: ninguém repara.
+
+       Hoje o ETL não publica janeiro do ano seguinte (o cadastro de fixos é por ano, ver
+       Automacoes#26), então isto só age quando aquele lado mudar. Fica certo desde já
+       para os dois não precisarem mudar juntos. */
+    const seguinte = corrente && ms.find(m =>
+      m.mes === corrente.mes % 12 + 1 &&
+      m.ano === corrente.ano + (corrente.mes === 12 ? 1 : 0));
+    F.mes = ((corrente && mesEncerrando(corrente) && seguinte)
+             || corrente || ms[ms.length - 1]).id;
     render();
     return;
   }
