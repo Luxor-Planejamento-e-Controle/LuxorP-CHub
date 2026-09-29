@@ -145,10 +145,53 @@ var SB_DADOS = (function () {
      * conta porque é o que elas são — dinheiro que sai. Na planilha eram linhas da Base
      * CAP com título vazio, e entravam no mesmo total; manter isso é o que faz a coluna
      * "Saídas da semana" continuar querendo dizer a mesma coisa que antes. */
-    var provPorConta = {};
+    var provPorConta = {};          // saídas provisionadas
+    var provEntrada = {};           // entradas provisionadas
     (provisoes || []).forEach(function (pr) {
       var v = Number(pr.valor) || 0;
-      provPorConta[pr.chave] = (provPorConta[pr.chave] || 0) + v;
+      // `tipo` ausente é SAÍDA: é o que as provisões eram antes de existir entrada, e
+      // ler o silêncio como entrada inverteria o sinal do que já está gravado.
+      var alvo = pr.tipo === 'entrada' ? provEntrada : provPorConta;
+      alvo[pr.chave] = (alvo[pr.chave] || 0) + v;
+    });
+
+    /* Cadastro por chave — o a receber precisa consultar conta a conta. */
+    var porChave = {};
+    (contas || []).forEach(function (c) { porChave[c.chave] = c; });
+
+    /* A RECEBER DA API, conta a conta.
+     *
+     * `a_receber_da_api: false` no cadastro tira a conta dessa fonte. Existe porque há
+     * empresa cujo título a receber tem data de vencimento e quase nunca é pago nela: a
+     * projeção ficaria otimista por um dinheiro que não entra naquela semana. Quem está
+     * nessa situação usa `a_receber_provisao` no lugar — abaixo.
+     *
+     * É configuração, não regra no código: amanhã outra empresa pode cair no mesmo caso
+     * sem ninguém precisar mexer aqui. */
+    var receberApi = {};
+    var titulosReceber = ((fatos && fatos.a_receber) || []).filter(function (t) {
+      var c = porChave[t.conta];
+      return !c || c.a_receber_da_api !== false;
+    });
+    titulosReceber.forEach(function (t) {
+      receberApi[t.conta] = (receberApi[t.conta] || 0) + (Number(t.valor) || 0);
+    });
+
+    /* PROVISÃO AUTOMÁTICA DE ENTRADA, da quarta de abertura.
+     *
+     * Nasce a cada carregamento, do cadastro — não é gravada. Assim não há o que editar
+     * e depois ver voltar sozinho na execução seguinte: para mudar o valor, muda-se o
+     * cadastro. Cai na quarta que ABRE a janela, que é a data em que o dinheiro
+     * costuma entrar. */
+    var provAuto = (contas || [])
+      .filter(function (c) { return Number(c.a_receber_provisao) > 0; })
+      .map(function (c) {
+        return { chave: c.chave, conta: c.conta || c.chave,
+                 valor: Number(c.a_receber_provisao),
+                 vencimento: semana, automatica: true };
+      });
+    provAuto.forEach(function (p) {
+      provEntrada[p.chave] = (provEntrada[p.chave] || 0) + p.valor;
     });
 
     // As entradas são indexadas por `chave`: a chave da conta, ou o NOME do investimento
@@ -195,14 +238,19 @@ var SB_DADOS = (function () {
         banco: c.banco || SB_REGRA.bancoDe(c.conta || c.chave),
         colchao: (c.colchao === undefined ? null : c.colchao),
         saldo: num(e.saldo),
-        aReceber: num(e.a_receber) || 0,
-        /* Entrada recorrente do cadastro. NÃO entra na conta do restante — serve só
-         * para o formulário já vir preenchido. A projeção usa o que foi digitado.
+        /* A entrada da semana vem de DUAS fontes somadas, e nenhuma delas é digitada no
+         * formulário de saldos — ele voltou a ser só sobre saldo.
          *
-         * A diferença importa: se a pessoa limpar o campo numa semana em que a entrada
-         * não vai acontecer, o vazio tem de valer. Se o valor fixo alimentasse `montar`,
-         * ele voltaria sozinho e a projeção contaria dinheiro que ninguém espera. */
-        aReceberFixo: num(c.a_receber_fixo),
+         *   API do Bimer   títulos a receber que vencem na janela
+         *   provisões      o que ainda não está no Bimer, lançado na tela, mais a
+         *                  provisão automática do cadastro
+         *
+         * Uma conta pode ter as duas: a exclusão da API é por conta, não global. */
+        aReceber: (receberApi[c.chave] || 0) + (provEntrada[c.chave] || 0),
+        aReceberApi: receberApi[c.chave] || 0,
+        aReceberProvisao: provEntrada[c.chave] || 0,
+        // a tela diz de onde veio o número, e essa é a conta que não usa a API
+        usaApiReceber: c.a_receber_da_api !== false,
         aPagar: Number(aPagar[c.chave] || 0) + (provPorConta[c.chave] || 0),
         // separado para a tela poder dizer quanto do total é provisão, e não só o soma
         provisao: provPorConta[c.chave] || 0,
@@ -255,9 +303,22 @@ var SB_DADOS = (function () {
       provisoes: (provisoes || []).map(function (pr) {
         return {
           chave: pr.chave, descricao: pr.descricao || '',
-          valor: num(pr.valor), vencimento: pr.vencimento || null
+          valor: num(pr.valor), vencimento: pr.vencimento || null,
+          tipo: pr.tipo === 'entrada' ? 'entrada' : 'saida'
         };
       }),
+      // os títulos a receber que sobraram do filtro por conta, com data própria
+      titulosReceber: titulosReceber,
+      /* As entradas provisionadas: as lançadas na tela mais a automática do cadastro.
+       * Juntas porque a tela as trata igual — a automática só não é editável ali. */
+      entradasProvisionadas: (provisoes || [])
+        .filter(function (pr) { return pr.tipo === 'entrada'; })
+        .map(function (pr) {
+          return { chave: pr.chave, conta: (porChave[pr.chave] || {}).conta || pr.chave,
+                   descricao: pr.descricao || '', valor: num(pr.valor),
+                   vencimento: pr.vencimento || null, automatica: false };
+        })
+        .concat(provAuto),
       totais: totais(analisadas),
       /* "de quando é esse saldo": a digitação mais recente da semana. O painel mostra
        * isso no cabeçalho, e é a informação que diz se a projeção está olhando para a
@@ -385,16 +446,35 @@ var SB_DADOS = (function () {
        * Ficam no ÚLTIMO dia da janela de propósito. Supor que o dinheiro entra cedo
        * esconderia um negativo no meio da semana — que é o que esta aba existe para
        * mostrar. */
-      a_receber: (estado.contas || [])
-        .filter(function (c) { return (c.aReceber || 0) > 0; })
-        .map(function (c) {
-          return {
-            chave: c.chave, conta: c.conta, cliente: 'Entrada prevista',
-            titulo: '', emissao: null,
-            vencimento: estado.janela ? estado.janela[1] : null,
-            valor: Number(c.aReceber) || 0
-          };
-        })
+      /* Cada entrada na SUA data, não todas no último dia.
+       *
+       * Antes havia um valor só por conta, digitado sem data, e o jeito menos ruim de
+       * encaixá-lo no fluxo era jogá-lo no fim da janela — supor que entra cedo
+       * esconderia um negativo no meio da semana. Agora os títulos vêm da API com
+       * vencimento próprio, e a provisão tem a data que foi lançada: dá para mostrar o
+       * dia certo, e o fluxo dia a dia passa a valer de verdade. */
+      a_receber: (estado.titulosReceber || []).map(function (t, i) {
+        return {
+          id: 'r' + i,
+          chave: t.conta, conta: t.conta,
+          cliente: t.cliente || 'Entrada prevista',
+          titulo: t.titulo || '', emissao: t.emissao || null,
+          vencimento: t.vencimento,
+          valor: Number(t.valor) || 0,
+          origem: 'api'
+        };
+      }).concat((estado.entradasProvisionadas || []).map(function (pr, i) {
+        return {
+          id: 'e' + i,
+          chave: pr.chave, conta: pr.conta || pr.chave,
+          cliente: pr.descricao || (pr.automatica ? 'Entrada prevista (cadastro)' : ''),
+          titulo: '', emissao: null,
+          vencimento: pr.vencimento || (estado.janela ? estado.janela[0] : null),
+          valor: Number(pr.valor) || 0,
+          origem: pr.automatica ? 'cadastro' : 'provisao',
+          automatica: !!pr.automatica
+        };
+      }))
     };
   }
 
