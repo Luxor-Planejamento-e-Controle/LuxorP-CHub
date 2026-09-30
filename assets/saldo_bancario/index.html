@@ -367,6 +367,7 @@ table.data .sub2.fixo{text-align:right;margin-top:3px;color:var(--teal-light)}
 <script src="sb_dados.js"></script>
 <script src="sb_fonte.js"></script>
 <script src="sb_formulario.js"></script>
+<script src="sb_pdf.js"></script>
 <script>
 'use strict';
 
@@ -568,7 +569,8 @@ function render(){
         Ao gravar, o saldo restante, a sugestão de resgate e o fluxo dia a dia são
         recalculados.
       </div>
-      <button class="btn-ghost" id="btAddSaida" type="button">+ Adicionar provisão</button>
+      <button class="btn-ghost" id="btAddSaida" type="button">+ Saída</button>
+      <button class="btn-ghost" id="btAddEntrada" type="button">+ Entrada</button>
       <button class="btn-ghost" id="btCancelar" type="button">Descartar</button>
       <button class="btn-acao" id="btAplicar" type="button" ${
         (!temMudanca() || salvando) ? 'disabled' : ''}>${
@@ -578,11 +580,11 @@ function render(){
 
     ${!E ? `<div class="aviso-edicao">
       ${svg('M12 8v4M12 16h.01M12 22a10 10 0 100-20 10 10 0 000 20z',14)}
-      <div>Os <b>títulos do Bimer</b> não se editam aqui — vêm da API e são republicados
-      a cada execução. O <b>saldo</b> de cada conta e as <b>entradas previstas</b> são
-      digitados${D.data_saldo ? `, e os desta semana foram informados em
-      <b>${fmt.iso(D.data_saldo)}</b>` : ''}; as <b>provisões</b> ficam na aba de
-      títulos.</div>
+      <div>Os <b>títulos do Bimer</b>, a pagar e a receber, vêm da API e são republicados
+      a cada execução. Só o <b>saldo</b> de cada conta é digitado${D.data_saldo ?
+      `, e os desta semana foram informados em <b>${fmt.iso(D.data_saldo)}</b>` : ''}; o
+      que a API não traz — entrada combinada, pagamento ainda não lançado — entra em
+      <b>provisões</b>, na aba de títulos.${entradasDoCadastro()}</div>
       <!-- flex-shrink:0 para os dois botões ficarem lado a lado: sem isso o texto do
            aviso come o espaço, o contêiner quebra a linha e um vai parar embaixo do
            outro. O flex-wrap continua, para eles empilharem em tela estreita — ali
@@ -594,6 +596,12 @@ function render(){
         <span class="sub" id="reprocStatus"></span>
         <button class="btn-ghost" id="btEditarSaldos" type="button"
                 style="white-space:nowrap">Corrigir saldos</button>
+        <!-- A tabela e as sugestões em papel: é o que se leva para a conversa com o
+             banco, e imprimir a tela daria o tema escuro e o que estiver rolado fora. -->
+        <button class="btn-ghost" id="btPdf" type="button"
+                style="white-space:nowrap"
+                title="Baixa a tabela de Movimentações e as Sugestões em PDF">
+          Exportar PDF</button>
         <!-- Os títulos vêm da API e só mudam quando o robô roda. Sem este botão, quem
              lançou algo no Bimer hoje esperaria até a terça para ver. -->
         <button class="btn-ghost" id="btReprocessar" type="button"
@@ -673,9 +681,12 @@ function render(){
     </div>` : ''}
 
     <div class="foot">
-      Títulos a pagar buscados na <b>API do Bimer</b> por vencimento, excluídas as retenções de
-      imposto geradas a partir de outro título. Saldo das contas e entradas previstas digitados
-      neste painel — seguem manuais até haver API dos bancos. Resgate e aplicação são
+      Títulos a pagar e a receber buscados na <b>API do Bimer</b> por vencimento — a pagar
+      sem as retenções de imposto geradas a partir de outro título; a receber sem o que já
+      foi recebido, o que está excluído e os lançamentos de previsão. Só o <b>saldo</b> de
+      cada conta é digitado neste painel, e segue manual até haver API dos bancos.
+      O que a API não traz entra como <b>provisão</b>, de entrada ou de saída.
+      Resgate e aplicação são
       <b>sugestão para o gestor solicitar ao banco</b>: esta projeção não movimenta dinheiro.
       Colchão por conta e degrau de 5&nbsp;mil definidos pela Controladoria; resgate
       arredonda para cima e aplicação para baixo, para que o arredondamento nunca invada o colchão.
@@ -685,6 +696,23 @@ function render(){
 
   if(F.titulos) corpoTitulos(tit, rec);
   ligar();
+}
+
+/* De onde saiu a entrada prevista da conta, embaixo do número.
+ *
+ * A entrada tem três procedências e cada uma se corrige num lugar: título do Bimer, no
+ * Bimer; provisão, no editor desta tela; entrada fixa, no cadastro da conta. Sem a marca,
+ * o total é o mesmo número para os três casos e quem discorda dele não sabe para onde ir.
+ *
+ * Só aparece quando há entrada e quando há algo a dizer: repetir "títulos do Bimer" em
+ * toda linha seria ruído, então o caso comum fica calado. */
+function fonteEntrada(c){
+  if(!c.a_receber) return '';
+  const prov = c.a_receber_provisao || 0;
+  if(!prov) return '';
+  const marca = !c.usa_api_receber ? 'provisão (títulos do Bimer fora)'
+              : (c.a_receber_api ? 'títulos + provisão' : 'provisão');
+  return `<div class="sub2">${marca}</div>`;
 }
 
 /* ---------- tabela principal ----------
@@ -715,7 +743,8 @@ function tabelaContas(contas, filtrado){
           <div class="sub2">${esc(c.chave)}</div></td>
       <td class="num nowrap">${fmt.rs(c.saldo)}</td>
       <td class="num nowrap">${c.a_pagar ? fmt.rs(c.a_pagar) : '—'}</td>
-      <td class="num nowrap">${c.a_receber ? fmt.rs(c.a_receber) : '—'}</td>
+      <td class="num nowrap">${c.a_receber ? fmt.rs(c.a_receber) : '—'}${
+        fonteEntrada(c)}</td>
       <td class="num nowrap">${fmt.rs(c.restante)}</td>
       <td class="num nowrap">${c.colchao != null ? fmt.rs(c.colchao) : '—'}</td>
       <td>${stTag(s)}</td>
@@ -828,6 +857,22 @@ function tabelaFluxo(contas){
    da regra — foi isso que gerou o bug da retenção no Controle de Pagamentos. */
 let seqNova = 0;
 
+/* As entradas que nascem do CADASTRO, ditas por extenso.
+ *
+ * Elas aparecem na projeção e no fluxo como qualquer outra, mas não estão em título
+ * nenhum e ninguém as digitou nesta semana — são o número certo pelo motivo invisível.
+ * O caso real é o condomínio: os títulos a receber dele existem, com vencimento, e quase
+ * nunca são pagos na data, então a conta trabalha com um valor fixo provisionado em vez
+ * dos títulos. Quem for corrigir isso precisa saber que o lugar é o cadastro da conta,
+ * e não esta tela — onde procuraria primeiro e não acharia. */
+function entradasDoCadastro(){
+  const auto = (D.a_receber || []).filter(t => t.origem === 'cadastro');
+  if(!auto.length) return '';
+  return ` <b>${auto.map(t => esc(t.conta)).join(', ')}</b> ${auto.length > 1 ? 'têm' : 'tem'}
+    entrada fixa vinda do cadastro (${auto.map(t => fmt.rs(t.valor)).join(', ')}), lançada
+    na quarta que abre a janela — mexer nela é mexer no cadastro da conta.`;
+}
+
 function linhaEditavel(t, tipo){
   return {
     uid: t.id != null ? `${tipo}:${t.id}` : `${tipo}:novo${--seqNova}`,
@@ -858,9 +903,24 @@ function entrarEdicao(){
      Os títulos entram porque agora são graváveis: o que se guarda não é o título
      editado — que a próxima execução do ETL sobrescreveria — e sim um AJUSTE preso à
      `ref`, reaplicado sobre o título republicado enquanto a semana for a mesma.
-     Provisões primeiro: são poucas e é o que se mexe com mais frequência. */
+     Provisões primeiro: são poucas e é o que se mexe com mais frequência.
+
+     As provisões de ENTRADA entram com as de saída, na mesma lista: são a mesma coisa
+     gravada no mesmo lugar, e é o tipo que decide o sinal. Quem lança uma entrada
+     combinada com o cliente e quem lança um pagamento ainda não posto no Bimer estão
+     fazendo o mesmo gesto.
+
+     O que NÃO entra aqui:
+       · títulos a RECEBER do Bimer — não têm ajuste. O ajuste gruda numa `ref` derivada
+         do título a pagar, e estender isso ao a receber é outra mudança. Até lá, um
+         título a receber errado se corrige no Bimer.
+       · a entrada AUTOMÁTICA do cadastro (o condomínio) — nasce a cada carregamento e
+         não é gravada. Se ela entrasse aqui, gravar a criaria como provisão comum, e na
+         próxima abertura a conta apareceria duas vezes: a gravada e a que nasce sozinha. */
   E = {
     linhas: D.titulos.filter(t => t.provisao).map(t => linhaEditavel(t, 'saida'))
+      .concat(D.a_receber.filter(t => t.origem === 'provisao')
+        .map(t => linhaEditavel(t, 'entrada')))
       .concat(D.titulos.filter(t => !t.provisao).map(t => linhaEditavel(t, 'saida'))),
   };
   E.origem = JSON.stringify(E.linhas);
@@ -878,7 +938,7 @@ const mudou = l => {
   /* `removido` entra na comparação: sem ele, TRAZER DE VOLTA um título removido numa
      gravação anterior não contava como mudança, e o botão Gravar ficava desabilitado —
      dava para desfazer na tela e não dava para salvar o desfeito. */
-  return ['chave','pessoa','titulo','vencimento','valor','removido']
+  return ['chave','pessoa','titulo','vencimento','valor','removido','tipo']
     .some(k => String(orig[k]) !== String(l[k]));
 };
 const contarMudancas = () => {
@@ -926,7 +986,7 @@ async function aplicar(){
       + 'Preencha ou remova antes de aplicar.';
     return render();
   }
-  if(!confirm(`Gravar as saídas da semana?\n\n`
+  if(!confirm(`Gravar as provisões da semana?\n\n`
     + `${m.novas} nova(s), ${m.alteradas} alterada(s), ${m.excluidas} excluída(s).`)) return;
 
   salvando = true; erroEdicao = null; render();
@@ -937,8 +997,12 @@ async function aplicar(){
        a uma correção no Bimer, continuando a aplicar o valor de antes. */
     const provisoes = E.linhas.filter(l => !l.doBimer).map(l => ({
       chave: l.chave, descricao: l.pessoa,
-      // o sinal é da coluna, não do que se digita: quem lança uma saída escreve o
-      // valor, não o valor negativo
+      /* O TIPO tem de ir junto, e é o campo que não perdoa esquecimento: sem ele toda
+         provisão é lida como saída, e uma entrada de R$ 25.000 gravada sem tipo vira
+         R$ 25.000 saindo — erra por cinquenta mil e para o lado otimista invertido. */
+      tipo: l.tipo === 'entrada' ? 'entrada' : 'saida',
+      // o sinal é do tipo, não do que se digita: quem lança uma saída escreve o valor,
+      // não o valor negativo
       valor: Math.abs(l.valor || 0),
       vencimento: l.vencimento,
     }));
@@ -1036,8 +1100,16 @@ function corpoEdicao(){
     /* O nº do título é do Bimer e não se inventa: deixá-lo editável sugeriria que dá
        para apontar o ajuste a outro título, e não dá — é a `ref` que manda. */
     const trava = l.doBimer ? 'disabled' : '';
+    /* Nas linhas do Bimer o tipo é o que o título é e não se escolhe; nas provisões ele
+       é editável, porque lançar a entrada no botão da saída é o engano natural de quem
+       está com pressa — e sem o seletor a saída seria excluir a linha e refazer. */
     return `<tr class="${cls}" data-uid="${esc(l.uid)}">
-      <td>${stTag(l.tipo)}${l.doBimer ? ' <span class="origem">Bimer</span>' : ''}</td>
+      <td>${l.doBimer
+        ? `${stTag(l.tipo)} <span class="origem">Bimer</span>`
+        : `<select data-c="tipo" ${l.removido?'disabled':''}>
+             <option value="saida"   ${l.tipo==='saida'  ?'selected':''}>Saída</option>
+             <option value="entrada" ${l.tipo==='entrada'?'selected':''}>Entrada</option>
+           </select>`}</td>
       <td><input data-c="pessoa" value="${esc(l.pessoa)}" placeholder="fornecedor / cliente"
                  ${trava}></td>
       <td><select data-c="chave" ${l.removido?'disabled':''}>${opts(l.chave)}</select></td>
@@ -1055,14 +1127,17 @@ function corpoEdicao(){
                                                : 'M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14',12)}</button></td>
     </tr>`;
   }).join('') : `<tr><td colspan="7"><div class="empty">Nenhuma linha${
-      F.conta?' nesta conta':''}. Use "Adicionar saída" abaixo.</div></td></tr>`;
+      F.conta?' nesta conta':''}. Use "+ Saída" ou "+ Entrada" acima.</div></td></tr>`;
 
   const sai = E.linhas.filter(l => l.tipo === 'saida');
   const ent = E.linhas.filter(l => l.tipo === 'entrada');
   const soma = a => a.reduce((s,l)=>s+(Number(l.valor)||0),0);
+  /* "a receber" aqui contaria só as ENTRADAS PROVISIONADAS, e o painel logo acima mostra
+     o a receber inteiro — títulos do Bimer incluídos. Os dois números seriam diferentes
+     com o mesmo nome, e o de baixo pareceria dizer que a semana não recebe nada. */
   document.getElementById('tblSub').textContent =
-    `editando · ${sai.length} a pagar (${fmt.rs(soma(sai))}) · `
-    + `${ent.length} a receber (${fmt.rs(soma(ent))})`
+    `editando · ${sai.length} saída(s) (${fmt.rs(soma(sai))}) · `
+    + `${ent.length} entrada(s) provisionada(s) (${fmt.rs(soma(ent))})`
     + (F.conta ? ` · mostrando ${visiveis.length}` : '');
 }
 
@@ -1072,6 +1147,18 @@ function ligar(){
   // --- edição ---
   const liga = (id, fn) => { const b = document.getElementById(id); if(b) b.onclick = fn; };
   liga('btEditarSaldos', () => mostrarFormulario());
+
+  liga('btPdf', () => {
+    const bt = document.getElementById('btPdf');
+    try{
+      exportarPdf(true);
+    }catch(e){
+      /* Sem aviso, um erro aqui é um clique que não faz nada — e a pessoa clica de novo.
+         O painel não pode quebrar por causa do export: os números seguem na tela. */
+      console.error('[saldo_bancario] export PDF:', e);
+      if(bt) bt.textContent = 'Falhou — ver console';
+    }
+  });
 
   /* O carimbo lido é o do ARQUIVO PUBLICADO, não o da tela: é ele que muda quando o robô
      termina, e é assim que se sabe que acabou sem manter conexão aberta. */
@@ -1089,6 +1176,7 @@ function ligar(){
   });
   liga('btEditar',     entrarEdicao);
   liga('btAddSaida',   () => adicionar('saida'));
+  liga('btAddEntrada', () => adicionar('entrada'));
   liga('btAplicar',    aplicar);
   liga('btCancelar',   () => {
     if(!temMudanca() || confirm('Descartar as alterações? A planilha não foi tocada.')) sairEdicao();
@@ -1221,10 +1309,33 @@ function decidirTela(){
 }
 
 /* Exposto para o botão "editar saldos" que a barra do painel oferece, e para os testes. */
+/* O PDF recebe o MESMO `escopo()` que a tabela desenhou — já ordenado e já filtrado — e a
+   MESMA `situacao()` que decide o rótulo de cada linha. É o que garante que o papel não
+   possa divergir da tela: não existe um segundo caminho de cálculo.
+
+   `baixar` separa o clique do teste. Baixar de verdade PENDURA o navegador headless: o
+   download fica esperando destino e nunca volta. Com `baixar=false` o teste recebe os
+   bytes e os confere — chamando esta mesma função, e não uma recombinação das peças, que
+   seria justamente o segundo caminho que o desenho evita. */
+function exportarPdf(baixar){
+  const contas = escopo();
+  const meta = {
+    janela: D.janela ? `${fmt.iso(D.janela[0])} a ${fmt.iso(D.janela[1])}` : null,
+    janelaArquivo: D.janela ? D.janela[0] : null,
+    dataSaldo: D.data_saldo ? fmt.iso(D.data_saldo) : null,
+    geradoEm: D.gerado_em ? fmt.dtHora(D.gerado_em) : null,
+    filtrado: contas.length !== D.contas.length,
+  };
+  return baixar ? SB_PDF.baixar(contas, situacao, meta)
+                : SB_PDF.gerar(contas, situacao, meta);
+}
+
 window.SB_PAINEL = {
   recarregar: async () => { await carregarEstado(); decidirTela(); },
   editarSaldos: () => mostrarFormulario(),
   estado: () => estadoAtual,
+  // para o teste: os bytes do MESMO PDF que o botão baixa
+  pdf: () => exportarPdf(false),
 };
 
 async function boot(){
