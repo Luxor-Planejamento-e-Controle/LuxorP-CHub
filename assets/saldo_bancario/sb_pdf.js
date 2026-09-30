@@ -415,8 +415,12 @@ window.SB_PDF = (function () {
         larg - 16, 8.5, cor, true, 'e');
       tela.texto(c.valor_rotulo || '', x + 10, topo - 40, larg - 16, 23, COR.txt, true, 'e');
       tela.texto(c.conta, x + 10, topo - 54, larg - 16, 9, COR.txt, true, 'e', true);
-      tela.texto((c.acao === 'resgate' ? 'do ' : 'no ')
-        + (c.par_nome || 'sem investimento par'),
+      /* A preposição só existe quando há nome para regê-la: concatenada com o texto de
+         ausência, saía "no sem investimento par" — e "do sem investimento par" num
+         resgate. A tabela (ver `linhas`) já mostrava o mesmo campo sem preposição. */
+      tela.texto(c.par_nome
+          ? (c.acao === 'resgate' ? 'do ' : 'no ') + c.par_nome
+          : 'sem investimento par',
         x + 10, topo - 66, larg - 16, 8, COR.suave, false, 'e', true);
     });
     return y - Math.ceil(comAcao.length / SUG_POR_LINHA) * (SUG_ALT + SUG_GAP);

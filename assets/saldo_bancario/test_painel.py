@@ -1417,6 +1417,64 @@ class TestExportPdf(unittest.TestCase):
         self.assertNotIn("NaN", tudo)
         self.assertNotIn("└", tudo, "o └ da tela não pode ir para o papel")
 
+    def test_13_conta_sem_investimento_par_nao_ganha_preposicao(self):
+        """Classe própria porque a fixture do resto TEM investimento par, e este defeito
+        só existe sem ele — dentro do `test_11` a asserção passava com o defeito presente,
+        que é pior do que não ter teste.
+
+        O cartão colava a preposição no texto de ausência: "no sem investimento par", ou
+        "do sem investimento par" num resgate. Hoje nenhuma conta ativa está sem par, então
+        seria a primeira conta nova a levar isso para o papel que vai à conversa com o
+        banco. A tabela já escrevia certo — era só o cartão.
+        """
+        estado = json.loads(json.dumps(ESTADO_INICIAL))
+        for c in estado["contas"]:
+            c["investimentos"] = []          # nenhuma tem par: todo cartão cai no fallback
+        semana = "2026-09-09"
+        estado["entradas"] = {semana: [
+            {"chave": c["chave"], "saldo": 20000.0} for c in estado["contas"]]}
+
+        # PÁGINA nova no navegador da classe: abrir um segundo `sync_playwright`
+        # dentro dela estoura ("Sync API inside the asyncio loop").
+        pg = type(self)._b.new_page(viewport={"width": 1400, "height": 900})
+        try:
+            def rota(route, request):
+                if "/storage/v1/object/" in request.url:
+                    return route.fulfill(status=200, content_type="application/json",
+                                         body=json.dumps(FATOS))
+                if "/rest/v1/app_state" in request.url:
+                    return route.fulfill(
+                        status=200,
+                        content_type="application/vnd.pgrst.object+json",
+                        body=json.dumps({"data": estado, "updated_at": "v1"}))
+                return route.continue_()
+
+            pg.route("**/*.supabase.co/**", rota)
+            pg.add_init_script("window.HUB = {email:'fulano@luxor.com.br'};")
+            pg.goto((AQUI / "index.html").as_uri())
+            pg.wait_for_timeout(1500)
+            b64 = pg.evaluate("""() => {
+                const bytes = SB_PAINEL.pdf();
+                let s = '';
+                for (const b of bytes) s += String.fromCharCode(b);
+                return btoa(s);
+            }""")
+        finally:
+            pg.close()
+
+        try:
+            import fitz
+        except ImportError:
+            raise unittest.SkipTest("PyMuPDF não instalado")
+        doc = fitz.open(stream=base64.b64decode(b64), filetype="pdf")
+        texto = "\n".join(p.get_text() for p in doc)
+        doc.close()
+
+        self.assertIn("sem investimento par", texto,
+                      "a fixture precisa ter cartão sem par, senão o teste não prova nada")
+        for prep in ("no sem investimento par", "do sem investimento par"):
+            self.assertNotIn(prep, texto, "preposição colada no texto de ausência")
+
     def test_12_a_procedencia_vai_junto(self):
         """Um PDF circula solto: sem a janela e a ressalva, alguém lê os números daqui a
         um mês sem saber de quando são nem que não movimentam dinheiro."""
