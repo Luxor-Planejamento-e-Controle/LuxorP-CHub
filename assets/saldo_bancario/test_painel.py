@@ -11,6 +11,7 @@ Roda sem credencial, sem sessão e sem tocar no Supabase de verdade.
 Uso: python assets/saldo_bancario/test_painel.py   (da raiz do repo do hub)
 """
 
+import base64
 import json
 import urllib.parse
 import pathlib
@@ -31,6 +32,20 @@ FATOS = {
         {"conta": "TARITUBA", "fornecedor": "FORNECEDOR B", "titulo": "2",
          "emissao": "2026-09-02", "vencimento": "2026-09-12", "valor": 149.90},
     ],
+    # O a receber é publicado INTEIRO pelo ETL, sem regra aplicada — inclusive os títulos
+    # da conta que não usa essa fonte. Quem descarta é o painel, contra o cadastro, e é
+    # isso que estes dois títulos do BTG estão aqui para provar: se o painel deixasse
+    # passar, a conta projetaria R$ 80.000 que a Luxor sabe que não entram.
+    "a_receber_por_conta": {"LUXOR INVESTIMENTOS": 7651.44,
+                            "LUXOR PARTICIPAÇÃO - BTG": 80000.0},
+    "a_receber": [
+        {"conta": "LUXOR INVESTIMENTOS", "cliente": "CLIENTE A", "titulo": "R1",
+         "emissao": "2026-09-01", "vencimento": "2026-09-11", "valor": 7651.44},
+        {"conta": "LUXOR PARTICIPAÇÃO - BTG", "cliente": "CONDÔMINO X", "titulo": "R2",
+         "emissao": "2026-08-20", "vencimento": "2026-09-10", "valor": 50000.0},
+        {"conta": "LUXOR PARTICIPAÇÃO - BTG", "cliente": "CONDÔMINO Y", "titulo": "R3",
+         "emissao": "2026-08-20", "vencimento": "2026-09-15", "valor": 30000.0},
+    ],
 }
 
 # Espelha a forma real do cadastro, que veio da planilha: cada conta corrente é dona das
@@ -47,7 +62,11 @@ ESTADO_INICIAL = {
          "investimentos": [{"nome": "Luxor Investimentos - Itau CDB-DI",
                             "tipo": "aplicacao", "banco": "ITAU"}]},
         {"chave": "LUXOR PARTICIPAÇÃO - BTG", "conta": "Luxor Participação - BTG",
-         "banco": "BTG", "colchao": 0, "ativa": True, "a_receber_fixo": 25000,
+         # Espelha o caso real do condomínio: os títulos a receber existem e têm
+         # vencimento, mas quase nunca são pagos na data, então a conta trabalha com um
+         # valor fixo provisionado no lugar deles.
+         "banco": "BTG", "colchao": 0, "ativa": True,
+         "a_receber_da_api": False, "a_receber_provisao": 25000,
          "investimentos": [{"nome": "Luxor Participação - BTG Fundo Manga",
                             "tipo": "aplicacao", "banco": "BTG"},
                            {"nome": "Luxor Participação - BTG Tesouro Selic",
@@ -181,18 +200,60 @@ class TestPainelSaldoBancario(unittest.TestCase):
 
         pg.fill(sel, "")   # devolve o campo vazio para os testes seguintes
 
-    def test_1d_entrada_fixa_vem_preenchida_do_cadastro(self):
-        """Na planilha a provisão recorrente era uma linha parada na Base CAR, e alguém
-        só empurrava a data toda quarta. Exigir que fosse redigitada aqui seria trocar
-        uma redigitação por outra."""
-        pg = self.pg
-        sel = 'input.sbf[data-campo=a_receber][data-chave="LUXOR PARTICIPAÇÃO - BTG"]'
-        self.assertEqual(pg.input_value(sel), "R$ 25.000,00")
-        self.assertIn("do cadastro", pg.inner_text("body"))
+    def test_1d_a_entrada_nao_se_digita_mais_aqui(self):
+        """A entrada prevista saiu do formulário e virou provisão (Leonardo, 29/09/2026).
 
-        # conta sem entrada fixa continua vazia: o valor é de uma conta, não de todas
-        self.assertEqual(pg.input_value(
-            'input.sbf[data-campo=a_receber][data-chave="LUXOR INVESTIMENTOS"]'), "")
+        O campo era um valor por conta e SEM data, e o fluxo dia a dia tinha de chutar
+        onde encaixá-lo. Enquanto ele existiu nesta tela, quem digitasse ali estaria
+        alimentando um número que o painel já não lê — o pior estado possível, porque a
+        tela aceita, grava e nada acontece."""
+        pg = self.pg
+        self.assertEqual(pg.locator('input.sbf[data-campo=a_receber]').count(), 0,
+                         "nenhum campo de entrada no formulário de saldos")
+
+    def test_1e_a_entrada_aparece_de_leitura_com_a_origem(self):
+        """Quem informa o saldo precisa ver o que já está previsto entrar — e de onde
+        veio, senão o jeito de corrigir um número errado fica invisível: título se corrige
+        no Bimer, provisão no editor, entrada fixa no cadastro."""
+        pg = self.pg
+        linha = pg.locator('tr.conta-cc', has_text="Luxor Participação")
+        self.assertIn("R$ 25.000,00", linha.inner_text(),
+                      "a provisão do cadastro aparece na conta que a tem")
+        self.assertIn("provisão", linha.inner_text().lower())
+
+        outra = pg.locator('tr.conta-cc', has_text="Luxor Investimentos")
+        self.assertIn("R$ 7.651,44", outra.inner_text(),
+                      "e o título da API aparece na conta que usa a API")
+
+    def test_1f_o_a_receber_do_bimer_e_descartado_por_cadastro(self):
+        """O ETL publica os títulos a receber inteiros; é o painel que descarta os da
+        conta com `a_receber_da_api: false`.
+
+        Sem o descarte, esta conta somaria os R$ 80.000 dos títulos AOS R$ 25.000 da
+        provisão: a projeção contaria R$ 105.000 onde a Luxor espera R$ 25.000."""
+        por = {c["chave"]: c for c in
+               self.pg.evaluate("() => window.SB_PAINEL.estado().contas")}
+        btg = por["LUXOR PARTICIPAÇÃO - BTG"]
+        self.assertEqual(btg["aReceberApi"], 0, "os títulos do Bimer não entram nesta conta")
+        self.assertEqual(btg["aReceberProvisao"], 25000)
+        self.assertEqual(btg["aReceber"], 25000)
+
+        inv = por["LUXOR INVESTIMENTOS"]
+        self.assertAlmostEqual(inv["aReceberApi"], 7651.44, places=2,
+                               msg="a conta que usa a API continua somando o título")
+        self.assertEqual(inv["aReceberProvisao"], 0)
+
+    def test_1g_a_provisao_automatica_cai_na_quarta_que_abre(self):
+        """Decisão do Leonardo (29/09/2026): a quarta de ABERTURA, não as duas da janela.
+
+        A data importa porque o fluxo dia a dia é o que mostra se a conta fura no meio da
+        semana. Jogar a entrada no fim da janela esconderia exatamente esse furo."""
+        est = self.pg.evaluate("() => window.SB_PAINEL.estado()")
+        auto = [e for e in est["entradasProvisionadas"] if e.get("automatica")]
+        self.assertEqual(len(auto), 1, "uma conta com entrada fixa no cadastro")
+        self.assertEqual(auto[0]["vencimento"], est["janela"][0],
+                         "cai na quarta que abre a janela")
+        self.assertEqual(auto[0]["valor"], 25000)
 
     def test_2_fatos_vieram_do_bucket(self):
         est = self.pg.evaluate("() => window.SB_PAINEL.estado()")
@@ -206,9 +267,6 @@ class TestPainelSaldoBancario(unittest.TestCase):
         pg = self.pg
         for chave, valor in SALDOS.items():
             pg.fill(f'input.sbf[data-campo=saldo][data-chave="{chave}"]', valor)
-        # entrada prevista: não vem de sistema nenhum e não tem data — é o que obriga o
-        # fluxo dia a dia a colocá-la em algum dia para fechar com o saldo restante
-        pg.fill('input.sbf[data-campo=a_receber][data-chave="TARITUBA"]', "5.000,00")
         pg.click("#sbfSalvar")
         pg.wait_for_timeout(1300)
 
@@ -242,22 +300,28 @@ class TestPainelSaldoBancario(unittest.TestCase):
         por = {c["chave"]: c for c in
                self.pg.evaluate("() => window.SB_PAINEL.estado().contas")}
 
-        # 20.000 − 14.033,78 = 5.966,22 ; colchão 30.000 → resgatar 25k (degrau de 5k)
+        # 20.000 − 14.033,78 + 7.651,44 (título a receber da API) = 13.617,66 ;
+        # colchão 30.000 → resgatar 20k (degrau de 5k, arredondando para cima)
         li = por["LUXOR INVESTIMENTOS"]
-        self.assertAlmostEqual(li["restante"], 5966.22, places=2)
+        self.assertAlmostEqual(li["restante"], 13617.66, places=2)
         self.assertEqual(li["acao"], "resgate")
-        self.assertEqual(li["valor"], 25000)
+        self.assertEqual(li["valor"], 20000)
         self.assertEqual(li["par_nome"], "Luxor Investimentos - Itau CDB-DI")
         self.assertEqual(li["par_saldo"], 856529.27)
 
-        # 50.000 − 149,90 + 5.000 = 54.850,10 ; colchão 10.000 → aplicar 40k
+        # 50.000 − 149,90 = 49.850,10 ; colchão 10.000 → aplicar 35k
+        # (a entrada de 5.000 que este teste somava era digitada no formulário; esse
+        #  campo saiu, e o que a Tarituba tem a receber agora é o que vier da API)
         t = por["TARITUBA"]
-        self.assertAlmostEqual(t["restante"], 54850.10, places=2)
+        self.assertAlmostEqual(t["restante"], 49850.10, places=2)
         self.assertEqual(t["acao"], "Aplicar")
-        self.assertEqual(t["valor"], 40000)
+        self.assertEqual(t["valor"], 35000)
 
-        # colchão 0 com sobra: conta em descontinuação não recebe aplicação
+        # colchão 0 com sobra: conta em descontinuação não recebe aplicação.
+        # Os R$ 25.000 aqui são a provisão do cadastro — os R$ 80.000 de título a
+        # receber do Bimer foram descartados por `a_receber_da_api: false`.
         btg = por["LUXOR PARTICIPAÇÃO - BTG"]
+        self.assertAlmostEqual(btg["restante"], 26204.44, places=2)
         self.assertIsNone(btg["acao"])
         self.assertTrue(btg["descontinuada"])
 
@@ -303,30 +367,28 @@ class TestPainelSaldoBancario(unittest.TestCase):
         self.assertIn("Sugestões de Movimentação", pg.inner_text("body"))
         self.assertEqual(len(self.gravacoes), antes, "Voltar não pode gravar nada")
 
-    def test_7b_semana_informada_respeita_o_campo_vazio(self):
-        """Numa semana em que a entrada não vai acontecer, limpar o campo tem de valer.
-        Se o valor do cadastro voltasse sozinho, a projeção contaria dinheiro que
-        ninguém espera — e ninguém entenderia por quê."""
+    def test_7b_corrigir_saldo_nao_apaga_a_entrada_prevista(self):
+        """Gravar o formulário de saldos não pode levar as provisões junto.
+
+        Este é o mesmo defeito que já foi corrigido uma vez (PR #12): `salvar` substituía
+        a lista inteira da semana, e o formulário a chamava sem argumento nenhum. Antes
+        ele apagava as saídas provisionadas; agora as ENTRADAS moram no mesmo lugar, então
+        corrigir um saldo apagaria também o dinheiro que a semana espera receber."""
         pg = self.pg
+        antes = {c["chave"]: c["aReceber"] for c in
+                 pg.evaluate("() => window.SB_PAINEL.estado().contas")}
+        self.assertEqual(antes["LUXOR PARTICIPAÇÃO - BTG"], 25000, "pré-condição")
+
         pg.click("#btEditarSaldos")
         pg.wait_for_timeout(500)
-        sel = 'input.sbf[data-campo=a_receber][data-chave="LUXOR PARTICIPAÇÃO - BTG"]'
-        pg.fill(sel, "")
+        pg.fill('input.sbf[data-campo=saldo][data-chave="TARITUBA"]', "51.000,00")
         pg.click("#sbfSalvar")
         pg.wait_for_timeout(1100)
 
-        por = {c["chave"]: c for c in
-               pg.evaluate("() => window.SB_PAINEL.estado().contas")}
-        self.assertEqual(por["LUXOR PARTICIPAÇÃO - BTG"]["aReceber"], 0,
-                         "campo limpo depois de informado vale zero")
-
-        pg.click("#btEditarSaldos")
-        pg.wait_for_timeout(500)
-        self.assertEqual(pg.input_value(sel), "",
-                         "e continua vazio ao reabrir — o fixo não volta por cima")
-        self.assertNotIn("do cadastro", pg.inner_text("body"))
-        pg.click("#sbfVoltar")
-        pg.wait_for_timeout(400)
+        depois = {c["chave"]: c["aReceber"] for c in
+                  pg.evaluate("() => window.SB_PAINEL.estado().contas")}
+        self.assertEqual(depois, antes,
+                         "as entradas previstas continuam as mesmas depois de salvar saldos")
 
     # ---------------- abas de detalhamento ----------------
     #
@@ -472,6 +534,96 @@ class TestPainelSaldoBancario(unittest.TestCase):
             with self.subTest(conta=nome):
                 chave = next(k for k, c in est.items() if c["conta"] == nome)
                 self.assertAlmostEqual(num(titulo), est[chave]["restante"], places=2)
+
+    # Estes dois dependem da provisão que o 8c cria, e o unittest roda em ordem
+    # ALFABÉTICA do nome do método. Nasceram como "8c2"/"8c3" e rodavam ANTES do
+    # "8c_adicionar…", porque '2' vem antes de '_' na tabela ASCII — o teste falhava
+    # apontando a mudança, não o próprio nome.
+    def test_8e_entrada_provisionada_entra_no_restante(self):
+        """As entradas manuais viraram provisão (Leonardo, 29/09/2026), então o editor
+        grava os dois sinais na MESMA lista. O campo que separa um do outro é `tipo`, e
+        ele é o que não perdoa esquecimento: sem ele a entrada é lida como saída e o erro
+        é do dobro do valor, para o lado errado."""
+        pg = self.pg
+        if not pg.locator("#tbody").count():
+            pg.click("text=Títulos a pagar e receber")
+            pg.wait_for_timeout(500)
+
+        antes = {c["chave"]: c for c in
+                 pg.evaluate("() => window.SB_PAINEL.estado().contas")}
+
+        pg.click("#btEditar")
+        pg.wait_for_timeout(500)
+        pg.click("#btAddEntrada")
+        pg.wait_for_timeout(400)
+        linha = "#tbody tr:last-child"
+
+        def preencher(seletor, valor):
+            pg.fill(f'{linha} {seletor}', valor)
+            pg.press(f'{linha} {seletor}', "Tab")
+            pg.wait_for_timeout(150)
+
+        self.assertEqual(pg.input_value(f'{linha} select[data-c="tipo"]'), "entrada",
+                         "o botão nasce com o tipo certo")
+        pg.select_option(f'{linha} select[data-c="chave"]', "LUXOR INVESTIMENTOS")
+        pg.wait_for_timeout(150)
+        preencher('input[data-c="pessoa"]', "ALUGUEL COMBINADO")
+        preencher('input[data-c="valor"]', "4200")
+        preencher('input[data-c="vencimento"]', "2026-09-11")
+
+        pg.once("dialog", lambda d: d.accept())
+        pg.click("#btAplicar")
+        pg.wait_for_timeout(1500)
+
+        depois = {c["chave"]: c for c in
+                  pg.evaluate("() => window.SB_PAINEL.estado().contas")}
+        alvo = "LUXOR INVESTIMENTOS"
+        self.assertAlmostEqual(depois[alvo]["aReceber"], antes[alvo]["aReceber"] + 4200,
+                               places=2, msg="a entrada soma no a receber da conta")
+        self.assertAlmostEqual(depois[alvo]["restante"], antes[alvo]["restante"] + 4200,
+                               places=2, msg="e ENTRA no restante, não sai")
+        self.assertAlmostEqual(depois[alvo]["aPagar"], antes[alvo]["aPagar"], places=2,
+                               msg="entrada não pode virar saída")
+
+        semana = pg.evaluate("() => window.SB_PAINEL.estado().semana")
+        provs = self.gravacoes[-1]["data"]["provisoes"][semana]
+        por_desc = {p["descricao"]: p for p in provs}
+        self.assertEqual(por_desc["ALUGUEL COMBINADO"]["tipo"], "entrada")
+        self.assertEqual(por_desc["ALUGUEL COMBINADO"]["valor"], 4200,
+                         "guardado positivo: o sinal é do tipo, não do que se digita")
+        self.assertEqual(por_desc["PAGAMENTO NÃO LANÇADO"]["tipo"], "saida",
+                         "gravar a entrada não pode reetiquetar a saída que já estava lá")
+
+    def test_8f_a_entrada_volta_como_entrada_ao_reabrir(self):
+        """A segunda vez é onde este tipo de mudança quebra: grava certo, relê errado.
+
+        Se o editor não reconstruísse o tipo ao reabrir, a entrada voltaria como saída e
+        bastaria gravar de novo — sem tocar nela — para o valor trocar de sinal."""
+        pg = self.pg
+        if not pg.locator("#tbody").count():
+            pg.click("text=Títulos a pagar e receber")
+            pg.wait_for_timeout(500)
+        pg.click("#btEditar")
+        pg.wait_for_timeout(600)
+
+        tipos = pg.evaluate("""() => {
+            const out = {};
+            document.querySelectorAll('#tbody tr[data-uid]').forEach(tr => {
+                const p = tr.querySelector('input[data-c="pessoa"]');
+                const t = tr.querySelector('select[data-c="tipo"]');
+                if(p && t) out[p.value] = t.value;
+            });
+            return out;
+        }""")
+        self.assertEqual(tipos.get("ALUGUEL COMBINADO"), "entrada")
+        self.assertEqual(tipos.get("PAGAMENTO NÃO LANÇADO"), "saida")
+
+        # a automática do cadastro NÃO entra no editor: ela nasce a cada carregamento e
+        # não é gravada, então gravá-la aqui a duplicaria na abertura seguinte
+        self.assertNotIn("Entrada prevista (cadastro)", list(tipos.keys()))
+
+        pg.click("#btCancelar")
+        pg.wait_for_timeout(500)
 
     def test_a_conflito_nao_sobrescreve_gravacao_alheia(self):
         """Duas telas abertas: a que gravar depois não pode apagar o que a outra gravou.
@@ -1063,6 +1215,217 @@ class TestSaldosGravadosSemFatos(unittest.TestCase):
         ver o que digitou, senão parece que a gravação se perdeu."""
         self.assertIn("20.000", self.pg.input_value(
             'input.sbf[data-campo=saldo][data-chave="LUXOR INVESTIMENTOS"]'))
+
+
+class TestExportPdf(unittest.TestCase):
+    """O PDF da tabela de Movimentações e das Sugestões.
+
+    ABRIR NUM LEITOR NÃO PROVA QUE O ARQUIVO ESTÁ CERTO: o PDF é montado à mão, e um
+    offset de `xref` errado por um byte faz alguns leitores reconstruírem em silêncio e
+    outros recusarem. Por isso o teste tem duas metades — um lint da estrutura, byte a
+    byte, e a conferência do conteúdo contra os mesmos números do painel.
+
+    O clique NÃO é testado de propósito: baixar de verdade pendura o navegador headless
+    (o download fica esperando destino e nunca volta). O teste chama `SB_PAINEL.pdf()`,
+    que é a MESMA função que o botão usa, sem o passo de baixar.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        try:
+            from playwright.sync_api import sync_playwright
+        except ImportError:
+            raise unittest.SkipTest("playwright não instalado")
+
+        estado = json.loads(json.dumps(ESTADO_INICIAL))
+        # com os saldos já informados, o painel abre direto na projeção
+        semana = "2026-09-09"
+        estado["entradas"] = {semana: [
+            {"chave": "LUXOR INVESTIMENTOS", "saldo": 20000.0},
+            {"chave": "LUXOR PARTICIPAÇÃO - BTG", "saldo": 1204.44},
+            {"chave": "TARITUBA", "saldo": 50000.0},
+            {"chave": "Luxor Investimentos - Itau CDB-DI", "saldo": 856529.27},
+            {"chave": "Luxor Participação - BTG Fundo Manga", "saldo": 44210.05},
+            {"chave": "Luxor Participação - BTG Tesouro Selic", "saldo": 120334.87},
+            {"chave": "Tarituba - Sicredi CDB-DI", "saldo": 48120.77},
+            {"chave": "Tarituba - Outro Banco", "saldo": 15402.66},
+        ]}
+
+        cls._pw = sync_playwright().start()
+        cls._b = cls._pw.chromium.launch()
+        cls.pg = cls._b.new_page(viewport={"width": 1400, "height": 900})
+        cls.erros = []
+        cls.pg.on("pageerror", lambda e: cls.erros.append(str(e)))
+
+        def rota(route, request):
+            if "/storage/v1/object/" in request.url:
+                return route.fulfill(status=200, content_type="application/json",
+                                     body=json.dumps(FATOS))
+            if "/rest/v1/app_state" in request.url:
+                return route.fulfill(status=200,
+                                     content_type="application/vnd.pgrst.object+json",
+                                     body=json.dumps({"data": estado,
+                                                      "updated_at": "v1"}))
+            return route.continue_()
+
+        cls.pg.route("**/*.supabase.co/**", rota)
+        cls.pg.add_init_script("window.HUB = {email:'fulano@luxor.com.br'};")
+        cls.pg.goto((AQUI / "index.html").as_uri())
+        cls.pg.wait_for_timeout(1500)
+
+        # base64 porque o bridge do Playwright serializa JSON: um Uint8Array volta como
+        # objeto indexado por string e os bytes altos se perdem na volta
+        b64 = cls.pg.evaluate("""() => {
+            const bytes = SB_PAINEL.pdf();
+            let s = '';
+            for (const b of bytes) s += String.fromCharCode(b);
+            return btoa(s);
+        }""")
+        cls.bytes = base64.b64decode(b64)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls._b.close()
+        cls._pw.stop()
+
+    # ---------------- lint da estrutura ----------------
+
+    def test_1_o_botao_existe_no_painel(self):
+        self.assertEqual(self.pg.locator("#btPdf").count(), 1,
+                         "sem o botão, o exportador existe e ninguém alcança")
+        self.assertEqual(self.erros, [])
+
+    def test_2_e_um_pdf(self):
+        self.assertTrue(self.bytes.startswith(b"%PDF-1.4"), self.bytes[:20])
+        self.assertTrue(self.bytes.rstrip().endswith(b"%%EOF"), self.bytes[-20:])
+
+    def test_3_os_offsets_do_xref_apontam_para_os_objetos(self):
+        """Byte a byte. Um offset errado é o defeito que não aparece ao abrir: o leitor
+        reconstrói o índice em silêncio, e só falha em outro leitor — ou na impressora."""
+        b = self.bytes
+        ini = b.rindex(b"startxref")
+        inicio_xref = int(b[ini + 9:].split(b"%%EOF")[0].strip())
+        self.assertEqual(b[inicio_xref:inicio_xref + 4], b"xref",
+                         "startxref não aponta para a tabela xref")
+
+        linhas_x = b[inicio_xref:].split(b"\n")
+        total = int(linhas_x[1].split()[1])
+        for i in range(1, total):
+            campo = linhas_x[1 + i + 1]          # pula "xref", o cabeçalho e o objeto 0
+            desl = int(campo.split()[0])
+            esperado = b"%d 0 obj" % i
+            self.assertEqual(b[desl:desl + len(esperado)], esperado,
+                             f"objeto {i}: o xref aponta para {b[desl:desl+20]!r}")
+
+    def test_4_o_length_de_cada_stream_bate_com_o_conteudo(self):
+        """`/Length` menor corta o desenho no meio; maior faz o leitor ler lixo. Os dois
+        casos abrem sem erro em algum leitor e quebram em outro."""
+        b, i, achou = self.bytes, 0, 0
+        while True:
+            i = b.find(b"<< /Length ", i)
+            if i < 0:
+                break
+            declarado = int(b[i + 11:b.index(b" >>", i)])
+            ini = b.index(b"stream\n", i) + 7
+            fim = b.index(b"\nendstream", ini)
+            self.assertEqual(fim - ini, declarado, "stream com /Length errado")
+            achou += 1
+            i = fim
+        self.assertGreaterEqual(achou, 2, "esperava ao menos uma página e a de sugestões")
+
+    def test_5_o_count_bate_com_as_paginas_reais(self):
+        b = self.bytes
+        declarado = int(b[b.index(b"/Count ") + 7:].split(b" ")[0].split(b">")[0])
+        self.assertEqual(declarado, b.count(b"/Type /Page\n") + b.count(b"/Type /Page "),
+                         "/Count diverge do número de objetos /Page")
+
+    def test_6_nao_ha_utf8_cru(self):
+        """As fontes base-14 são WinAnsi, um byte por caractere. UTF-8 vazando vira dois
+        caracteres estranhos na página — e o teste que olha só o `get_text` não pega,
+        porque o extrator reconstrói."""
+        for trecho in self.bytes.split(b"stream\n")[1:]:
+            corpo = trecho.split(b"\nendstream")[0]
+            self.assertNotIn("ção".encode("utf-8"), corpo,
+                             "texto em UTF-8 dentro do stream")
+
+    def test_7_q_e_Q_balanceados(self):
+        """`q` sem `Q` deixa o clip valendo para o resto da página: o texto seguinte some
+        sem deixar rastro no arquivo."""
+        for trecho in self.bytes.split(b"stream\n")[1:]:
+            corpo = trecho.split(b"\nendstream")[0]
+            self.assertEqual(corpo.count(b" q "), 0, "q solto no meio da linha")
+            abre = sum(1 for l in corpo.split(b"\n") if l.startswith(b"q "))
+            fecha = sum(1 for l in corpo.split(b"\n") if l.endswith(b" Q"))
+            self.assertEqual(abre, fecha, "q e Q desbalanceados")
+
+    # ---------------- conteúdo ----------------
+
+    def _texto(self):
+        try:
+            import fitz
+        except ImportError:
+            raise unittest.SkipTest("PyMuPDF não instalado")
+        doc = fitz.open(stream=self.bytes, filetype="pdf")
+        return doc, [p.get_text() for p in doc]
+
+    def test_8_a_tabela_e_as_sugestoes_em_paginas_separadas(self):
+        """Decisão do Leonardo (30/09/2026): a tabela numa folha e os cards na outra."""
+        doc, paginas = self._texto()
+        self.assertGreaterEqual(doc.page_count, 2)
+        self.assertIn("Total em conta corrente", paginas[-2])
+        self.assertNotIn("Sugestões de Movimentação", paginas[-2],
+                         "as sugestões não podem vazar para a página da tabela")
+        self.assertIn("Sugestões de Movimentação", paginas[-1])
+        self.assertNotIn("Total em conta corrente", paginas[-1])
+
+    def test_9_os_numeros_sao_os_da_tela(self):
+        """O PDF recebe o mesmo `escopo()` da tabela, então o teste é contra o ESTADO do
+        painel — não contra números escritos à mão aqui, que envelheceriam junto."""
+        _, paginas = self._texto()
+        tudo = "\n".join(paginas).replace("\xa0", " ")
+        contas = self.pg.evaluate("() => window.SB_PAINEL.estado().contas")
+
+        def brl(v):
+            return ("-" if v < 0 else "") + "R$ " + f"{abs(v):,.2f}".replace(
+                ",", "@").replace(".", ",").replace("@", ".")
+
+        for c in contas:
+            with self.subTest(conta=c["chave"]):
+                self.assertIn(c["conta"], tudo, "conta ausente do PDF")
+                self.assertIn(brl(c["saldo"]), tudo, "saldo ausente")
+                self.assertIn(brl(c["restante"]), tudo, "saldo restante ausente")
+
+    def test_10_toda_conta_com_acao_vira_um_cartao(self):
+        _, paginas = self._texto()
+        sug = paginas[-1]
+        contas = self.pg.evaluate("() => window.SB_PAINEL.estado().contas")
+        com_acao = [c for c in contas if c.get("acao")]
+        self.assertTrue(com_acao, "pré-condição: o cenário tem movimentação sugerida")
+        for c in com_acao:
+            with self.subTest(conta=c["chave"]):
+                self.assertIn(c["conta"], sug)
+                self.assertIn(c["valor_rotulo"], sug)
+        # a palavra, e não só a cor: pode ser impresso em preto e branco
+        self.assertTrue("RESGATAR" in sug or "APLICAR" in sug)
+
+    def test_11_nao_vaza_undefined_nem_o_lixo_dos_sinais(self):
+        """`—` e `−` não existem em WinAnsi. Passando direto, saem como outro caractere —
+        e um traço que virou outra coisa num relatório de caixa é ruído no lugar errado."""
+        _, paginas = self._texto()
+        tudo = "\n".join(paginas)
+        self.assertNotIn("undefined", tudo)
+        self.assertNotIn("NaN", tudo)
+        self.assertNotIn("└", tudo, "o └ da tela não pode ir para o papel")
+
+    def test_12_a_procedencia_vai_junto(self):
+        """Um PDF circula solto: sem a janela e a ressalva, alguém lê os números daqui a
+        um mês sem saber de quando são nem que não movimentam dinheiro."""
+        _, paginas = self._texto()
+        for i, p in enumerate(paginas):
+            with self.subTest(pagina=i + 1):
+                self.assertIn("Saldo Bancário", p)
+                self.assertIn("09/09/2026 a 16/09/2026", p, "a janela em toda página")
+                self.assertIn("não movimenta dinheiro", p)
 
 
 if __name__ == "__main__":

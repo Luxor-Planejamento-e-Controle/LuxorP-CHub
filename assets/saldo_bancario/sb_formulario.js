@@ -79,38 +79,37 @@ window.SB_FORM = (function () {
   }
 
 
-  /* Entrada prevista que vai no campo.
+  /* A entrada prevista de cada conta NÃO se digita mais aqui. Ela tem duas fontes agora:
    *
-   * Enquanto a semana não foi informada, vem do cadastro — é o caso da provisão fixa do
-   * condomínio, que na planilha era uma linha parada na Base CAR e alguém só empurrava a
-   * data toda quarta. Redigitar um valor que não muda é o trabalho manual que este painel
-   * existe para tirar.
+   *   título a receber    da API do Bimer, com vencimento próprio
+   *   provisão de entrada lançada no editor de provisões, também com data
    *
-   * Depois de informada, vale o que foi digitado — INCLUSIVE vazio. Numa semana em que a
-   * entrada não vai acontecer, limpar o campo tem de significar zero; se o fixo voltasse
-   * sozinho, a projeção contaria dinheiro que ninguém espera. */
-  function entradaPrevista(c) {
-    if (c.semanaInformada) return c.aReceber || null;
-    return c.aReceber || c.aReceberFixo || null;
-  }
-
-  function usaFixo(c) {
-    return !c.semanaInformada && !c.aReceber && !!c.aReceberFixo;
-  }
+   * O campo que existia aqui era um valor por conta e SEM data, e o fluxo dia a dia
+   * precisava chutar onde encaixá-lo — jogava no fim da janela, porque supor que entra
+   * cedo esconderia um negativo no meio da semana. Com data própria, o dia certo aparece.
+   *
+   * A mudança é do Leonardo, 29/09/2026: "as entradas manuais vão sair do formulário e
+   * ficar nas provisões". O que resta aqui é o que só uma pessoa sabe e nenhuma API
+   * informa: o saldo de cada conta e de cada aplicação. */
 
   /* Uma conta e, logo abaixo, as aplicações dela — mesma marca `└` e mesmo recuo que a
    * tabela do painel usa. É o que faz as duas telas serem lidas como uma só. */
   function linhasDaConta(c) {
     var falta = c.saldo === null;
+    var entrada = Number(c.aReceber) || 0;
     var linha =
       '<tr class="conta-cc' + (falta ? ' falta-saldo' : '') + '">' +
         '<td><div class="forn">' + esc(c.conta) + '</div>' +
           '<div class="sub2">' + esc(c.chave) +
             (c.banco ? ' · ' + esc(c.banco) : '') + '</div></td>' +
         '<td class="num nowrap">' + (c.aPagar ? brl(-c.aPagar) : '—') + '</td>' +
+        /* A entrada aparece, mas só de leitura: quem informa o saldo precisa ver o que
+         * já está previsto entrar para conferir o extrato — e precisa ver de onde veio,
+         * senão o jeito de corrigir um número errado fica invisível. */
+        '<td class="num nowrap">' + (entrada ? brl(entrada) : '—') +
+          (entrada ? '<div class="sub2 fixo">' + esc(origemEntrada(c)) + '</div>' : '') +
+        '</td>' +
         '<td>' + campo(c.chave, 'saldo', c.saldo, 'do extrato', true) + '</td>' +
-        '<td>' + campo(c.chave, 'a_receber', entradaPrevista(c), '0,00') +
-          (usaFixo(c) ? '<div class="sub2 fixo">do cadastro</div>' : '') + '</td>' +
       '</tr>';
 
     var invs = (c.investimentos || []).map(function (i) {
@@ -118,12 +117,25 @@ window.SB_FORM = (function () {
       return '<tr class="inv">' +
         '<td><span class="marca">&#x2514;</span>' + esc(i.nome) +
           ' <span class="sub2" style="display:inline;margin:0">· ' + marca + '</span></td>' +
-        '<td></td>' +
+        '<td></td><td></td>' +
         '<td>' + campo(i.nome, 'saldo', i.saldo, 'do extrato') + '</td>' +
-        '<td></td></tr>';
+      '</tr>';
     }).join('');
 
     return linha + invs;
+  }
+
+  /* De onde veio a entrada prevista desta conta, em uma linha.
+   *
+   * Sem isso, a conta do condomínio mostraria R$ 25.000 que não estão em título nenhum e
+   * não foram digitados por ninguém nesta semana — o número certo pelo motivo invisível.
+   * Quem for corrigi-lo precisa saber se mexe no editor de provisões ou no cadastro. */
+  function origemEntrada(c) {
+    var api = Number(c.aReceberApi) || 0;
+    var prov = Number(c.aReceberProvisao) || 0;
+    if (api && prov) return 'títulos do Bimer + provisão';
+    if (prov) return c.usaApiReceber ? 'provisão' : 'provisão (fora da API)';
+    return 'títulos do Bimer';
   }
 
   function html(estado) {
@@ -152,10 +164,11 @@ window.SB_FORM = (function () {
         'saldos agora não tem problema: eles ficam guardados e a projeção se completa ' +
         'quando o robô rodar.'
       : faltam
-      ? '<b>Informe os saldos para ver a projeção.</b> As <b>saídas</b> já vêm da API do ' +
-        'Bimer; o saldo de cada conta e as entradas previstas seguem manuais até haver ' +
-        'API dos bancos. O saldo das aplicações é o que mostra se há dinheiro ' +
-        'disponível para o resgate sugerido.'
+      ? '<b>Informe os saldos para ver a projeção.</b> As <b>saídas</b> e as ' +
+        '<b>entradas</b> já vêm da API do Bimer; só o saldo de cada conta segue manual, ' +
+        'até haver API dos bancos. O saldo das aplicações é o que mostra se há dinheiro ' +
+        'disponível para o resgate sugerido. O que a API não traz — uma entrada ' +
+        'combinada, uma saída ainda não lançada — entra em <b>Editar provisões</b>.'
       : '<b>Editando os saldos desta semana.</b> O que já estava salvo continua valendo ' +
         'até você gravar.';
 
@@ -178,9 +191,9 @@ window.SB_FORM = (function () {
 
         '<div class="tbl-wrap baixa"><table class="data"><thead><tr>' +
           '<th>Conta</th>' +
-          '<th class="num" style="width:160px">Saídas da semana</th>' +
+          '<th class="num" style="width:150px">Saídas da semana</th>' +
+          '<th class="num" style="width:150px">Entradas previstas</th>' +
           '<th style="width:205px">Saldo em conta</th>' +
-          '<th style="width:205px">Entradas previstas</th>' +
         '</tr></thead><tbody>' +
           estado.contas.map(linhasDaConta).join('') +
         '</tbody></table></div>' +
@@ -249,7 +262,7 @@ window.SB_FORM = (function () {
       por[k][el.getAttribute('data-campo')] = numero(el.value);
     });
     return Object.keys(por).map(function (k) { return por[k]; })
-      .filter(function (e) { return e.saldo !== null || e.a_receber !== null; });
+      .filter(function (e) { return e.saldo !== null; });
   }
 
   return { html: html, coletar: coletar, ligar: ligar,

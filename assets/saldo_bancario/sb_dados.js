@@ -389,6 +389,13 @@ var SB_DADOS = (function () {
           }),
           a_pagar: -(c.aPagar || 0),
           a_receber: c.aReceber || 0,
+          /* A entrada quebrada por fonte. A tabela mostra um total só, e um total só
+           * não diz o que fazer quando ele está errado: título do Bimer se corrige no
+           * Bimer, provisão no editor, e a entrada fixa do condomínio no cadastro da
+           * conta — três lugares diferentes para o mesmo número. */
+          a_receber_api: c.aReceberApi || 0,
+          a_receber_provisao: c.aReceberProvisao || 0,
+          usa_api_receber: c.usaApiReceber !== false,
           restante: c.restante,
           colchao: c.colchao,
           acao: c.acao,
@@ -424,19 +431,25 @@ var SB_DADOS = (function () {
           bruto: t.bruto,      // o título como o ETL publicou — a base da comparação
           id: 't' + i
         });
-      }).concat((estado.provisoes || []).map(function (pr, i) {
-        return {
-          id: 'p' + i,
-          chave: pr.chave,
-          conta: pr.chave,
-          fornecedor: pr.descricao || '',
-          titulo: '',                       // vazio: é a marca de provisão, como na planilha
-          emissao: null,
-          vencimento: pr.vencimento,
-          valor: -(Number(pr.valor) || 0),
-          provisao: true
-        };
-      })),
+      /* SÓ as de saída. As provisões de entrada moram na mesma lista gravada — é o
+       * `tipo` que as separa — e sem este filtro elas entravam aqui como título a pagar
+       * ao mesmo tempo em que somavam no a receber: o mesmo valor saindo e entrando,
+       * com o total da conta certo por acidente e a aba de títulos mentindo. */
+      }).concat((estado.provisoes || [])
+        .filter(function (pr) { return pr.tipo !== 'entrada'; })
+        .map(function (pr, i) {
+          return {
+            id: 'p' + i,
+            chave: pr.chave,
+            conta: pr.chave,
+            fornecedor: pr.descricao || '',
+            titulo: '',                     // vazio: é a marca de provisão, como na planilha
+            emissao: null,
+            vencimento: pr.vencimento,
+            valor: -(Number(pr.valor) || 0),
+            provisao: true
+          };
+        })),
 
       /* As entradas previstas são digitadas por conta e sem data — o formulário pergunta
        * quanto, não quando. O fluxo precisa delas mesmo assim: `tabelaFluxo` exige que o

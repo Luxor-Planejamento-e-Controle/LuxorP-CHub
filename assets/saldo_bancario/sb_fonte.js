@@ -17,17 +17,25 @@
  *
  * Forma do documento em app_state:
  *
- *   { "contas":    [ {chave, conta, banco, colchao, ativa, investimentos, a_receber_fixo} ],
- *     "entradas":  { "2026-09-09": [ {chave, saldo, a_receber, por, em} ] },
- *     "provisoes": { "2026-09-09": [ {chave, descricao, valor, vencimento, por, em} ] } }
+ *   { "contas":    [ {chave, conta, banco, colchao, ativa, investimentos,
+ *                     a_receber_da_api, a_receber_provisao} ],
+ *     "entradas":  { "2026-09-09": [ {chave, saldo, por, em} ] },
+ *     "provisoes": { "2026-09-09": [ {chave, tipo, descricao, valor, vencimento, por, em} ] } }
  *
- * `provisoes` são as saídas que ainda NÃO estão no Bimer — na planilha eram linhas da
- * Base CAP com título vazio. Lista, e não campo da conta: são várias por conta, cada
- * uma com a sua data.
+ * `provisoes` são os lançamentos que ainda NÃO estão no Bimer — na planilha eram linhas
+ * da Base CAP (saída) e da Base CAR (entrada) com título vazio. Lista, e não campo da
+ * conta: são várias por conta, cada uma com a sua data.
+ *
+ * `tipo` é 'saida' ou 'entrada'. Ausente significa SAÍDA — é o que toda provisão gravada
+ * antes desta mudança era, e é o que o painel assume ao ler. Fazer a leitura tolerar a
+ * ausência evita ter de migrar o documento: sem isso, cada provisão já gravada viraria
+ * entrada e o painel projetaria dinheiro entrando onde havia conta a pagar.
  *
  * As entradas são guardadas POR SEMANA (a quarta-feira de referência) porque conferir o
  * que foi projetado semana passada contra o que aconteceu é o uso natural desse dado —
- * sobrescrever perderia isso.
+ * sobrescrever perderia isso. Elas guardam só o SALDO: a entrada prevista saiu do
+ * formulário e virou provisão, para ter data própria em vez de um valor por conta que o
+ * fluxo dia a dia tinha de chutar onde encaixar.
  */
 window.SB_FONTE = (function () {
   'use strict';
@@ -148,7 +156,7 @@ window.SB_FONTE = (function () {
     entradas[semana] = linhas.map(function (l) {
       return {
         chave: l.chave, semana: semana,
-        saldo: l.saldo, a_receber: l.a_receber,
+        saldo: l.saldo,
         por: email, em: agora
       };
     });
@@ -171,16 +179,25 @@ window.SB_FONTE = (function () {
     if (provisoes !== undefined) {
       var provs = estado.provisoes || {};
       provs[semana] = (provisoes || []).map(function (p) {
-        return {
-          chave: p.chave, semana: semana,
-          descricao: p.descricao || '',
-          valor: p.valor, vencimento: p.vencimento,
-          por: email, em: agora
-        };
+        return paraGravar(p, semana, email, agora);
       });
       novo.provisoes = provs;
     }
     await gravar(sb, novo, agora);
+  }
+
+  /* Uma provisão como ela vai para o documento. Função única porque as duas gravações
+   * abaixo escrevem a MESMA lista: quando cada uma montava o objeto por conta própria,
+   * bastava esquecer um campo em uma delas para o mesmo lançamento ser guardado de dois
+   * jeitos — e `tipo` é exatamente o campo que decide se o valor entra ou sai. */
+  function paraGravar(pr, semana, email, agora) {
+    return {
+      chave: pr.chave, semana: semana,
+      tipo: pr.tipo === 'entrada' ? 'entrada' : 'saida',
+      descricao: pr.descricao || '',
+      valor: pr.valor, vencimento: pr.vencimento,
+      por: email, em: agora
+    };
   }
 
   /* Grava SÓ as provisões, preservando os saldos digitados.
@@ -209,12 +226,7 @@ window.SB_FONTE = (function () {
 
     var provs = estado.provisoes || {};
     provs[semana] = (provisoes || []).map(function (pr) {
-      return {
-        chave: pr.chave, semana: semana,
-        descricao: pr.descricao || '',
-        valor: pr.valor, vencimento: pr.vencimento,
-        por: email, em: agora
-      };
+      return paraGravar(pr, semana, email, agora);
     });
 
     var novo = Object.assign({}, estado, { provisoes: provs });
