@@ -864,7 +864,8 @@ function renderInad(el){
   }
   /* "Atualizar agora": roda o ControleInadimplencia na Azure com a base mais recente da
      pasta do Drive e a data de referência dela no datas_referencia.json, e republica.
-     Terminou quando o inadimplencia.html do bucket muda de data. */
+     O robô grava inadimplencia.status.json no fim, deu certo ou não — é por ele que se
+     sabe que terminou e, quando recusa (base sem data de referência), o porquê. */
   const barra=document.createElement('div');
   barra.className='reproc-barra';
   barra.innerHTML=`<button class="btn-ghost" id="btReprocInad" type="button"
@@ -881,14 +882,20 @@ function renderInad(el){
     cliente: () => window.HUB.sb,
     // instância fria da Azure: Drive + controle passam dos 5 min padrão do módulo
     limite: 10*60000,
-    lerCarimbo: async () => {
-      const {data}=await window.HUB.sb.storage.from(window.HUB_BUCKET)
-        .list('', {search:'inadimplencia.html'});
-      const o=(data||[]).find(x=>x.name==='inadimplencia.html');
-      return o ? (o.updated_at||o.created_at) : null;
+    lerCarimbo: async () => { const st=await statusInad(); return st ? st.quando : null; },
+    aoConcluir: async () => {
+      const st=await statusInad();
+      if(st && st.ok===false) throw new Error(st.mensagem || 'o robô recusou o pedido');
+      location.reload();
     },
-    aoConcluir: () => location.reload(),
   });
+}
+async function statusInad(){
+  try{
+    const {data,error}=await window.HUB.sb.storage.from(window.HUB_BUCKET)
+      .download('inadimplencia.status.json');
+    return (error||!data) ? null : JSON.parse(await data.text());
+  }catch(e){ return null; }
 }
 
 /* ---- Vendas HPG (dashboard do LxVendasVsValor re-skin Luxor, via iframe) ----
