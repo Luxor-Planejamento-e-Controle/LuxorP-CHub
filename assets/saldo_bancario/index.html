@@ -157,6 +157,21 @@ select:focus{border-color:var(--orange)}
 /* ---- tabelas ---- */
 .tbl-wrap{overflow:auto;border-radius:var(--r-sm);max-height:calc(100vh - 200px)}
 .tbl-wrap.baixa{max-height:none}
+
+/* O cabeçalho clonado que acompanha a rolagem — ver `cabecalhoFixo()`.
+   z-index 5 fica ABAIXO da .topbar (6), que também é sticky: o cabeçalho desliza por
+   baixo da faixa de contexto em vez de cobri-la.
+   `overflow:hidden` não é só recorte — é o que faz da caixa um scroll container, para o
+   `scrollLeft` espelhar a rolagem lateral e a primeira coluna continuar presa. */
+.thead-fixo{
+  position:fixed;z-index:5;overflow:hidden;
+  box-shadow:0 8px 16px rgba(0,0,0,.34);
+  border-bottom:1px solid var(--line-strong);
+}
+.thead-fixo[hidden]{display:none}
+/* `fixed` aqui e não `auto`: as larguras são escritas coluna a coluna a partir das reais,
+   e com `auto` o navegador as recalcularia pelo conteúdo do clone. */
+.thead-fixo table{border-collapse:collapse;table-layout:fixed}
 table.data{width:100%;border-collapse:collapse;font-size:13px;font-variant-numeric:tabular-nums}
 table.data th{
   text-align:left;padding:9px 13px;background:#0b1f24;color:var(--ink-2);
@@ -696,6 +711,109 @@ function render(){
 
   if(F.titulos) corpoTitulos(tit, rec);
   ligar();
+  cabecalhoFixo();
+}
+
+/* ---------- cabeçalho que acompanha a rolagem, na tabela de Movimentações ----------
+
+   POR QUE NÃO É SÓ `position:sticky`. O `th` JÁ é sticky — e não funciona. O
+   `.tbl-wrap` tem `overflow:auto` por causa da rolagem horizontal (abaixo de ~1300px as
+   8 colunas não cabem), e isso faz dele um SCROLL CONTAINER. O sticky ancora no scroll
+   container mais próximo, e esse não rola na vertical: `.baixa` tira o `max-height` para
+   a tabela crescer com o conteúdo. Então quem rola é o documento, o cabeçalho ancora num
+   contêiner parado e sai da tela junto com o resto. Medido: `th.top` em −105 depois de
+   rolar 600px.
+
+   O QUE FOI TESTADO ANTES DE CHEGAR AQUI, com medição no navegador:
+     overflow-y:clip   não resolve — `clip` também cria scroll container para o sticky
+     overflow:visible  gruda, mas a 1100px a PÁGINA passa a rolar na horizontal
+     max-height no wrap  não resolve: o cabeçalho gruda dentro da tabela, mas rolar a
+                         página leva o card inteiro para cima (medido −216)
+
+   Então o cabeçalho é um CLONE em `position:fixed`, que aparece quando o cabeçalho real
+   passa do topo. Dentro do iframe do hub isso funciona direto: o `.embed` tem altura
+   fixa (`calc(100vh - 63px)`), então o viewport do iframe é a janela de leitura e `fixed`
+   ancora nela. Solto (file://, o teste) vale o mesmo. */
+let limparCabecalhoFixo = null;
+
+function cabecalhoFixo(){
+  if(limparCabecalhoFixo){ limparCabecalhoFixo(); limparCabecalhoFixo = null; }
+
+  const tabela = document.querySelector('table.principal');
+  const wrap   = tabela && tabela.closest('.tbl-wrap');
+  const thead  = tabela && tabela.querySelector('thead');
+  if(!thead || !wrap) return;
+
+  const caixa = document.createElement('div');
+  caixa.className = 'thead-fixo';
+  caixa.hidden = true;
+  const clone = document.createElement('table');
+  clone.className = tabela.className;
+  clone.appendChild(thead.cloneNode(true));
+  caixa.appendChild(clone);
+  document.body.appendChild(caixa);
+
+  /* O clique vai para o `th` REAL. Sem isso o cabeçalho flutuante teria a seta de ordem
+     e o cursor de clique, e não ordenaria nada — pior que não ter cabeçalho. */
+  clone.querySelectorAll('th[data-c]').forEach(th => {
+    th.onclick = () => {
+      const real = tabela.querySelector(
+        `thead th[data-t="${th.dataset.t}"][data-c="${th.dataset.c}"]`);
+      if(real) real.click();
+    };
+  });
+
+  const topbar = document.querySelector('.topbar');
+
+  function posicionar(){
+    const rt = tabela.getBoundingClientRect();
+    const rw = wrap.getBoundingClientRect();
+    const altCab = thead.getBoundingClientRect().height;
+    // abaixo da topbar, que é sticky e continuaria por cima
+    const topo = topbar ? topbar.getBoundingClientRect().bottom : 0;
+
+    /* Aparece só enquanto há tabela para ler: some quando o cabeçalho real ainda está à
+       vista e quando o corpo já passou. O `+ 40` evita o cabeçalho flutuar sobre o
+       rodapé da tabela nos últimos pixels, quando já não resta linha para rotular. */
+    const mostrar = rt.top < topo && rt.bottom > topo + altCab + 40;
+    caixa.hidden = !mostrar;
+    if(!mostrar) return;
+
+    caixa.style.top = topo + 'px';
+    caixa.style.left = rw.left + 'px';
+    caixa.style.width = rw.width + 'px';
+    caixa.style.height = altCab + 'px';
+
+    /* As larguras vêm das colunas REAIS, uma a uma. A tabela é `table-layout:auto` e as
+       colunas são medidas pelo conteúdo; um clone só com o `thead` mediria outra coisa e
+       as colunas sairiam desalinhadas das de baixo — que é o defeito que torna um
+       cabeçalho flutuante pior que nenhum. */
+    const reais = tabela.querySelectorAll('thead th');
+    clone.querySelectorAll('thead th').forEach((th, i) => {
+      if(reais[i]) th.style.width = reais[i].getBoundingClientRect().width + 'px';
+    });
+    clone.style.width = tabela.offsetWidth + 'px';
+
+    /* Espelha a rolagem lateral pelo `scrollLeft` da caixa, e não por margem negativa:
+       assim a primeira coluna, que é `position:sticky` à esquerda, continua presa também
+       no clone — a caixa é o scroll container dele. */
+    caixa.scrollLeft = wrap.scrollLeft;
+  }
+
+  posicionar();
+  /* `passive`: estes handlers só leem e posicionam, nunca chamam preventDefault, e o
+     navegador pode seguir rolando sem esperar por eles. */
+  const opts = { passive: true };
+  window.addEventListener('scroll', posicionar, opts);
+  window.addEventListener('resize', posicionar, opts);
+  wrap.addEventListener('scroll', posicionar, opts);
+
+  limparCabecalhoFixo = () => {
+    window.removeEventListener('scroll', posicionar, opts);
+    window.removeEventListener('resize', posicionar, opts);
+    wrap.removeEventListener('scroll', posicionar, opts);
+    caixa.remove();
+  };
 }
 
 /* De onde saiu a entrada prevista da conta, embaixo do número.
@@ -1263,6 +1381,11 @@ async function carregarEstado(){
 }
 
 function mostrarFormulario(){
+  /* O cabeçalho flutuante vive em `document.body`, e não dentro de `#content`: trocar o
+     conteúdo por aqui NÃO o apaga. Sem esta limpeza ele ficaria pairando sobre o
+     formulário de saldos, rotulando colunas de uma tabela que saiu da tela. */
+  if(limparCabecalhoFixo){ limparCabecalhoFixo(); limparCabecalhoFixo = null; }
+
   const alvo = document.getElementById('content') || document.body;
   alvo.innerHTML = SB_FORM.html(estadoAtual);
   SB_FORM.ligar();                       // máscara de real + contador de "faltam N"
