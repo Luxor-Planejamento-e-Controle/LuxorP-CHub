@@ -1217,6 +1217,166 @@ class TestSaldosGravadosSemFatos(unittest.TestCase):
             'input.sbf[data-campo=saldo][data-chave="LUXOR INVESTIMENTOS"]'))
 
 
+class TestCabecalhoFixo(unittest.TestCase):
+    """O cabeçalho da tabela de Movimentações acompanha a rolagem.
+
+    `position:sticky` sozinho NÃO resolve aqui, e o teste existe para que ninguém o
+    "simplifique" de volta: o `.tbl-wrap` tem `overflow:auto` por causa da rolagem
+    horizontal, o que faz dele um scroll container — e esse não rola na vertical, porque
+    `.baixa` tira o `max-height`. O sticky ancora nele e sai da tela junto com o resto.
+
+    Medido antes da correção: `th.top` em −105 depois de rolar 600px.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        try:
+            from playwright.sync_api import sync_playwright
+        except ImportError:
+            raise unittest.SkipTest("playwright não instalado")
+
+        estado = json.loads(json.dumps(ESTADO_INICIAL))
+        estado["entradas"] = {"2026-09-09": [{"chave": k, "saldo": v} for k, v in [
+            ("LUXOR INVESTIMENTOS", 20000.0), ("LUXOR PARTICIPAÇÃO - BTG", 1204.44),
+            ("TARITUBA", 50000.0), ("Luxor Investimentos - Itau CDB-DI", 856529.27),
+            ("Luxor Participação - BTG Fundo Manga", 44210.05),
+            ("Luxor Participação - BTG Tesouro Selic", 120334.87),
+            ("Tarituba - Sicredi CDB-DI", 48120.77),
+            ("Tarituba - Outro Banco", 15402.66)]]}
+
+        cls._pw = sync_playwright().start()
+        cls._b = cls._pw.chromium.launch()
+        # a altura importa: a página precisa ter o que rolar
+        cls.pg = cls._b.new_page(viewport={"width": 1400, "height": 760})
+        cls.erros = []
+        cls.pg.on("pageerror", lambda e: cls.erros.append(str(e)))
+
+        def rota(route, request):
+            if "/storage/v1/object/" in request.url:
+                return route.fulfill(status=200, content_type="application/json",
+                                     body=json.dumps(FATOS))
+            if "/rest/v1/app_state" in request.url:
+                return route.fulfill(status=200,
+                                     content_type="application/vnd.pgrst.object+json",
+                                     body=json.dumps({"data": estado, "updated_at": "v1"}))
+            return route.continue_()
+
+        cls.pg.route("**/*.supabase.co/**", rota)
+        cls.pg.add_init_script("window.HUB = {email:'fulano@luxor.com.br'};")
+        cls.pg.goto((AQUI / "index.html").as_uri())
+        cls.pg.wait_for_timeout(1500)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls._b.close()
+        cls._pw.stop()
+
+    def rolar(self, px):
+        """`window.scrollTo` NÃO dispara o evento `scroll` sozinho sob automação — sem o
+        disparo o teste mede a caixa nunca reposicionada e acusa falha que não existe."""
+        self.pg.evaluate("""(px) => {
+            window.scrollTo(0, px);
+            window.dispatchEvent(new Event('scroll'));
+        }""", px)
+        self.pg.wait_for_timeout(120)
+
+    def test_1_some_quando_o_cabecalho_real_esta_a_vista(self):
+        """No topo não há o que fixar: duas cópias do mesmo cabeçalho, uma sobre a
+        outra, seria pior que nenhuma."""
+        self.rolar(0)
+        self.assertTrue(self.pg.evaluate(
+            "() => { const c = document.querySelector('.thead-fixo');"
+            "        return !c || c.hidden; }"))
+
+    def test_2_aparece_abaixo_da_topbar_ao_rolar(self):
+        """Abaixo, e não por cima: a `.topbar` também é sticky e carrega a janela da
+        projeção — saber de que semana é o número não pode ser coberto pelo cabeçalho."""
+        self.rolar(600)
+        r = self.pg.evaluate("""() => {
+            const c = document.querySelector('.thead-fixo');
+            const t = document.querySelector('.topbar');
+            return {visivel: !!c && !c.hidden,
+                    top: c ? Math.round(c.getBoundingClientRect().top) : null,
+                    topbarFim: Math.round(t.getBoundingClientRect().bottom)};
+        }""")
+        self.assertTrue(r["visivel"], "o cabeçalho não apareceu ao rolar")
+        self.assertEqual(r["top"], r["topbarFim"],
+                         "encostado na topbar, sem sobrepor e sem folga")
+
+    def test_3_as_colunas_ficam_alinhadas_com_as_de_baixo(self):
+        """O defeito que torna um cabeçalho flutuante PIOR que nenhum.
+
+        A tabela é `table-layout:auto` e mede as colunas pelo conteúdo; um clone só com o
+        `thead` mediria outra coisa, e cada rótulo apontaria para a coluna errada."""
+        self.rolar(600)
+        r = self.pg.evaluate("""() => {
+            const c = document.querySelector('.thead-fixo');
+            const t = document.querySelector('table.principal');
+            const reais = [...t.querySelectorAll('thead th')];
+            const clones = [...c.querySelectorAll('thead th')];
+            return {n: clones.length, nReais: reais.length,
+                    desvio: Math.max(...clones.map((x, i) =>
+                        Math.abs(x.getBoundingClientRect().left
+                                 - reais[i].getBoundingClientRect().left)))};
+        }""")
+        self.assertEqual(r["n"], r["nReais"], "número de colunas diferente")
+        self.assertLess(r["desvio"], 1.5, f"colunas desalinhadas em {r['desvio']}px")
+
+    def test_4_ordenar_pelo_cabecalho_flutuante_funciona(self):
+        """Ele mostra a seta de ordem e o cursor de clique. Se não ordenasse, seria um
+        controle que mente."""
+        self.rolar(600)
+        antes = self.pg.evaluate(
+            "() => [...document.querySelectorAll('table.principal tbody tr.conta-cc "
+            "       .forn')].map(e => e.textContent)")
+        self.pg.evaluate("""() => {
+            const th = [...document.querySelectorAll('.thead-fixo thead th[data-c]')]
+                .find(t => t.dataset.c === 'saldo');
+            th.click();
+        }""")
+        self.pg.wait_for_timeout(400)
+        depois = self.pg.evaluate(
+            "() => [...document.querySelectorAll('table.principal tbody tr.conta-cc "
+            "       .forn')].map(e => e.textContent)")
+        self.assertNotEqual(antes, depois, "clicar no cabeçalho flutuante não ordenou")
+        self.assertEqual(sorted(antes), sorted(depois), "ordenar não pode perder conta")
+
+    def test_5_nao_acumula_uma_caixa_por_render(self):
+        """`render()` roda a cada clique de filtro e de ordem. Sem limpar a anterior,
+        seriam caixas empilhadas, todas capturando clique — e a memória subindo."""
+        for _ in range(4):
+            self.pg.evaluate("() => window.SB_PAINEL.estado()")
+            self.pg.evaluate("""() => {
+                const th = document.querySelector('table.principal thead th[data-c]');
+                th.click();
+            }""")
+            self.pg.wait_for_timeout(250)
+        self.assertEqual(self.pg.locator(".thead-fixo").count(), 1,
+                         "sobrou mais de uma caixa de cabeçalho")
+
+    def test_6_sai_da_tela_ao_abrir_o_formulario(self):
+        """A caixa vive em `document.body`, não em `#content`: trocar o conteúdo não a
+        apaga. Sem a limpeza ela pairaria sobre o formulário de saldos, rotulando colunas
+        de uma tabela que já saiu da tela."""
+        self.rolar(600)
+        self.assertFalse(self.pg.evaluate(
+            "() => document.querySelector('.thead-fixo').hidden"), "pré-condição")
+
+        self.pg.evaluate("() => window.SB_PAINEL.editarSaldos()")
+        self.pg.wait_for_timeout(500)
+        self.assertEqual(self.pg.locator(".thead-fixo").count(), 0,
+                         "o cabeçalho flutuante ficou órfão sobre o formulário")
+
+        # e volta quando a projeção volta
+        self.pg.evaluate("() => document.getElementById('sbfVoltar').click()")
+        self.pg.wait_for_timeout(600)
+        self.rolar(600)
+        self.assertEqual(self.pg.locator(".thead-fixo:not([hidden])").count(), 1)
+
+    def test_7_sem_erro_de_console(self):
+        self.assertEqual(self.erros, [])
+
+
 class TestExportPdf(unittest.TestCase):
     """O PDF da tabela de Movimentações e das Sugestões.
 
