@@ -19,6 +19,7 @@
 // Deploy:
 //   supabase functions deploy reprocessar --project-ref hjducsxcolbspbkpflom
 //   supabase secrets set AZURE_REPROCESSAR_URL=... AZURE_REPROCESSAR_KEY=...
+//   supabase secrets set AZURE_INADIMPLENCIA_URL=... AZURE_INADIMPLENCIA_KEY=...  (pc_inadimplencia)
 
 import { createClient } from 'jsr:@supabase/supabase-js@2'
 
@@ -106,10 +107,16 @@ Deno.serve(async (req: Request) => {
     return json(req, { erro: 'sem acesso a este painel' }, 403)
   }
 
-  const url = Deno.env.get('AZURE_REPROCESSAR_URL')
-  const chave = Deno.env.get('AZURE_REPROCESSAR_KEY')
+  // A inadimplência tem rota própria no luxor-planejamento-functions (pc_inadimplencia):
+  // o reprocessar_painel é do repo Automacoes, de outro dono, e a lista fechada de
+  // painéis mora lá. Chave separada pelo mesmo motivo de antes — vazar uma não abre a
+  // outra. Os demais painéis seguem para o reprocessar_painel.
+  const proprio = painel === 'inadimplencia'
+  const url = Deno.env.get(proprio ? 'AZURE_INADIMPLENCIA_URL' : 'AZURE_REPROCESSAR_URL')
+  const chave = Deno.env.get(proprio ? 'AZURE_INADIMPLENCIA_KEY' : 'AZURE_REPROCESSAR_KEY')
   if (!url || !chave) {
-    return json(req, { erro: 'AZURE_REPROCESSAR_URL/KEY não configurados' }, 500)
+    return json(req, { erro: proprio ? 'AZURE_INADIMPLENCIA_URL/KEY não configurados'
+                                     : 'AZURE_REPROCESSAR_URL/KEY não configurados' }, 500)
   }
 
   let resposta: Response

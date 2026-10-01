@@ -50,6 +50,8 @@ window.HUB_REPROCESSAR = (function () {
    *                    (meta.gerado_em num, gerado_em na raiz no outro) — e porque assim
    *                    este módulo não precisa saber o nome do arquivo no bucket.
    *   aoConcluir()  -> redesenha a tela com o dado novo.
+   *   limite        -> ms de espera antes de desistir (padrão LIMITE); o painel que
+   *                    demora mais (inadimplência, ~instância fria) passa o seu.
    */
   function ligar(opcoes) {
     var botao = opcoes.botao;
@@ -110,7 +112,7 @@ window.HUB_REPROCESSAR = (function () {
 
         dizer('pedido enviado, aguardando o robô…');
 
-        var limite = Date.now() + LIMITE;
+        var limite = Date.now() + (opcoes.limite || LIMITE);
         while (Date.now() < limite) {
           await esperar(INTERVALO);
           var agora = await opcoes.lerCarimbo();

@@ -862,9 +862,33 @@ function renderInad(el){
     el.innerHTML=`<iframe class="embed" src="assets/inadimplencia/dashboard.html" title="Dashboard de Inadimplência"></iframe>`;
     return;
   }
+  /* "Atualizar agora": roda o ControleInadimplencia na Azure com a base mais recente da
+     pasta do Drive e a data de referência dela no datas_referencia.json, e republica.
+     Terminou quando o inadimplencia.html do bucket muda de data. */
+  const barra=document.createElement('div');
+  barra.className='reproc-barra';
+  barra.innerHTML=`<button class="btn-ghost" id="btReprocInad" type="button"
+    title="Roda o controle de novo com a base mais recente da pasta e republica">Atualizar agora</button>
+    <span class="sub" id="reprocInadStatus"></span>`;
+  el.appendChild(barra);
   const f=document.createElement('iframe');
   f.className='embed'; f.title='Dashboard de Inadimplência'; f.srcdoc=html;
   el.appendChild(f);
+  if(window.HUB_REPROCESSAR) HUB_REPROCESSAR.ligar({
+    painel: 'inadimplencia',
+    botao:  document.getElementById('btReprocInad'),
+    status: document.getElementById('reprocInadStatus'),
+    cliente: () => window.HUB.sb,
+    // instância fria da Azure: Drive + controle passam dos 5 min padrão do módulo
+    limite: 10*60000,
+    lerCarimbo: async () => {
+      const {data}=await window.HUB.sb.storage.from(window.HUB_BUCKET)
+        .list('', {search:'inadimplencia.html'});
+      const o=(data||[]).find(x=>x.name==='inadimplencia.html');
+      return o ? (o.updated_at||o.created_at) : null;
+    },
+    aoConcluir: () => location.reload(),
+  });
 }
 
 /* ---- Vendas HPG (dashboard do LxVendasVsValor re-skin Luxor, via iframe) ----
