@@ -50,15 +50,21 @@ window.HUB_REPROCESSAR = (function () {
    *                    (meta.gerado_em num, gerado_em na raiz no outro) — e porque assim
    *                    este módulo não precisa saber o nome do arquivo no bucket.
    *   aoConcluir()  -> redesenha a tela com o dado novo. Pode devolver
-   *                    {texto, erro} para a mensagem final (o card do Trello diz qual
-   *                    card saiu, ou por que não saiu); sem isso, "atualizado agora."
+   *                    {texto, erro, link} para a mensagem final (o card do Trello diz
+   *                    qual card saiu, ou por que não saiu); sem isso, "atualizado
+   *                    agora.". Lançar erro também vale: vira "não foi possível
+   *                    atualizar: <mensagem>" (é o que a inadimplência faz).
    *
-   * Opcionais — usados pelo botão do Trello do Tarituba, que é uma AÇÃO do painel e
-   * não uma republicação (a Edge Function repassa, o Azure confere numa lista fechada):
+   * Opcionais:
    *
-   *   corpo()       -> campos a mais no pedido, lidos NA HORA do clique ({acao, mes}).
-   *   limite        -> ms até desistir de esperar. O Tarituba leva ~11 min para se
-   *                    republicar (a API do Bimer não filtra o A Receber por empresa).
+   *   limite        -> ms de espera antes de desistir (padrão LIMITE); o painel que
+   *                    demora mais passa o seu — inadimplência (~instância fria) e
+   *                    Tarituba (~11 min: a API do Bimer não filtra o A Receber por
+   *                    empresa).
+   *   corpo()       -> campos a mais no pedido, lidos NA HORA do clique. É o botão do
+   *                    Trello do Tarituba ({acao, mes}): uma AÇÃO do painel, não uma
+   *                    republicação — a Edge Function repassa, o Azure confere numa
+   *                    lista fechada.
    *   rotulo        -> texto do botão enquanto roda ("atualizando…" por padrão).
    *   aguardando    -> texto do status enquanto espera o robô.
    */

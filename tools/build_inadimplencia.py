@@ -6,12 +6,16 @@ pontuais (status-bar, tags, desconto) e trocamos Chart.js CDN por vendor local.
 Saída: assets/inadimplencia/dashboard.html (gitignored — contém PII).
 Uso: python tools/build_inadimplencia.py
 """
+import os
 import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-# Fonte = repo local do controle-de-inadimplencia (fonte da verdade).
-SRC = Path(r"C:/Users/Arthur/repos/controle-de-inadimplencia/output_pbi/dashboard_conferencia.html")
+# Fonte = repo local do controle-de-inadimplencia (fonte da verdade). Na Azure (botão
+# "Atualizar agora" do painel) o executor gera o HTML numa pasta própria e aponta
+# INADIMPLENCIA_DASH_SRC para ele.
+SRC = Path(os.getenv("INADIMPLENCIA_DASH_SRC") or
+           r"C:/Users/Arthur/repos/controle-de-inadimplencia/output_pbi/dashboard_conferencia.html")
 OUTDIR = ROOT / "assets" / "inadimplencia"
 OUTDIR.mkdir(parents=True, exist_ok=True)
 OUT = OUTDIR / "dashboard.html"

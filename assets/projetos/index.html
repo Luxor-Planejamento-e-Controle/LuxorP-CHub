@@ -301,7 +301,7 @@
       <h1 class="brand-title">Planejamento <em>&amp;</em> Controle</h1>
       <p class="brand-sub">Portfólio de projetos de automação e IA — adicione, edite e acompanhe por responsável, área, estágio, complexidade e prioridade.</p>
     </div>
-    <dl class="kpis" id="kpis" aria-label="Resumo por estágio (clique para filtrar)"></dl>
+    <dl class="kpis" id="kpis" aria-label="Resumo por estágio. Use Ctrl+clique para selecionar mais de um estágio."></dl>
   </div>
 </header>
 
@@ -331,7 +331,7 @@
   </nav>
 
   <div class="controls" id="controls">
-    <div class="chips" id="owner-chips" role="group" aria-label="Filtrar por responsável"></div>
+    <div class="chips" id="owner-chips" role="group" aria-label="Filtrar por responsável. Use Ctrl+clique para selecionar mais de um responsável."></div>
     <div class="filters-right">
       <label class="field">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 6h18M6 12h12M10 18h4"></path></svg>
@@ -515,7 +515,17 @@ Reduzir atividades manuais"></textarea>
   var PRIO = { nd: "—", baixa: "Baixa", media: "Média", alta: "Alta" };
 
   var SEED = JSON.parse(document.getElementById("seed-data").textContent);
-  var state = { projects: load(), owner: "todos", status: "todos", area: "todas", q: "", view: "cards", editingId: null };
+  var state = { projects: load(), owners: [], statuses: [], area: "todas", q: "", view: "cards", editingId: null };
+
+  function chooseFilterValues(selected, value, event, clearsOnRepeatedClick) {
+    if (value === "todos") return [];
+    if (!(event.ctrlKey || event.metaKey)) {
+      if (clearsOnRepeatedClick && selected.length === 1 && selected[0] === value) return [];
+      return [value];
+    }
+    var index = selected.indexOf(value);
+    return index === -1 ? selected.concat([value]) : selected.filter(function (selectedValue) { return selectedValue !== value; });
+  }
 
   function dedupe(arr) { var seen = {}; arr.forEach(function (p, i) { if (seen[p.id]) p.id = "p" + (1000 + i); seen[p.id] = 1; }); return arr; }
   function _fields(p) { p = normalize(p); return JSON.stringify([p.title, p.area, p.status, p.complexidade, p.prioridade, p.desc, p.points.join("|"), p.note, p.owner.join(",")]); }
@@ -611,7 +621,8 @@ Reduzir atividades manuais"></textarea>
       var btn = document.createElement("button");
       btn.className = "kpi " + k.cls; btn.type = "button"; btn.dataset.status = k.status || "todos";
       btn.innerHTML = '<span class="kpi-num" data-role="num">0</span><span class="kpi-label">' + (k.status ? '<span class="kpi-dot"></span>' : "") + k.label + "</span>";
-      btn.addEventListener("click", function () { var s = k.status || "todos"; state.status = (state.status === s && k.status) ? "todos" : s; render(); });
+      btn.title = k.status ? "Ctrl+clique para combinar estágios" : "Limpar filtro de estágio";
+      btn.addEventListener("click", function (event) { state.statuses = chooseFilterValues(state.statuses, k.status || "todos", event, true); render(); });
       kpisEl.appendChild(btn);
     });
   }
@@ -621,7 +632,7 @@ Reduzir atividades manuais"></textarea>
     Array.prototype.forEach.call(kpisEl.children, function (btn) {
       var st = btn.dataset.status;
       btn.querySelector('[data-role="num"]').textContent = st === "todos" ? state.projects.length : (c[st] || 0);
-      btn.setAttribute("aria-pressed", st === state.status ? "true" : "false");
+      btn.setAttribute("aria-pressed", st === "todos" ? (state.statuses.length === 0 ? "true" : "false") : (state.statuses.indexOf(st) !== -1 ? "true" : "false"));
     });
   }
 
@@ -639,7 +650,8 @@ Reduzir atividades manuais"></textarea>
     defs.forEach(function (o) {
       var b = document.createElement("button"); b.className = "chip"; b.type = "button"; b.dataset.owner = o.key;
       b.innerHTML = o.label + ' <span class="cnt" data-role="cnt">0</span>';
-      b.addEventListener("click", function () { state.owner = o.key; render(); });
+      b.title = o.key === "todos" ? "Limpar filtro de responsável" : "Ctrl+clique para combinar responsáveis";
+      b.addEventListener("click", function (event) { state.owners = chooseFilterValues(state.owners, o.key, event, false); render(); });
       ownerChipsEl.appendChild(b);
     });
   }
@@ -647,7 +659,7 @@ Reduzir atividades manuais"></textarea>
     Array.prototype.forEach.call(ownerChipsEl.children, function (b) {
       var key = b.dataset.owner;
       b.querySelector('[data-role="cnt"]').textContent = ownerCount(key);
-      b.setAttribute("aria-pressed", key === state.owner ? "true" : "false");
+      b.setAttribute("aria-pressed", key === "todos" ? (state.owners.length === 0 ? "true" : "false") : (state.owners.indexOf(key) !== -1 ? "true" : "false"));
     });
   }
 
@@ -685,9 +697,10 @@ Reduzir atividades manuais"></textarea>
   searchEl.addEventListener("input", function () { state.q = searchEl.value.trim().toLowerCase(); render(); });
 
   function matches(p) {
-    if (state.status !== "todos" && p.status !== state.status) return false;
-    if (state.owner === "ambos" && p.owner.length < 2) return false;
-    if (state.owner !== "todos" && state.owner !== "ambos" && p.owner.indexOf(state.owner) === -1) return false;
+    if (state.statuses.length && state.statuses.indexOf(p.status) === -1) return false;
+    if (state.owners.length && !state.owners.some(function (owner) {
+      return owner === "ambos" ? p.owner.length > 1 : p.owner.indexOf(owner) !== -1;
+    })) return false;
     if (state.area !== "todas" && p.area !== state.area) return false;
     if (state.q) { var h = (p.title + " " + p.desc + " " + p.points.join(" ") + " " + p.note + " " + p.area).toLowerCase(); if (h.indexOf(state.q) === -1) return false; }
     return true;
@@ -932,7 +945,7 @@ Reduzir atividades manuais"></textarea>
   modal.addEventListener("cancel", function (e) { e.preventDefault(); closeModal(); });
   byId("btn-new").addEventListener("click", function () { openModal(null); });
   byId("btn-clear").addEventListener("click", function () {
-    state.owner = "todos"; state.status = "todos"; state.area = "todas"; state.q = "";
+    state.owners = []; state.statuses = []; state.area = "todas"; state.q = "";
     searchEl.value = ""; areaSel.value = "todas"; render();
   });
 
@@ -970,7 +983,7 @@ Reduzir atividades manuais"></textarea>
   });
   byId("btn-reset").addEventListener("click", function () {
     if (!confirm("Recarregar a lista do servidor? Descarta mudanças não salvas neste navegador.")) return;
-    state.owner = "todos"; state.status = "todos"; state.area = "todas"; state.q = ""; searchEl.value = "";
+    state.owners = []; state.statuses = []; state.area = "todas"; state.q = ""; searchEl.value = "";
     bootData(); toast("Recarregado do servidor");
   });
 
