@@ -76,6 +76,7 @@ class Estado:
         self.card = None            # tarituba.card.json
         self.pedidos = []           # corpos enviados à Edge Function
         self.card_depois = None     # o que o card.json passa a ser depois do pedido
+        self.painel_depois = None   # o que o tarituba.json passa a ser depois do "Atualizar agora"
 
 
 def _abrir(cls, estado, pagina="simples"):
@@ -95,9 +96,12 @@ def _abrir(cls, estado, pagina="simples"):
             if request.method == "OPTIONS":
                 return route.fulfill(status=200, headers={"Access-Control-Allow-Origin": "*",
                                                           "Access-Control-Allow-Headers": "*"})
-            estado.pedidos.append(json.loads(request.post_data or "{}"))
-            if estado.card_depois is not None:
+            corpo = json.loads(request.post_data or "{}")
+            estado.pedidos.append(corpo)
+            if "acao" in corpo and estado.card_depois is not None:
                 estado.card = estado.card_depois
+            if "acao" not in corpo and estado.painel_depois is not None:
+                estado.painel = estado.painel_depois
             return route.fulfill(status=202, content_type="application/json",
                                  headers={"Access-Control-Allow-Origin": "*"},
                                  body=json.dumps({"aceito": True}))
@@ -204,6 +208,25 @@ class TestPainelTarituba(unittest.TestCase):
         pg.wait_for_timeout(1500)
         self.assertEqual(est.pedidos, [{"painel": "tarituba"}])
         self.assertIn("10 minutos", pg.text_content("#reproc-status"))
+        pg.close()
+
+    def test_8_primeira_publicacao_pela_tela(self):
+        """Painel NUNCA publicado: o "Atualizar agora" tem de funcionar mesmo assim — é ele
+        que faz a primeira publicação. Bug do primeiro uso (02/10/2026): o botão só era
+        ligado depois do dado carregar, então aparecia e não fazia nada."""
+        est = Estado(painel=False)
+        est.painel_depois = _payload()
+        pg, erros = _abrir(self, est, pagina="resumo")
+        antes = pg.text_content("#view")   # a página recarrega depois do clique
+        pg.click("#btn-atualizar")
+        pg.wait_for_timeout(9000)   # 5s até reler o carimbo + recarregar a página
+        # a primeira a falhar no código antigo: o clique não mandava pedido nenhum
+        self.assertEqual(est.pedidos, [{"painel": "tarituba"}])
+        self.assertIn("2026", pg.text_content("#sub"))
+        self.assertNotIn("Painel indisponível", pg.text_content("#view"))
+        self.assertIn("Painel indisponível", antes)
+        self.assertIn("Atualizar agora", antes)   # a mensagem aponta para o botão
+        self.assertEqual(erros, [])
         pg.close()
 
     def test_7_botao_do_card_nao_vai_para_o_pdf(self):
