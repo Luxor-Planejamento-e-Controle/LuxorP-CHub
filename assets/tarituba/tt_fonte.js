@@ -127,16 +127,21 @@ window.TARITUBA_HUB = (function () {
     if (location.protocol === 'file:') {
       try { await script('../data/tarituba.js'); } catch (e) { /* cai no bucket abaixo */ }
     }
+    /* ANTES de baixar o dado, de propósito: é este botão que faz a PRIMEIRA publicação.
+     * Ligado só depois do dado, ele aparecia na tela de "Painel indisponível" e não fazia
+     * nada — o painel nunca publicado não tinha como se publicar pela tela (achado no
+     * primeiro uso, 02/10/2026). O carimbo de antes é null, e qualquer publicação o muda. */
+    ligarAtualizar();
     if (!window.TARITUBA_DATA) {
       try {
         window.TARITUBA_DATA = await baixar(ARQ);
       } catch (e) {
         mostrarErro('O painel ainda não foi publicado no hub, ou você não tem acesso a ele (' +
-                    e.message + '). A publicação roda toda segunda às 9h.');
+                    e.message + '). Ele é publicado toda segunda às 9h — ou agora, pelo ' +
+                    '"Atualizar agora" acima (uns 10 minutos).');
         return;
       }
     }
-    ligarAtualizar();
     await script('app.js');
   }
 
