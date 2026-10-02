@@ -49,9 +49,24 @@ window.HUB_REPROCESSAR = (function () {
    *                    O painel implementa porque cada um guarda isso num lugar
    *                    (meta.gerado_em num, gerado_em na raiz no outro) — e porque assim
    *                    este módulo não precisa saber o nome do arquivo no bucket.
-   *   aoConcluir()  -> redesenha a tela com o dado novo.
+   *   aoConcluir()  -> redesenha a tela com o dado novo. Pode devolver
+   *                    {texto, erro, link} para a mensagem final (o card do Trello diz
+   *                    qual card saiu, ou por que não saiu); sem isso, "atualizado
+   *                    agora.". Lançar erro também vale: vira "não foi possível
+   *                    atualizar: <mensagem>" (é o que a inadimplência faz).
+   *
+   * Opcionais:
+   *
    *   limite        -> ms de espera antes de desistir (padrão LIMITE); o painel que
-   *                    demora mais (inadimplência, ~instância fria) passa o seu.
+   *                    demora mais passa o seu — inadimplência (~instância fria) e
+   *                    Tarituba (~11 min: a API do Bimer não filtra o A Receber por
+   *                    empresa).
+   *   corpo()       -> campos a mais no pedido, lidos NA HORA do clique. É o botão do
+   *                    Trello do Tarituba ({acao, mes}): uma AÇÃO do painel, não uma
+   *                    republicação — a Edge Function repassa, o Azure confere numa
+   *                    lista fechada.
+   *   rotulo        -> texto do botão enquanto roda ("atualizando…" por padrão).
+   *   aguardando    -> texto do status enquanto espera o robô.
    */
   function ligar(opcoes) {
     var botao = opcoes.botao;
@@ -77,6 +92,20 @@ window.HUB_REPROCESSAR = (function () {
       el.classList.toggle('erro', !!erro);
     }
 
+    /* Por DOM e não por innerHTML: o link vem de um arquivo do bucket, e o painel não
+     * deve interpretar HTML vindo de lá. Só https — `javascript:` num href é execução. */
+    function anexarLink(url, rotuloLink) {
+      var el = statusId && document.getElementById(statusId);
+      if (!el || !/^https:\/\//.test(String(url))) return;
+      var a = document.createElement('a');
+      a.href = url;
+      a.target = '_blank';
+      a.rel = 'noopener';
+      a.textContent = rotuloLink || url;
+      el.appendChild(document.createTextNode(' '));
+      el.appendChild(a);
+    }
+
     botao.addEventListener('click', async function () {
       /* Uma vez por vez NESTA aba. Não impede duas pessoas de pedirem ao mesmo tempo —
        * e não precisa: o segundo pedido republica o mesmo resultado. Bloquear de verdade
@@ -86,15 +115,15 @@ window.HUB_REPROCESSAR = (function () {
 
       var rotulo = botao.textContent;
       botao.disabled = true;
-      botao.textContent = 'atualizando…';
+      botao.textContent = opcoes.rotulo || 'atualizando…';
       dizer('');
 
       try {
         var antes = await opcoes.lerCarimbo();
 
-        var r = await cliente(opcoes).functions.invoke('reprocessar', {
-          body: { painel: opcoes.painel }
-        });
+        var corpo = Object.assign({}, opcoes.corpo ? opcoes.corpo() : {},
+                                  { painel: opcoes.painel });
+        var r = await cliente(opcoes).functions.invoke('reprocessar', { body: corpo });
         if (r.error) {
           /* A mensagem útil (sem acesso, painel desconhecido, Azure fora) vem no CORPO da
            * resposta de erro; r.error.message sozinho diz só "non-2xx status code". */
@@ -110,17 +139,19 @@ window.HUB_REPROCESSAR = (function () {
           throw new Error(detalhe || r.error.message);
         }
 
-        dizer('pedido enviado, aguardando o robô…');
+        dizer(opcoes.aguardando || 'pedido enviado, aguardando o robô…');
 
         var limite = Date.now() + (opcoes.limite || LIMITE);
         while (Date.now() < limite) {
           await esperar(INTERVALO);
           var agora = await opcoes.lerCarimbo();
           if (agora && agora !== antes) {
-            await opcoes.aoConcluir();
+            var fim = await opcoes.aoConcluir();
             /* Depois de redesenhar, não antes: o render recria o elemento de status, e
                escrever no de antes deixaria a confirmação invisível. */
-            dizer('atualizado agora.');
+            if (fim && fim.texto) dizer(fim.texto, !!fim.erro);
+            else dizer('atualizado agora.');
+            if (fim && fim.link) anexarLink(fim.link, fim.rotuloLink);
             return;
           }
         }

@@ -76,9 +76,20 @@ Deno.serve(async (req: Request) => {
     return json(req, { erro: 'não autenticado' }, 401)
   }
 
+  // `acao` e `mes` são opcionais: o botão do Trello do Tarituba é uma AÇÃO do painel, não
+  // uma republicação. Passam adiante sem interpretação — quem decide o que vale é a lista
+  // fechada do Azure (shared_reprocessar.jobs.ACOES), e o acesso continua sendo o
+  // hub_can() do PAINEL: quem vê o painel pode disparar a ação dele, e nenhuma outra.
   let painel = ''
+  let acao: string | undefined
+  let mes: number | string | undefined
   try {
-    painel = String(((await req.json()) ?? {}).painel ?? '').trim()
+    const corpo = (await req.json()) ?? {}
+    painel = String(corpo.painel ?? '').trim()
+    if (corpo.acao != null) acao = String(corpo.acao).slice(0, 40)
+    if (typeof corpo.mes === 'number' || typeof corpo.mes === 'string') {
+      mes = String(corpo.mes).slice(0, 4)
+    }
   } catch {
     return json(req, { erro: 'corpo inválido' }, 400)
   }
@@ -124,7 +135,7 @@ Deno.serve(async (req: Request) => {
     resposta = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-functions-key': chave },
-      body: JSON.stringify({ painel, pedido_por: usuario.user.email }),
+      body: JSON.stringify({ painel, acao, mes, pedido_por: usuario.user.email }),
       signal: AbortSignal.timeout(20_000),
     })
   } catch (e) {
@@ -145,6 +156,7 @@ Deno.serve(async (req: Request) => {
   return json(req, {
     aceito: true,
     painel,
+    acao,
     pedido_por: usuario.user.email,
     azure: detalhe,
   }, 202)

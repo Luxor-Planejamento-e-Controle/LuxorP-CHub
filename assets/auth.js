@@ -26,6 +26,8 @@ const HUB_DATASETS = {
   // o painel baixa o snapshot do bucket por conta própria, dentro do iframe,
   // porque precisa recarregar depois de gravar o formulário
   saldo_bancario: null, controle_pagamentos: null,
+  // idem: relê o snapshot depois do "Atualizar agora" e o status do card do Trello
+  tarituba: null,
 };
 
 /* Erro devolvido pelo GoTrue vem na URL (hash no fluxo implícito, query no PKCE)

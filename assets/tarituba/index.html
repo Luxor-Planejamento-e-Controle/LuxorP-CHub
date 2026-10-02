@@ -1,0 +1,628 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Fluxo de Caixa — Tarituba · Luxor P&amp;C</title>
+<!-- Mesma página do painel local do repo Automacoes (Fluxo de Caixa Tarituba/dashboard),
+     com três diferenças só desta cópia: fontes/tema/logo/ECharts vêm do próprio hub
+     (../), o dado vem do bucket (tt_fonte.js) em vez de dados/fluxo_tarituba.js, e há os
+     botões "Atualizar agora" e "Criar card no Trello". O app.js é o MESMO arquivo nos
+     dois lugares — mudou lá, copia aqui inteiro. -->
+<link rel="stylesheet" href="../fonts.css">
+<link rel="stylesheet" href="../theme.css">
+<style>
+/* status dos botões: o reprocessar.js liga `.erro` quando o pedido falha */
+#reproc-status,#card-status{font-size:11.5px;color:var(--ink-2)}
+#reproc-status.erro,#card-status.erro{color:var(--neg)}
+#card-status a{color:var(--orange)}
+/* ── específico deste painel; o resto vem do theme.css do Hub P&C ── */
+:root{ --largura-max:1720px; }
+/* sem sidebar: no hub ela é a casca e pode ficar recolhida (.app.collapsed no
+   theme.css). Aqui só tiraria largura da tabela mensal. */
+.app.semlateral{grid-template-columns:1fr}
+.content{max-width:var(--largura-max);margin-inline:auto}
+.topbar-inner{display:flex;align-items:center;gap:16px;width:100%;
+  max-width:var(--largura-max);margin-inline:auto}
+.topbar{display:block}
+.rodape-proc{max-width:var(--largura-max);margin:26px auto 0;padding-top:14px;
+  border-top:1px solid var(--line);font-size:11px;color:var(--ink-3)}
+.tag-draft{background:var(--surface-2);color:var(--ink-2);border:1px dashed var(--line-strong);
+  font-size:10px;letter-spacing:.14em;text-transform:uppercase;padding:3px 8px;border-radius:6px}
+.dot{width:8px;height:8px;border-radius:50%;flex:0 0 auto;display:inline-block}
+.kpi .sub{font-size:11px;color:var(--ink-3);margin-top:3px}
+.kpi .delta .arrow{font-size:10px;margin-right:2px}
+
+/* ── TOPO DO RESUMO: gráfico + KPIs lado a lado ──
+   Medido num laptop (viewport 1422×748): empilhados, gráfico e KPIs punham o
+   topo da tabela em 765px — abaixo da dobra, então a tela de abertura não
+   mostrava número nenhum do fluxo. Lado a lado, a tabela sobe para dentro da
+   primeira tela e o gráfico ganha proporção melhor (800×260 em vez de
+   1300×330, que é uma faixa achatada demais para barras).
+   A coluna dos KPIs tem mínimo de 300px: abaixo disso "R$ 999.999,99" quebra. */
+.topo-resumo{display:grid;gap:16px;margin-bottom:16px;
+  grid-template-columns:minmax(0,1.65fr) minmax(300px,1fr);align-items:stretch}
+/* espaço entre "O fluxo, mês a mês" e "Saldo final e confronto" (pedido do
+   Leonardo, 28/09) — a divisão em duas tabelas foi pedido da chefe em 24/09,
+   mas `.card` do hub não tem margem própria: medido, os dois cards ficavam
+   a 0px um do outro, encostados. Mesmo valor de `.topo-resumo` acima, pela
+   mesma régua de espaçamento da página. Escopo em `#b-pag` (não `.card`
+   genérico) para não mexer noutra página que algum dia empilhe cards. */
+#b-pag > .card + .card{margin-top:16px}
+.grid-kpi{display:grid;gap:16px;grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr}
+/* os KPIs esticam para acompanhar a altura do gráfico; sem isto o conteúdo fica
+   grudado no topo com um vão embaixo, o que faz o card parecer inacabado */
+.grid-kpi .kpi{display:flex;flex-direction:column;justify-content:center}
+.card-grafico{display:flex;flex-direction:column}
+.card-grafico>div[id^="g-"]{flex:1;min-height:230px}
+/* telas estreitas: volta a empilhar, senão o gráfico fica ilegível e os KPIs
+   espremem. 1150px é onde a coluna do gráfico cai abaixo de ~680px. */
+@media (max-width:1150px){
+  .topo-resumo{grid-template-columns:1fr}
+  .card-grafico>div[id^="g-"]{min-height:280px}
+}
+
+/* ── CORES DE SINAL ──
+   O theme.css tem `table.data td{color:var(--ink)}`, que é (0,1,2) e vence o
+   `.neg`/`.pos` do próprio tema, que é (0,1,0) — foi a armadilha que fez as
+   cores da tabela do Haras nunca funcionarem. Estes seletores são (0,3,2).
+
+   Os tons também não são os crus: contra os fundos desta tabela os tokens
+   reprovam 4,5:1 para texto de 12px. Estes são a mesma família, um passo mais
+   claros, medidos no painel do Haras: vermelho 5,82 / 6,95 / 5,06 e verde
+   6,01 / 7,17 / 5,22. */
+:root{--var-neg:#F5A08F; --var-pos:#6FCB93}
+table.data.fluxo td.neg,table.data.nat td.neg{color:var(--var-neg)}
+table.data.fluxo td.pos,table.data.nat td.pos{color:var(--var-pos)}
+.hint b.neg{color:var(--var-neg)}
+.hint b.pos{color:var(--var-pos)}
+
+/* tabelas largas: o theme.css usa table-layout:fixed com largura só nas 2
+   primeiras colunas, o que esmaga as últimas e quebra texto em 3 linhas. */
+table.data.wide{table-layout:auto}
+table.data.wide th,table.data.wide td{white-space:nowrap}
+table.data td.l,table.data th.l{text-align:left}
+.tbl-wrap{overflow-x:auto}
+
+/* ── TABELA DO FLUXO (a estrutura da aba Resumo) ── */
+table.data.fluxo th,table.data.fluxo td{padding:7px 10px;font-size:12px}
+table.data.fluxo td.l{text-align:left;min-width:210px}
+table.data.fluxo tbody td:not(.l),table.data.fluxo thead th:not(.l){width:92px;min-width:92px}
+/* ═══ COLUNAS DE ORÇADO × REALIZADO ═══
+   Distinção por FUNDO, nunca por cor de texto: o vermelho/verde do texto já
+   carrega o sinal do desvio, e disputar o mesmo canal apagaria os dois.
+
+   As matizes são as mesmas dos gráficos — teal = orçado, laranja = realizado —
+   para a leitura ser idêntica no gráfico e na tabela. Alfa baixo de propósito:
+   é tabela densa, o fundo tem de separar as colunas sem virar listra.
+   Só aparece onde HÁ comparação (modo par e o bloco Ano); em vista de medida
+   única a coluna é inequívoca pelo cabeçalho e o fundo seria ruído.
+
+   O tom é aplicado como `background-image`, NÃO como `background-color`, e isso
+   é o ponto: assim ele vira uma CAMADA por cima do fundo que a linha já define
+   (grupo, natureza, seção, célula fixa) em vez de substituí-lo. Medi a versão
+   com `background-color` e ela perdia em dois lugares — nos cabeçalhos, para
+   `table.data.nat thead tr:nth-child(2) th`, e nas linhas de grupo, para
+   `tr.grp.n0>td`. Como camada, não existe disputa de especificidade: o
+   `background-color` continua sendo o da linha e o tom compõe por cima.
+
+   A distinção é de CLARO × ESCURO da própria superfície, não de matiz (pedido
+   do Leonardo, 21/09: "laranja vai ficar chamativo demais"). Orçado recua
+   (sombra), Realizado avança (luz) — o que é coerente com o papel de cada um: o
+   orçado é a referência, o realizado é o número vivo. Sem matiz nova, funciona
+   sobre qualquer fundo de linha e não briga com nada. */
+:root{ --col-orc:rgba(0,0,0,.17); --col-real:rgba(255,255,255,.055) }
+table.data td.c-orc{background-image:linear-gradient(var(--col-orc),var(--col-orc))}
+table.data td.c-real{background-image:linear-gradient(var(--col-real),var(--col-real))}
+/* No cabeçalho a marca é mais forte — é ali que o código se aprende — e o TEXTO
+   também separa: apagado no orçado, cheio no realizado.
+   A especificidade precisa vencer `…thead tr:nth-child(2) th{color:--ink-3}`,
+   que é (0,4,2): medi a versão anterior e ela reprovava contraste (3,21:1)
+   justamente porque a cor do texto não aplicava. */
+table.data th.c-orc{background-image:linear-gradient(rgba(0,0,0,.28),rgba(0,0,0,.28))}
+table.data th.c-real{background-image:linear-gradient(rgba(255,255,255,.09),rgba(255,255,255,.09))}
+table.data.fluxo.par thead tr:nth-child(2) th.c-orc,
+table.data.nat thead tr:nth-child(2) th.c-orc{color:var(--ink-2)}
+table.data.fluxo.par thead tr:nth-child(2) th.c-real,
+table.data.nat thead tr:nth-child(2) th.c-real{color:var(--ink);font-weight:600}
+
+/* ── MODO ORÇADO × REALIZADO (fidelidade à aba Resumo Tarituba) ──
+   24 colunas + rótulo não cabem na tela: a tabela rola, e por isso o rótulo
+   fica fixo à esquerda, como nas tabelas de natureza. Colunas mais estreitas
+   aqui porque são o dobro delas. */
+table.data.fluxo.par tbody td:not(.l),table.data.fluxo.par thead th:not(.l){
+  width:78px;min-width:78px}
+table.data.fluxo.par thead th{height:26px}
+table.data.fluxo.par thead tr:nth-child(2) th{top:26px;font-size:9.5px;
+  letter-spacing:.03em;color:var(--ink-3);font-weight:500;background-color:#0b1f24;
+  text-align:center}
+table.data.fluxo th.mescab{text-align:center}
+/* ── COLUNAS DE ACUMULADO ("Jan–Fev", "Jan–Mar", ...) ──
+   Nasceu só na tabela "O fluxo, mês a mês" (21/09) e passou a valer também nas
+   tabelas de natureza de Receitas/Despesas (24/09, mesmo pedido da chefe) —
+   por isso a regra é `table.data`, genérica, não mais `.fluxo`-só. Mesma
+   estrutura da aba Resumo Tarituba, que intercala um bloco acumulado depois
+   de cada mês a partir de fevereiro (acumulado de janeiro sozinho seria o
+   próprio janeiro). Texto mais apagado (ink-3, itálico) porque é número
+   DERIVADO — a mesma distinção que `.aberto` já faz para mês futuro, aqui é
+   "não é dado bruto". A borda de separação entre blocos virou `.ini`,
+   abaixo — antes só o `.acum` tinha borda, e foi exatamente isso que a
+   chefe apontou (28/09): um mês normal emendava direto no bloco anterior.
+   Título do bloco (a linha "Jan–Fev" etc., 1ª linha do cabeçalho) na cor de
+   acento do hub (pedido do Leonardo, 28/09) — `--orange` é o único
+   amarelo/laranja do tema (`--accent:var(--orange)` no theme.css). Só o
+   TÍTULO muda: os números (`td.acum`) continuam apagados (são derivados,
+   não o dado bruto), e o sub-cabeçalho "orç/real" (2ª linha) também não —
+   pedido foi especificamente "o título da coluna", não os rótulos menores
+   embaixo dele. Por isso o seletor mira `thead tr:first-child`
+   especificamente, em vez de todo `th.acum` (que também bateria na 2ª
+   linha). */
+table.data th.acum{font-style:italic;font-weight:500}
+table.data thead tr:first-child th.acum{color:var(--orange);font-weight:600}
+table.data td.acum{color:var(--ink-2);font-style:italic}
+/* ── SEPARADOR DE INÍCIO DE BLOCO (mês, acumulado, ou o bloco Ano) ──
+   Pedido da chefe, 28/09: "a separação dos meses não está bem definida".
+   Antes só a borda do `.acum` marcava alguma coisa (1px, --line-strong —
+   24% de branco), então "MAR" emendava direto em "JAN-FEV" sem nenhuma
+   marca: só os blocos DERIVADOS tinham fronteira, os meses "normais" não
+   tinham nenhuma. Um separador por `nth-child` foi cogitado e descartado:
+   a tabela tem 3 formatos de bloco (par orç/real, coluna única, bloco Ano de
+   3 colunas), cada um com paridade diferente — tentar acertar por seletor
+   é frágil e foi textualmente a causa da falha anterior (o `nth-child`
+   antigo só cobria o modo par, e mesmo nele exigia contar certo a coluna do
+   rótulo). `.ini` é marcado explicitamente no HTML (app.js), na primeira
+   coluna de cada bloco, então nunca depende de contagem de posição.
+   2px e mais opaco que o `--line-strong` de antes — 1px a 24% ainda ficava
+   fraco contra os fundos coloridos das colunas orç/real. */
+table.data th.ini,table.data td.ini{border-left:2px solid rgba(255,255,255,.32)}
+/* célula sem medida aplicável — o `x` que a planilha escreve no Orçado das
+   linhas de saldo bancário, que não têm orçamento */
+table.data.fluxo td.na{color:var(--ink-3);opacity:.35}
+table.data.fluxo tbody tr:not(.detalhe)>td.l{
+  position:sticky;left:0;z-index:2;background:var(--bg-fluxo,var(--surface));
+  border-right:1px solid var(--line-strong)}
+table.data.fluxo thead th.l{position:sticky;left:0;z-index:3;background-color:#0b1f24;
+  border-right:1px solid var(--line-strong)}
+/* fundos opacos por tipo de linha, para a coluna fixa não deixar passar o que
+   rola por baixo (rgba não compõe em célula sticky) */
+table.data.fluxo tbody tr{--bg-fluxo:var(--surface)}
+table.data.fluxo tbody tr.saldo,table.data.fluxo tbody tr.fechofinal{--bg-fluxo:#1B4650}
+table.data.fluxo tbody tr.variacao{--bg-fluxo:#1A3E46}
+table.data.fluxo tbody tr.confere{--bg-fluxo:#113037}
+table.data.fluxo tbody tr.sub1{--bg-fluxo:#183B43}
+/* "Com naturezas" no Resumo Simplificado (25/09) reaproveita as classes
+   `grp`/`nat` da página Receitas/Despesas — mesmos tokens de --bg-linha
+   de lá, só que aqui a variável se chama --bg-fluxo (sticky da coluna .l
+   deste grupo de tabelas). Sem isto a coluna fixa cai no --surface padrão
+   enquanto o resto da linha usa o fundo certo — a mesma armadilha que já
+   tinha sido resolvida para saldo/variação/sub1 quando a coluna sticky foi
+   criada, só que para os níveis novos que só aparecem quando se destrincha. */
+table.data.fluxo tbody tr.grp{--bg-fluxo:#1C3F47}
+table.data.fluxo tbody tr.grp.n1{--bg-fluxo:#20424A}
+table.data.fluxo tbody tr.grp.n2{--bg-fluxo:#1B3E45}
+table.data.fluxo tbody tr.nat{--bg-fluxo:#113037}
+
+/* ── IDENTIDADE DE RECEITA × DESPESA, vinda da planilha ──
+   As matizes são as da aba `Resumo Tarituba`, extraídas das próprias células:
+       receita  #C3D69B (total)  #EBF1DE (sublinha)   — verde-oliva
+       despesa  #F4B084 (total)  #FCE4D6 (sublinha)   — salmão
+   MAS ali o fundo é branco. Aplicadas literalmente aqui, seriam blocos claros
+   ofuscantes no meio de uma tabela escura. Então o que se preserva é a matiz e
+   a hierarquia (total mais forte que a sublinha, como lá) e o que se adapta é a
+   luminosidade: a cor entra como véu de alfa baixo sobre a superfície escura.
+
+   Vão no `background-color` porque o tom de coluna (orçado × realizado) é
+   camada de `background-image` e precisa compor POR CIMA destes.
+
+   Primeira tentativa: véu das cores da planilha em alfa baixo sobre a
+   superfície. MEDIDO e descartado — receita saía rgb(43,77,76) e despesa
+   rgb(49,72,73), diferença de 6 pontos num canal. Véu claro de baixa opacidade
+   sobre fundo escuro quase não desloca matiz, só clareia, e os dois convergiam
+   para o mesmo cinza-teal. Ser fiel ao alfa não adianta se a distinção não
+   chega ao olho.
+
+   Estas são cores OPACAS escolhidas para fundo escuro, guardando a matiz da
+   planilha (verde na receita, quente na despesa) com saturação suficiente para
+   separar: rgb(33,64,47) x rgb(66,48,42) diferem 33 pontos no vermelho. */
+tr.receita.total>td{background-color:#21402F}
+tr.receita.sub1>td{background-color:#1A3328}
+tr.despesa.total>td{background-color:#42302A}
+tr.despesa.sub1>td{background-color:#332723}
+/* a coluna fixa precisa do mesmo valor opaco, senão deixa passar o que rola */
+table.data.fluxo tbody tr.receita.total{--bg-fluxo:#21402F}
+table.data.fluxo tbody tr.receita.sub1{--bg-fluxo:#1A3328}
+table.data.fluxo tbody tr.despesa.total{--bg-fluxo:#42302A}
+table.data.fluxo tbody tr.despesa.sub1{--bg-fluxo:#332723}
+/* fio da matiz na borda esquerda, como a faixa de cor faz na planilha */
+tr.receita>td.l{box-shadow:inset 3px 0 0 #7FB069}
+tr.despesa>td.l{box-shadow:inset 3px 0 0 #E08B5A}
+
+/* sublinhas de Receita/Despesa — as que a planilha puxa com =Receitas!D5 */
+tr.sub1>td{background-color:rgba(255,255,255,.022);color:var(--ink-2);font-size:11.5px}
+tr.sub1>td.l{padding-left:26px}
+tr.sub1>td.l::before{content:"";display:inline-block;width:8px;height:1px;
+  background:var(--line-strong);vertical-align:middle;margin-right:7px}
+
+/* linhas estruturais do fluxo */
+tr.saldo>td{background-color:var(--surface-2);font-weight:600}
+tr.total>td{font-weight:600;border-top:1px solid var(--line-strong)}
+tr.variacao>td{background-color:rgba(255,255,255,.03);font-weight:700;
+  border-top:2px solid var(--line-strong)}
+tr.fechofinal>td{background-color:var(--surface-2);font-weight:700;
+  border-top:2px solid var(--orange)}
+tr.fechofinal>td.l{color:var(--orange)}
+/* bloco de conferência: é controle, não número de negócio — fica apagado */
+tr.confere>td{color:var(--ink-3);font-size:11.5px;background-color:rgba(0,0,0,.14)}
+tr.confere.ok>td.ind{color:var(--var-pos)}
+tr.confere.ruim>td.ind{color:var(--var-neg);font-weight:700}
+td.aberto{opacity:.55}
+th.aberto{color:var(--ink-3);font-weight:500}
+
+/* ── TABELA POR NATUREZA ── */
+table.data.nat th,table.data.nat td{padding:6px 7px;font-size:11.5px}
+/* 16 colunas (rótulo + 12 meses + orçado/realizado/desvio do ano) não cabem em
+   1.580px com 86px cada: o Desvio caía fora da tela, e é justamente a coluna
+   que carrega o julgamento. 74px porque o texto mais largo ("−999.999,99") mede
+   62px e o padding soma 14. */
+/* O rótulo precisa de folga: com 4 níveis de hierarquia, a natureza começa
+   recuada e o nome ("13.2.1.01.03 PLANO DE SAUDE FUNCIONARIO") é longo. Com
+   230px saía truncado em quase toda linha. 330 + 12×70 + 3×70 = 1.390px, que
+   cabe nos ~1.484 disponíveis com folga. */
+table.data.nat td.l{text-align:left;max-width:330px;width:330px;
+  overflow:hidden;text-overflow:ellipsis}
+table.data.nat tbody td:not(.l),table.data.nat thead th:not(.l){width:70px;min-width:70px}
+/* HIERARQUIA DE GRUPOS, extraída da planilha. A profundidade é irregular
+   (Despesas tem 4 níveis, Receitas tem 2), então o recuo é por classe e não por
+   cálculo — e o peso visual decresce com o nível, para a raiz não competir com
+   o total. */
+tr.grp>td{font-weight:600;background-color:rgba(255,255,255,.035);
+  border-top:1px solid var(--line-strong)}
+tr.grp.n0>td{background-color:var(--surface-2);font-weight:700;text-transform:uppercase;
+  font-size:11px;letter-spacing:.05em;border-top:2px solid var(--orange)}
+tr.grp.n0>td.l{color:var(--orange)}
+tr.grp.n1>td{background-color:rgba(255,255,255,.05)}
+tr.grp.n1>td.l{padding-left:20px}
+tr.grp.n2>td{background-color:rgba(255,255,255,.028);font-weight:500}
+tr.grp.n2>td.l{padding-left:30px}
+tr.grp.n3>td.l{padding-left:40px}
+tr.nat>td{background-color:rgba(0,0,0,.14);color:var(--ink-2)}
+/* recuo fixo para a natureza, independente do nível do grupo que a contém:
+   em Despesas ela pende do nível 3 e em Receitas do nível 1, e escalonar por
+   profundidade real comeria a largura do nome sem ganhar legibilidade. Sem
+   `::before`: o marcador de recuo era a seta de expandir (`.chev`), removida
+   em 24/09 junto com o clique na linha inteira — o clique agora é por
+   célula (Realizado do mês/acumulado/Ano), não mais na linha/nome. */
+tr.nat>td.l{padding-left:50px}
+/* natureza que existe no plano e não tem linha na planilha: vem depois da
+   estrutura, com separador, para não parecer parte de um grupo */
+tr.nat.orfa>td{border-top:1px dashed var(--line-strong)}
+
+/* ── DETALHE DE LANÇAMENTOS, ao clicar na CÉLULA Realizado ──
+   Mudou em 24/09 (pedido da chefe): antes clicava-se na LINHA inteira e
+   sempre abria o ano todo. Agora o clique é por CÉLULA — mês, acumulado ou o
+   total Ano — e cada uma abre só o recorte que representa. A linha em si não
+   é mais clicável; só as células com lançamentos no intervalo que
+   representam (marcadas com `.clic` no app.js, que já filtrou por cod+meses).
+
+   É o que a planilha não tem: a aba Base guarda um total por natureza e mês,
+   e o título que originou o número fica fora. */
+td.clic{cursor:pointer}
+td.clic:hover{background-color:rgba(255,164,0,.10)!important}
+td.clic:focus-visible{outline:2px solid var(--orange);outline-offset:-2px}
+/* a célula cuja faixa está sendo exibida no detalhe abaixo. `rgba` é seguro
+   aqui (ao contrário das colunas sticky) porque cel-aberta só recai em
+   mês/acumulado/Ano-realizado — nunca na `.l` nem na última (Desvio), as duas
+   únicas com `position:sticky` nesta tabela.
+
+   TUDO com `!important`: uma célula acumulada ativa tem as duas classes
+   (`acum cel-aberta`), e `table.data td.acum` (especificidade 0,2,2) venceria
+   `td.cel-aberta` (0,1,1) sem isso — o itálico apagado do acumulado ficaria
+   por cima do estado "ativo", que é o oposto do que se quer destacar. */
+td.cel-aberta{background-color:rgba(255,164,0,.22)!important;font-weight:700!important;
+  color:var(--orange)!important;font-style:normal!important}
+tr.nat.open>td{background-color:rgba(255,164,0,.06)}
+
+/* ── DESTRINCHAR POR LINHA no Resumo Simplificado (25/09) ──
+   Cada grupo (nível 1+) tem uma seta clicável que revela só os FILHOS
+   DIRETOS dele — trocado por um botão global "mostrar tudo" depois do
+   Leonardo comparar os dois: clicar na linha deixa abrir só a que interessa
+   (ex.: só "Suporte Tarituba"), sem destrinchar a Receita junto. */
+/* !important pelo mesmo motivo do `td.clic:hover` de Receitas/Despesas: esta
+   é a coluna `.l` STICKY, cujo fundo vem de
+   `table.data.fluxo tbody tr:not(.detalhe)>td.l{background:var(--bg-fluxo)}`
+   — (0,4,4) de especificidade, maior que qualquer regra de hover só por
+   classe. Sem isso o hover não aparece, porque a regra sticky sempre vence. */
+td.expandivel{cursor:pointer}
+td.expandivel:hover{background-color:rgba(255,164,0,.10)!important}
+td.expandivel:focus-visible{outline:2px solid var(--orange);outline-offset:-2px}
+.seta-arv{display:inline-block;width:12px;color:var(--ink-3);font-size:10px}
+/* contagem de lançamentos, discreta: informa que a linha TEM lançamento (em
+   algum mês) sem competir com o nome da conta — não é mais, sozinha, o que
+   indica "clique aqui", já que o clique agora é nas células */
+.cont{display:inline-block;margin-left:7px;padding:0 5px;border-radius:9px;
+  background:rgba(255,255,255,.08);color:var(--ink-3);font-size:9.5px;
+  vertical-align:middle;flex:0 0 auto}
+tr.nat.open .cont{background:rgba(255,164,0,.2);color:var(--orange)}
+
+tr.detalhe>td{padding:0!important;background:#0b1f24;
+  border-bottom:2px solid var(--line-strong)}
+/* GRID, não <table> (24/09) — table-layout:fixed dentro de uma célula colspan
+   de tabela table-layout:auto tem um bug REAL do Chrome: medido em isolamento
+   antes de decidir (arquivo à parte, fora do painel), mesmo com <colgroup> e
+   largura inline nos <col>, as colunas "fixas" cresciam proporcionalmente
+   juntas e a flexível (observação) ficava quase sem espaço — o oposto do
+   pedido. display:grid não passa pelo algoritmo de tabela, então `1fr` na
+   coluna de observação realmente absorve tudo o que sobra. Por isso o
+   HTML (app.js) usa <div>, não <tr>/<td>, aqui dentro.
+
+   Texto em BRANCO (pedido do Leonardo, 24/09) — era `--ink-2` (cinza-
+   esverdeado apagado), difícil de ler numa lista que agora é destino de um
+   clique deliberado. `--ink` é o "branco" desta paleta escura (#EAF4F4); não
+   existe um #FFFFFF cru no tema. O cabeçalho (`.lanc-cab` abaixo) continua
+   apagado de propósito — rótulo de coluna não é "o texto do lançamento". */
+/* max-width, não só width:100% (achado do Leonardo, 24/09): o <td colspan>
+   que envolve `.lanc` tem a largura da linha INTEIRA — até 1704px, com todas
+   as colunas de acumulado. Sem o teto, `.lanc` esticava até lá, e a coluna
+   valor (a última) ficava a ~1660px da borda esquerda — fora da tela mesmo
+   com a rolagem já no início, exigindo puxar a barra pro lado pra ver um
+   número que deveria estar ali na hora que o detalhe abre. Com o teto, as 5
+   colunas ficam num bloco compacto que cabe na tela sem rolagem própria;
+   observação ainda ganha o que sobrar dentro desse teto.
+   920px aqui é só o PISO DE SEGURANÇA (o `.lanc` nunca fica maior que isso,
+   mesmo sem JS). O teto de verdade é dinâmico: `pagBloco()` em app.js mede
+   `.tbl-wrap.clientWidth` (a largura VISÍVEL da tabela, antes de rolar) a
+   cada render e escreve isso como `style.maxWidth` inline, que vence esta
+   regra. 920px era certo só pra uma janela específica; noutra largura de
+   tela, ou no modo Ambos (mais colunas de acumulado, proporção diferente),
+   um número fixo voltaria a sobrar ou faltar — pedido do Leonardo, 24/09:
+   "deixa essa parte do tamanho visível da tabela". */
+.lanc{display:grid;grid-template-columns:52px 120px 175px 1fr 90px;
+  width:100%;max-width:920px}
+/* Detalhe do ORÇADO (25/09, pedido da chefe: "fazer pro orçado a mesma
+   coisa que fizemos pro realizado") — mesmo componente `.lanc`, 4 colunas em
+   vez de 5: item de orçamento não tem data de baixa nem observação, tem
+   descrição (a que sobra o espaço, por isso `1fr`), contraparte (mesma
+   largura de antes, mesmo dado), parcelas (nº de meses do item, estreito e
+   centralizado) e valor (somado só no recorte clicado, não o total anual do
+   item). */
+.lanc.orc{grid-template-columns:1fr 175px 60px 90px}
+.d-parc{text-align:center}
+/* legenda do recorte ("Lançamentos de março" / "... de janeiro a março" /
+   "... do ano") e o aviso de lista vazia ocupam as 5 colunas.
+   Legenda CENTRALIZADA (pedido do Leonardo, 24/09): como título da seção, não
+   como dado de coluna — os dados continuam à esquerda (ou à direita, no caso
+   do valor). */
+.lanc-legenda,.lanc-vazio{grid-column:1/-1;text-align:center;padding:5px 10px}
+.lanc-legenda{color:var(--orange);font-size:11px;font-weight:600;
+  background:rgba(255,164,0,.08);border-bottom:1px solid var(--line-strong)}
+.lanc-vazio{color:var(--ink-3);font-style:italic}
+/* `.lanc-cab`/`.lanc-linha`/`.lanc-rodape` são as "linhas": display:contents
+   faz o wrapper sumir da árvore de caixas, e os filhos (as células) viram
+   itens diretos do grid — é o que faz cada um cair na coluna certa do
+   grid-template-columns de `.lanc`, em vez de tudo se empilhar numa célula só. */
+.lanc-cab,.lanc-linha,.lanc-rodape{display:contents}
+.lanc-cab>div{padding:5px 10px;font-size:9.5px;text-transform:uppercase;
+  letter-spacing:.05em;font-weight:500;color:var(--ink-3);
+  background:rgba(0,0,0,.25);border-bottom:1px solid rgba(255,255,255,.05)}
+/* As larguras vêm do grid-template-columns acima (24/09; valores medidos
+   contra o texto real do payload, e refeitos uma vez depois de errar: baixa é
+   sempre "dd/mm" (5 caracteres) mas 44px cortava mesmo assim — o padding de
+   10px de cada lado só deixava 24px de conteúdo, e "10/06" precisa de ~29px;
+   subiu pra 52px. título eu tinha medido só o MÁXIMO (20 caracteres) e chutei
+   90px "porque cobre a maioria" — errado: contei a DISTRIBUIÇÃO depois e
+   12+ caracteres é 60% dos 84 lançamentos (o formato mais comum, "MOVBCOxxx-
+   xxx", sozinho já é 25), não exceção rara. 120px cobre confortavelmente até
+   16 caracteres (só sobra truncando os 2 de 18-20); contraparte chega a 50
+   (razão social de cooperativa médica por extenso) e já truncava antes, só
+   ficou mais estreita; valor chega a 10
+   ("-99.999,99"), 90px sobra; observação (sem largura própria) toma o resto —
+   era o pedido: "espaço maior pra coluna de observação"). */
+.lanc-linha>div{padding:5px 10px;font-size:11px;color:var(--ink);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  border-bottom:1px solid rgba(255,255,255,.05)}
+.lanc-linha:hover>div{background:rgba(255,255,255,.03)}
+.d-data{text-align:center}
+.d-val{text-align:right;font-variant-numeric:tabular-nums}
+/* "sem contraparte" fica apagado DE PROPÓSITO, apesar do branco geral acima —
+   é a marca de dado AUSENTE, e ficar indistinguível de um nome de fornecedor
+   de verdade seria o oposto de "mais fácil de ler". Mesmo princípio do `.na`
+   usado nas células de orçamento sem valor, em outras tabelas do painel. */
+.d-forn i{color:var(--ink-3)}
+.lanc-rodape>div{padding:5px 10px;font-size:11px;font-weight:600;
+  color:var(--ink-2);background:rgba(0,0,0,.25)}
+/* o primeiro filho do rodapé ("N lançamentos") ocupa as colunas antes do
+   valor — só o valor, na última, fica em coluna própria (como no tfoot da
+   tabela original, que tinha colspan no texto e uma célula só pro total).
+   `.lanc.orc` tem 4 colunas (não 5), então o rodapé ocupa até a 3ª. */
+.lanc-rodape>div:first-child{grid-column:1/5}
+.lanc.orc .lanc-rodape>div:first-child{grid-column:1/4}
+/* Marca inline de achado. Curta e com `flex-shrink:0` no contêiner: a marca é o
+   ponto da linha, não pode ser a primeira coisa que o ellipsis come. O texto
+   completo vive no `title`. */
+.flag{display:inline-block;margin-left:7px;padding:1px 6px;border-radius:5px;
+  background:rgba(255,164,0,.16);color:var(--orange);font-size:9.5px;
+  letter-spacing:.04em;text-transform:uppercase;vertical-align:middle;cursor:help;
+  white-space:nowrap}
+/* a célula do rótulo vira flex para o nome encolher e a marca não */
+table.data.nat td.l:has(.flag){display:flex;align-items:center;gap:0}
+table.data.nat td.l:has(.flag) .nome{overflow:hidden;text-overflow:ellipsis;
+  white-space:nowrap;min-width:0}
+table.data.nat td.l .flag{flex:0 0 auto}
+
+/* ── COLUNA DESVIO FIXA À DIREITA ──
+   Em Orçado (12 meses) e Ambos (24 colunas) a tabela rola, e a primeira coluna
+   a sair de vista é justamente a que carrega o julgamento. Fixa só ELA, não o
+   bloco Ano inteiro: com `table-layout:auto` as larguras reais variam (medido:
+   pedi 70px e o navegador deu 79), então deslocamentos encadeados para três
+   colunas grudadas sairiam desalinhados. Uma coluna em `right:0` não depende de
+   medida nenhuma.
+
+   O fundo precisa ser OPACO e acompanhar a linha, senão o conteúdo que rola
+   aparece por baixo. Cada tipo de linha publica o seu em `--bg-linha`; os
+   valores são os rgba compostos sobre `--surface #143840`, resolvidos à mão
+   porque `background:rgba(...)` sobre uma célula sticky não compõe com o que
+   passa por baixo. */
+table.data.nat tbody tr{--bg-linha:var(--surface)}
+table.data.nat tbody tr.grp{--bg-linha:#1C3F47}      /* branco 3,5% */
+table.data.nat tbody tr.grp.n0{--bg-linha:#1B4650}   /* = --surface-2 */
+table.data.nat tbody tr.grp.n1{--bg-linha:#20424A}   /* branco 5% */
+table.data.nat tbody tr.grp.n2{--bg-linha:#1B3E45}   /* branco 2,8% */
+table.data.nat tbody tr.nat{--bg-linha:#113037}      /* preto 14% */
+table.data.nat tbody tr.nat.open{--bg-linha:#26363B} /* laranja 10% */
+table.data.nat tbody tr:not(.detalhe)>td:last-child{
+  position:sticky;right:0;z-index:2;background:var(--bg-linha);
+  border-left:1px solid var(--line-strong)}
+table.data.nat thead tr:first-child th:last-child,
+table.data.nat thead tr:nth-child(2) th:last-child{
+  position:sticky;right:0;z-index:3;background:#0b1f24;
+  border-left:1px solid var(--line-strong)}
+/* O NOME DA LINHA fixa à esquerda pelo mesmo motivo: rolando os meses, o rótulo
+   saía de vista e sobrava número sem saber de que conta era. Ficam as duas
+   pontas — quem é (esquerda) e como está (direita) — e os meses correm no meio. */
+table.data.nat tbody tr:not(.detalhe)>td.l{
+  position:sticky;left:0;z-index:2;background:var(--bg-linha);
+  border-right:1px solid var(--line-strong)}
+table.data.nat thead th.l{
+  position:sticky;left:0;z-index:3;background:#0b1f24;
+  border-right:1px solid var(--line-strong)}
+
+tr.secao>td{background-color:var(--surface-2);font-weight:700;text-transform:uppercase;
+  font-size:11px;letter-spacing:.05em;border-top:2px solid var(--line-strong)}
+/* natureza sem orçamento E sem movimento: existe no plano de contas e nunca foi
+   usada. Fica visível de propósito — foi some-da-tela que escondeu RESGATES E
+   APLICAÇÕES e TRANSF. ENTRE BANCOS da planilha por um ano inteiro. */
+tr.morta>td{opacity:.42;font-style:italic}
+/* texto curto de propósito: o longo ("sem orçamento e sem movimento") era a
+   primeira coisa a ser cortada pelo ellipsis da coluna, junto com as marcas de
+   achado que vêm depois dele. O detalhe fica no `title` da linha. */
+tr.morta>td.l::after{content:" · sem uso";font-size:10px;
+  color:var(--ink-3);font-style:normal}
+
+/* cabeçalho de dois níveis. A 2ª linha precisa de `top` próprio, senão empilha
+   sobre a 1ª — daí a altura fixa, para o deslocamento ser determinístico. */
+table.data.nat thead th{height:28px}
+table.data.nat thead tr:nth-child(2) th{top:28px;font-size:10px;letter-spacing:.03em;
+  color:var(--ink-3);font-weight:500;background-color:#0b1f24;text-align:center}
+/* o theme.css alinha todo `table.data th` à direita e tem um
+   `th:first-child{text-align:left}` SEM escopo de linha, que pegaria o primeiro
+   th da 2ª linha do cabeçalho e o jogaria para fora da coluna. */
+table.data.nat th.grupo{text-align:center}
+table.data.nat th.sub{text-align:center}
+
+/* ── LANÇAMENTO DE SALDO BANCÁRIO ── */
+.aviso-saldo{display:flex;align-items:center;gap:13px;flex-wrap:wrap;
+  padding:13px 16px;margin-bottom:16px;border-radius:var(--r-sm);
+  background:var(--surface);border:1px solid var(--orange);
+  font-size:12.5px;color:var(--ink-2);line-height:1.5}
+.aviso-saldo b{color:var(--ink)}
+.aviso-saldo>div{flex:1;min-width:260px}
+.aviso-saldo .ic{font-size:15px;flex:0 0 auto}
+.aviso-saldo.alerta{border-color:var(--neg)}
+.btn-saldo{flex:0 0 auto}
+
+.form-saldo .f-linha{display:flex;gap:16px;align-items:flex-end;flex-wrap:wrap}
+.f-campo{display:flex;flex-direction:column;gap:5px;flex:1;min-width:170px}
+.f-campo span{font-size:11px;color:var(--ink-3);text-transform:uppercase;
+  letter-spacing:.05em}
+.f-campo input{background:var(--bg-2);border:1px solid var(--line-strong);
+  color:var(--ink);border-radius:var(--r-sm);height:var(--ctl-h);padding:0 12px;
+  font:inherit;font-size:14px;text-align:right;font-variant-numeric:tabular-nums}
+.f-campo input:focus{outline:2px solid var(--orange);outline-offset:-1px;
+  border-color:var(--orange)}
+.f-acao{display:flex;gap:9px;align-items:center;flex:0 0 auto}
+/* prévia do Confronto: o valor só presta se fechar, então o resultado aparece
+   ANTES de salvar — salvar errado e descobrir depois é o que isto evita */
+.f-previa{margin-top:13px;padding-top:12px;border-top:1px solid var(--line);
+  font-size:12.5px;color:var(--ink-3)}
+.f-previa b{color:var(--ink)}
+.f-previa b.pos{color:var(--var-pos)}
+.f-previa b.neg{color:var(--var-neg)}
+
+/* valor que veio do painel e NÃO está na planilha. Enquanto os dois convivem,
+   confundir os dois é o erro caro — daí a marca, e não só uma cor. */
+table.data.fluxo td.vlocal{font-style:italic;color:var(--orange)}
+table.data.fluxo td.vlocal::after{content:"•";margin-left:4px;font-size:9px;
+  vertical-align:super;opacity:.8}
+tr.confere.forte>td{font-weight:600;color:var(--ink-2)}
+
+/* avisos do extrator */
+.notes{display:flex;flex-direction:column;gap:9px}
+.note{display:flex;gap:11px;align-items:flex-start;padding:11px 13px;background:var(--bg-2);
+  border:1px solid var(--line);border-radius:var(--r-sm);font-size:12.5px;
+  color:var(--ink-2);line-height:1.5}
+.note b{color:var(--ink)}
+.note.alerta{border-color:var(--orange)}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+
+/* ═══ EXPORTAR PDF (29/09/2026, pedido do Leonardo) ═══
+   Só a página Resumo Simplificado, via `window.print()` + `@media print` —
+   sem gráfico nesta página, não precisa reimplementar desenho nenhum,
+   `window.print()` já captura a tabela como está pintada. Tema igual à
+   tela (fundo escuro, decisão dele); `print-color-adjust:exact` garante
+   isso sem depender de marcar "gráficos de segundo plano" no diálogo do
+   Chrome — sem ele, o Chrome ignora fundo/cor por padrão. */
+@media print {
+  * { -webkit-print-color-adjust:exact !important; print-color-adjust:exact !important; }
+  /* controles interativos não fazem sentido num PDF estático */
+  #nav-slot, #btn-export-pdf, #btn-card-trello, #card-status, #btn-atualizar, #reproc-status,
+  .seg, #sel-mes-simples,
+  label[for="sel-mes-simples"], .aviso-saldo, .rodape-proc,
+  #banner-slot, #b-avisos { display:none !important; }
+  /* `--largura-max`/padding de `.content` existem pra tela; na impressão o
+     tamanho da página é o `@page` calculado em app.js pra caber a tabela
+     exportada, então o conteúdo pode usar a página inteira. */
+  .content{ max-width:none !important; padding:0 !important; }
+  .card{ box-shadow:none !important }
+}
+</style>
+</head>
+<!-- hub-ready: o theme.css do hub esconde .app até o porteiro de login liberar
+     (`body:not(.hub-ready) .app{visibility:hidden}`). Este painel não tem
+     porteiro, então a casca está pronta desde o começo. Sem isto a tela abre
+     100% em branco — e o DOM fica completo, então teste de DOM não pega. -->
+<body class="hub-ready">
+
+<div class="app semlateral">
+  <div class="main">
+    <header class="topbar">
+      <div class="topbar-inner">
+        <img src="../logo.svg" alt="" height="24" style="flex:0 0 auto;opacity:.9">
+        <div style="border-left:1px solid var(--line);padding-left:14px">
+          <h1>Fluxo de Caixa — Tarituba</h1>
+          <div class="sub" id="sub">carregando…</div>
+        </div>
+        <!-- três páginas espelhando as três abas da planilha -->
+        <div id="nav-slot" style="margin-left:18px"></div>
+        <div class="spacer"></div>
+        <!-- Refaz o ETL no Azure (planilhas do Drive + realizado do Bimer). Leva uns 10
+             minutos: a API do Bimer não filtra o A Receber por empresa. -->
+        <button type="button" class="btn-ghost" id="btn-atualizar"
+                title="Refaz o painel no Azure com as planilhas e o Bimer de agora (~10 min)">
+          Atualizar agora</button>
+        <button type="button" class="btn-ghost" id="btn-export-pdf">⬇ Exportar PDF</button>
+        <span class="chip" id="chip-fonte">
+          <span class="dot" style="background:var(--teal-light)"></span>
+          <span id="chip-fonte-txt">—</span>
+        </span>
+      </div>
+    </header>
+
+    <div class="content">
+      <div class="sub" id="reproc-status" style="text-align:right;margin:-6px 0 10px"></div>
+      <div id="banner-slot"></div>
+      <div id="view"></div>
+      <div class="rodape-proc">
+        Publicado pelo Azure · <span id="foot-gen"></span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="../vendor/echarts.min.js"></script>
+<script src="../vendor/supabase.min.js"></script>
+<script src="config.js"></script>
+<script src="../reprocessar.js"></script>
+<!-- baixa o dado do bucket e SÓ ENTÃO carrega o app.js (que lê o dado no topo) -->
+<script src="tt_fonte.js"></script>
+</body>
+</html>
