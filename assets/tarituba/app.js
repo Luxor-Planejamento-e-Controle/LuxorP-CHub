@@ -293,16 +293,16 @@ function formSaldo(mes) {
       <h2>Saldos de ${MESES_LONGO[mes - 1]}</h2>
       <div class="hint">Posição no último dia do mês. O Confronto compara este
       total com o saldo que o fluxo calculou.</div></div>
-      <button type="button" class="tbl-acao" id="sld-fechar" style="margin-left:auto">Fechar</button>
+      <button type="button" class="btn-ghost" id="sld-fechar" style="margin-left:auto">Fechar</button>
     </div>
     <div class="f-linha">
       ${campo('corrente', 'Conta corrente', atual.corrente)}
       ${campo('aplicacao', 'Aplicação', atual.aplicacao)}
       ${campo('caixa', 'Fundo fixo', atual.caixa)}
       <div class="f-acao">
-        <button type="button" class="btn-exportar" id="sld-salvar">Salvar</button>
+        <button type="button" class="btn-acao" id="sld-salvar">Salvar</button>
         ${atual.origem === 'local'
-          ? '<button type="button" class="tbl-acao" id="sld-limpar">Apagar</button>' : ''}
+          ? '<button type="button" class="btn-ghost btn-perigo" id="sld-limpar">Apagar</button>' : ''}
       </div>
     </div>
     <div class="f-previa" id="sld-previa"></div>
@@ -472,7 +472,7 @@ function pagResumo(el) {
         ? `${MESES_LONGO[pendentes[0]]} fechou e ainda não tem os saldos.`
         : `${pendentes.length} meses fecharam sem saldo: ${pendentes.map(i => MESES_LONGO[i]).join(', ')}.`}</b>
       Sem eles o Confronto não fecha esse${pendentes.length === 1 ? '' : 's'} mês${pendentes.length === 1 ? '' : 'es'}.</div>
-    ${pendentes.map(i => `<button type="button" class="btn-exportar btn-saldo"
+    ${pendentes.map(i => `<button type="button" class="btn-acao btn-saldo"
         data-mes="${i + 1}">Lançar ${MESES[i]}</button>`).join('')}
   </div>` : ''}
 
@@ -482,7 +482,7 @@ function pagResumo(el) {
     <div><b>${divergentes.map(i => MESES_LONGO[i]).join(', ')}:</b> o saldo digitado
     no painel difere do que está na planilha. A planilha está sendo usada; o valor
     local ficou para trás e pode ser apagado.</div>
-    ${divergentes.map(i => `<button type="button" class="tbl-acao btn-saldo"
+    ${divergentes.map(i => `<button type="button" class="btn-ghost btn-saldo"
         data-mes="${i + 1}">Ver ${MESES[i]}</button>`).join('')}
   </div>` : ''}
 
