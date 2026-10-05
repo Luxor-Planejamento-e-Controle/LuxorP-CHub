@@ -281,9 +281,16 @@ function linhaSaldo(rot, campo, saldos, klass, par) {
     }).join('') + '</tr>';
 }
 
-/* Formulário de saldo do mês. Abre pelo botão que aparece quando o mês vira. */
+/* Formulário de saldo do mês. Abre pelos botões dos avisos: mês pendente (Lançar), mês
+   com saldo só no navegador (Editar) e mês divergente (Ver). */
 function formSaldo(mes) {
   const atual = saldoDoMes(mes - 1);
+  /* "Apagar" quando HÁ valor no navegador, e não só quando ele é o que está valendo: no
+     mês divergente a planilha ganha (`origem` é 'planilha'), e era justamente ali que o
+     aviso prometia "pode ser apagado" e o botão não existia. */
+  const local = lerLocais()[mes];
+  const totalLocal = local
+    ? ['corrente', 'caixa', 'aplicacao'].reduce((s, c) => s + (local[c] || 0), 0) : null;
   const campo = (id, rot, v) => `
     <label class="f-campo"><span>${rot}</span>
       <input type="text" inputmode="decimal" id="sld-${id}"
@@ -301,10 +308,13 @@ function formSaldo(mes) {
       ${campo('caixa', 'Fundo fixo', atual.caixa)}
       <div class="f-acao">
         <button type="button" class="btn-acao" id="sld-salvar">Salvar</button>
-        ${atual.origem === 'local'
+        ${local
           ? '<button type="button" class="btn-ghost btn-perigo" id="sld-limpar">Apagar</button>' : ''}
       </div>
     </div>
+    ${atual.diverge ? `<div class="hint f-diverge">Os campos mostram o que está na
+      <b>planilha</b> (total ${fmt.n(atual.total)}). O painel tinha ${fmt.n(totalLocal)}:
+      <b>Apagar</b> descarta o valor do painel e fica valendo o da planilha.</div>` : ''}
     <div class="f-previa" id="sld-previa"></div>
     <div class="hint" style="margin-top:10px">
       ⚠ Guardado <b>só neste navegador</b>, não na planilha — enquanto os dois
@@ -345,6 +355,10 @@ function pagResumo(el) {
   const confOk = pior != null && Math.abs(pior) < 0.005;
   const pendentes = mesesPendentes();
   const locais = saldos.filter(x => x.origem === 'local').length;
+  /* meses com saldo SÓ neste navegador — saem de `pendentes` assim que salvos, e o aviso
+     de pendentes era a única porta para o formulário: um valor digitado errado ficava
+     preso, sem editar nem apagar (achado do Arthur na revisão do hub, 05/10). */
+  const soLocais = saldos.map((x, i) => x.origem === 'local' ? i : -1).filter(i => i >= 0);
   const divergentes = saldos.map((x, i) => x.diverge ? i : -1).filter(i => i >= 0);
 
   const iniMes = MESES.map((_, i) => i > NF ? null : (i === 0 ? ini : s.saldo_fim[i - 1]));
@@ -484,6 +498,15 @@ function pagResumo(el) {
     local ficou para trás e pode ser apagado.</div>
     ${divergentes.map(i => `<button type="button" class="btn-ghost btn-saldo"
         data-mes="${i + 1}">Ver ${MESES[i]}</button>`).join('')}
+  </div>` : ''}
+
+  ${soLocais.length ? `
+  <div class="aviso-saldo info">
+    <span class="ic">ⓘ</span>
+    <div><b>${soLocais.map(i => MESES_LONGO[i]).join(', ')}:</b> saldo digitado só neste
+    navegador — ainda não está na planilha. Confira e lance na aba Resumo Tarituba.</div>
+    ${soLocais.map(i => `<button type="button" class="btn-ghost btn-saldo"
+        data-mes="${i + 1}">Editar ${MESES[i]}</button>`).join('')}
   </div>` : ''}
 
   <div id="slot-form">${S.formMes ? formSaldo(S.formMes) : ''}</div>
