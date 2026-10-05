@@ -263,6 +263,56 @@ LABEL_FIXES = [
 ]
 
 
+# Botão "Atualizar agora" DENTRO do dashboard, na linha do "Limpar filtros", com o mesmo
+# .btn. Até 05/10/2026 ficava numa barra do hub em cima do iframe: comia uma faixa
+# inteira e ficava parada enquanto o dash rolava por dentro. O reprocessar.js vem do hub
+# (o srcdoc herda a origem e a sessão do pai); fora do hub — arquivo aberto direto — não
+# há sessão nem o módulo, e o botão some. O robô grava inadimplencia.status.json no fim,
+# deu certo ou não: é por ele que se sabe que terminou e, quando recusa, o porquê.
+BOTAO_LIMPAR = '<button class="btn" onclick="clearFilters()">Limpar filtros</button>'
+BOTAO_REPROC = ('<span class="stamp reproc-status" id="reprocInadStatus"></span>'
+                '<button class="btn" id="btReprocInad" type="button" '
+                'title="Roda o controle de novo com a base mais recente da pasta e republica">'
+                'Atualizar agora</button>')
+# Nada congelado: a faixa de filtros era sticky e acompanhava a rolagem (pedido do
+# Arthur, 05/10/2026). O cabeçalho das tabelas segue fixo dentro delas.
+REPROC_CSS = """<style>
+.filter-bar{position:static !important}
+.reproc-status:empty{display:none}
+.reproc-status.erro{color:var(--danger) !important}
+</style>
+"""
+REPROC_JS = """<script src="/assets/reprocessar.js"></script>
+<script>
+(function () {
+  var hub; try { hub = window.parent && window.parent.HUB; } catch (e) { hub = null; }
+  var bt = document.getElementById('btReprocInad');
+  if (!bt) return;
+  if (!hub || !hub.sb || !window.HUB_REPROCESSAR) { bt.style.display = 'none'; return; }
+  var bucket = window.parent.HUB_BUCKET || 'hub-data';
+  async function status() {
+    try {
+      var r = await hub.sb.storage.from(bucket).download('inadimplencia.status.json');
+      return (r.error || !r.data) ? null : JSON.parse(await r.data.text());
+    } catch (e) { return null; }
+  }
+  window.HUB_REPROCESSAR.ligar({
+    painel: 'inadimplencia', botao: bt,
+    status: document.getElementById('reprocInadStatus'),
+    cliente: function () { return hub.sb; },
+    limite: 10 * 60000,   // instância fria da Azure: Drive + controle passam dos 5 min
+    lerCarimbo: async function () { var st = await status(); return st ? st.quando : null; },
+    aoConcluir: async function () {
+      var st = await status();
+      if (st && st.ok === false) throw new Error(st.mensagem || 'o robô recusou o pedido');
+      window.parent.location.reload();
+    }
+  });
+})();
+</script>
+"""
+
+
 def run():
     h = SRC.read_text(encoding="utf-8", errors="ignore")
 
@@ -321,6 +371,14 @@ def run():
     if MARCADOR_ORDENACAO not in h:
         h = h.replace("</body>", SORT_JS + "</body>", 1)
         print("[inadimplencia] ordenação por coluna injetada")
+
+    # 7) botão "Atualizar agora" e filtros sem congelar (ver BOTAO_REPROC)
+    if BOTAO_LIMPAR not in h:
+        raise RuntimeError("botão Limpar filtros não encontrado — o gerador mudou. "
+                           "Conferir a filter-actions no ControleInadimplencia.py.")
+    h = h.replace(BOTAO_LIMPAR, BOTAO_REPROC + BOTAO_LIMPAR, 1)
+    h = h.replace("</head>", REPROC_CSS + "</head>", 1)
+    h = h.replace("</body>", REPROC_JS + "</body>", 1)
 
     OUT.write_text(h, encoding="utf-8")
     print(f"[inadimplencia] {len(h)//1024} KB -> {OUT.relative_to(ROOT)}")

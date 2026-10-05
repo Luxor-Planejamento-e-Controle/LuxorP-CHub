@@ -209,11 +209,6 @@ table.data tbody tr:hover td,table.data tr:hover td{background:rgba(255,255,255,
 .chart{width:100%;height:340px}
 .chart.tall{height:420px}
 .embed{width:100%;height:calc(100vh - 63px);height:calc(100dvh - 63px);border:0;background:var(--bg-2);display:block}
-/* barra do "Atualizar agora" em cima de um embed (inadimplência): sai da altura dele */
-.reproc-barra{display:flex;align-items:center;gap:12px;padding:8px 22px;height:46px;box-sizing:border-box}
-.reproc-barra .sub{color:var(--ink-3);font-size:12px}
-.reproc-barra .sub.erro{color:var(--neg)}
-.reproc-barra + .embed{height:calc(100vh - 109px);height:calc(100dvh - 109px)}
 
 /* home hero */
 .hero{margin-bottom:26px}
