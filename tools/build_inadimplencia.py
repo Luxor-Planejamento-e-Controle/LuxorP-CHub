@@ -77,6 +77,12 @@ tr.row-total td{background:var(--surface-2) !important}
 select,input,.btn{background:var(--surface-2) !important;color:var(--text) !important;border-color:var(--border) !important}
 .btn:hover{background:#24505d !important}
 option{background:#0A1B20;color:var(--text)}
+/* barra de filtros: os cinco filtros dividem a largura da linha e terminam na mesma
+   borda direita dos botões da linha de baixo — com a largura mínima fixa do original
+   (170px) sobrava um vão à direita e as duas linhas ficavam desalinhadas */
+.filter-bar .filter-group:not(.ref-group){flex:1 1 120px;min-width:0}
+.filter-bar .filter-group:not(.ref-group) select{width:100%;min-width:0}
+.filter-actions{flex-basis:100%;justify-content:flex-end}
 /* coluna "Compra" não quebrar letra-a-letra + usar melhor a largura */
 td.compra>div{max-width:none !important;white-space:normal !important;overflow-wrap:break-word !important;word-break:normal !important}
 .container{max-width:none !important}

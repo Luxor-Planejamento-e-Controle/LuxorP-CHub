@@ -36,6 +36,19 @@ function zoom(){return [
 ];}
 const charts=[];
 function mkChart(el,opt){const c=echarts.init(el,null,{renderer:'canvas'});c.setOption(opt);charts.push(c);return c;}
+/* Legenda no cabeçalho do cartão, à direita do título, e não dentro do gráfico: lá ela
+   ocupava uma faixa própria no topo e caía em cima dos rótulos das barras. Clicar liga e
+   desliga a série, como a legenda do ECharts (que segue na opção, escondida, guardando
+   o que está selecionado). */
+function legendaNoCabecalho(el,chart,itens){
+  el.innerHTML=itens.map(([nome,cor])=>
+    `<button type="button" class="leg-item" data-serie="${nome}"><i style="background:${cor}"></i>${nome}</button>`).join('');
+  el.onclick=ev=>{const b=ev.target.closest('.leg-item'); if(!b)return;
+    chart.dispatchAction({type:'legendToggleSelect',name:b.dataset.serie}); b.classList.toggle('off');};
+}
+// rótulo do lado de fora da barra: em cima da positiva, embaixo da negativa (no "top"
+// da negativa ele cai na linha do zero, colado no da barra vizinha)
+const rotuloFora=vs=>vs.map(v=>({value:v,label:{position:v<0?'bottom':'top'}}));
 window.addEventListener('resize',()=>charts.forEach(c=>c.resize()));
 function clearCharts(){while(charts.length)charts.pop().dispose();}
 
@@ -497,7 +510,7 @@ function renderDRE(el){
     </div>
     <div class="ms-chips" id="natChips"></div>
     <div class="grid g-4" id="kpis" style="margin-bottom:16px"></div>
-    <div class="card"><div class="card-title"><h2>Orçado × Realizado por ano</h2><span class="muted" id="barSub"></span></div><div id="bar" class="chart"></div></div>
+    <div class="card"><div class="card-title com-legenda"><h2>Orçado × Realizado por ano</h2><span class="muted" id="barSub"></span><span class="legenda" id="barLeg"></span></div><div id="bar" class="chart"></div></div>
     <div class="card" style="margin-top:16px"><div class="card-title"><h2>Comparativo Orçado × Realizado (mensal)</h2></div>
       <div id="dreMeasure" class="measure"></div>
       <div id="line" class="chart tall"></div></div>`;
@@ -580,16 +593,17 @@ function renderDRE(el){
       ['Desvio (Real − Orç)',fmt.mi(dev),fmt.rs(dev),cls(dev)],
       ['Desvio %',fmt.pct(devPct),'',cls(devPct)],
     ].map(([l,v,s,c])=>`<div class="card kpi"><div class="label">${l}</div><div class="val ${c}">${v}</div><div class="delta">${s||'&nbsp;'}</div></div>`).join('');
-    mkChart(document.getElementById('bar'),Object.assign(baseOpt(),{
-      grid:{left:64,right:24,top:34,bottom:34},
+    const barChart=mkChart(document.getElementById('bar'),Object.assign(baseOpt(),{
+      legend:{show:false},grid:{left:64,right:24,top:22,bottom:30},
       tooltip:Object.assign(baseOpt().tooltip,{valueFormatter:v=>fmt.rs(v)}),
       xAxis:axis({type:'category',data:anos}),
       yAxis:axis({type:'value',axisLabel:{color:C.ink3,formatter:v=>(v/1e6).toFixed(0)+' Mi'}}),
       series:[
-        {name:'Orçado',type:'bar',data:orc,itemStyle:{color:C.teal,borderRadius:[3,3,0,0]},barMaxWidth:38,label:{show:true,position:'top',color:C.ink3,formatter:p=>fmt.mi(p.value)}},
-        {name:'Realizado',type:'bar',data:rea,itemStyle:{color:C.orange,borderRadius:[3,3,0,0]},barMaxWidth:38,label:{show:true,position:'top',color:C.ink3,formatter:p=>fmt.mi(p.value)}},
+        {name:'Orçado',type:'bar',data:rotuloFora(orc),itemStyle:{color:C.teal,borderRadius:[3,3,0,0]},barMaxWidth:38,label:{show:true,color:C.ink3,formatter:p=>fmt.mi(p.value)}},
+        {name:'Realizado',type:'bar',data:rotuloFora(rea),itemStyle:{color:C.orange,borderRadius:[3,3,0,0]},barMaxWidth:38,label:{show:true,color:C.ink3,formatter:p=>fmt.mi(p.value)}},
       ]
     }));
+    legendaNoCabecalho(document.getElementById('barLeg'),barChart,[['Orçado',C.teal],['Realizado',C.orange]]);
     // linha (geral): [modelo,cc,natureza,data,orcado,realizado]
     const map=new Map();
     for(const r of D.geral.rows){
@@ -686,7 +700,7 @@ function renderFluxo(el){
     </div>
     <div class="ms-chips" id="fcNatChips"></div>
     <div class="grid g-4" id="fcKpis" style="margin-bottom:16px"></div>
-    <div class="card"><div class="card-title"><h2>Orçado × Realizado por ano</h2><span class="muted" id="fcBarSub"></span></div><div id="fcBar" class="chart"></div></div>
+    <div class="card"><div class="card-title com-legenda"><h2>Orçado × Realizado por ano</h2><span class="muted" id="fcBarSub"></span><span class="legenda" id="fcBarLeg"></span></div><div id="fcBar" class="chart"></div></div>
     <div class="card" style="margin-top:16px"><div class="card-title"><h2>Comparativo Orçado × Realizado (mensal)</h2></div>
       <div id="fcMeasure" class="measure"></div>
       <div id="fcLine" class="chart tall"></div></div>`;
@@ -781,20 +795,18 @@ function renderFluxo(el){
       ['Desvio (Real − Orç)',curto(dev),rs(dev),cls(dev)],
       ['Desvio %',fmt.pct(devPct),'',cls(devPct)],
     ].map(([l,v,s,c])=>`<div class="card kpi"><div class="label">${l}</div><div class="val ${c}">${v}</div><div class="delta">${s||'&nbsp;'}</div></div>`).join('');
-    // rótulo do lado de fora da barra: em cima da positiva, embaixo da negativa
-    // (no "top" da negativa ele cai na linha do zero, em cima da barra vizinha)
     const lbl={show:true,color:C.ink3,formatter:p=>p.value==null?'':curto(p.value)};
-    const barras=vs=>vs.map(v=>({value:v,label:{position:v<0?'bottom':'top'}}));
-    mkChart(document.getElementById('fcBar'),Object.assign(baseOpt(),{
-      grid:{left:64,right:24,top:34,bottom:34},
+    const fcBarChart=mkChart(document.getElementById('fcBar'),Object.assign(baseOpt(),{
+      legend:{show:false},grid:{left:64,right:24,top:22,bottom:30},
       tooltip:Object.assign(baseOpt().tooltip,{valueFormatter:v=>v==null?'—':fmt.rs(v)}),
       xAxis:axis({type:'category',data:anos}),
       yAxis:axis({type:'value',axisLabel:{color:C.ink3,formatter:eixo(orc.concat(rea))}}),
       series:[
-        {name:'Orçado',type:'bar',data:barras(orc),itemStyle:{color:C.teal,borderRadius:[3,3,0,0]},barMaxWidth:38,label:lbl},
-        {name:'Realizado',type:'bar',data:barras(rea),itemStyle:{color:C.orange,borderRadius:[3,3,0,0]},barMaxWidth:38,label:lbl},
+        {name:'Orçado',type:'bar',data:rotuloFora(orc),itemStyle:{color:C.teal,borderRadius:[3,3,0,0]},barMaxWidth:38,label:lbl},
+        {name:'Realizado',type:'bar',data:rotuloFora(rea),itemStyle:{color:C.orange,borderRadius:[3,3,0,0]},barMaxWidth:38,label:lbl},
       ]
     }));
+    legendaNoCabecalho(document.getElementById('fcBarLeg'),fcBarChart,[['Orçado',C.teal],['Realizado',C.orange]]);
     // linha: valor do mês. Realizado para no último fechamento — depois dele a
     // planilha traz zero, e a linha despencaria como se o caixa tivesse zerado.
     const datas=[...new Set(rows.map(r=>r[2]))].sort(), ix=new Map(datas.map((d,i)=>[d,i]));
