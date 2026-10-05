@@ -278,6 +278,7 @@ BOTAO_REPROC = ('<span class="stamp reproc-status" id="reprocInadStatus"></span>
 # Arthur, 05/10/2026). O cabeçalho das tabelas segue fixo dentro delas.
 REPROC_CSS = """<style>
 .filter-bar{position:static !important}
+#btReprocInad{white-space:nowrap}
 .reproc-status:empty{display:none}
 .reproc-status.erro{color:var(--danger) !important}
 </style>
