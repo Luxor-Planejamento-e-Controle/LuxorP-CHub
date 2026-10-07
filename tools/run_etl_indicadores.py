@@ -18,11 +18,18 @@ App Job. Consequência importante: o xlsx do Drive é SOBRESCRITO pelo do Blob
 antes do cálculo, ou seja o Blob é a cópia autoritativa e o Drive é espelho.
 É de propósito — o inverso já empurrou uma vez pro Blob um Drive truncado.
 
+Antes de qualquer passo, espelha no Drive o que o job da Azure gerou no Blob
+(Indicadores xlsx/parquet, base_exposicao, manga_percentages xlsx/parquet — ver
+ESPELHO). O job não alcança o G:, então sem isto o Drive só andava quando o
+passo 1 local rodava inteiro; com a exposição nem isso (ia pra pasta do repo),
+e em 07/10/2026 o G: estava com a exposição de ago/26 e o manga sem 30/09.
+
 O Resultado FO (`group_hist_data.parquet`, pipeline do LuxorMonthlyFORoutines)
 NÃO entra aqui: roda à parte porque o fechamento ainda é provisório. O passo 3
 lê o que estiver publicado no Blob.
 
-Agendamento: `run_etl_indicadores_agendado.cmd` (wrapper com log) + tarefa
+Agendamento: `run_etl_indicadores_agendado.cmd` (wrapper com log), lançado sem
+janela por `run_etl_indicadores_oculto.vbs`, + tarefa
 "Luxor - ETL Indicadores (hub)", definida em `etl_indicadores_task.xml` — dias
 1-3 e 5-16 às 09:30 BRT, depois do Container App Job (cron 11:00 UTC = 08:00
 BRT). 09:30 porque esta tarefa precisa da máquina ligada e do G: montado.
@@ -94,6 +101,26 @@ IND_BLOB = f"{BLOB_PREFIX}/parquet/Indicadores_financeiros.parquet"
 QUOTAS_BLOB = f"{BLOB_PREFIX}/parquet/funds_quotas_historico.parquet"
 GROUP_BLOB = f"{BLOB_PREFIX}/parquet/group_hist_data.parquet"
 STATE_BLOB = f"{BLOB_PREFIX}/pipeline_state.json"
+
+# Espelho Blob -> Drive do que o financial-indicators-job gera. O job só grava
+# no Blob (o container não tem G:), e quem lê do Drive — Extrato de Cotista,
+# FCSlides — ficava com o que o último run LOCAL tivesse deixado. Fora daqui de
+# propósito: funds_quotas_historico, cuja origem é o próprio G: (o cvm.py
+# cacheia lá e sobe pro Blob), e os outputs que não saem do job.
+BASES_DRIVE = Path(os.environ.get(
+    "LUXOR_BASES_DIR",
+    r"G:/Drives compartilhados/Luxor Controladoria/Relatórios de Gestão/"
+    r"Novo Extrato de Cotista/Bases de dados",
+))
+ESPELHO = (
+    (f"{BLOB_PREFIX}/excel/Indicadores_financeiros.xlsx", INDICADORES_XLSX),
+    (f"{BLOB_PREFIX}/parquet/Indicadores_financeiros.parquet",
+     INDICADORES_XLSX.with_suffix(".parquet")),
+    (f"{BLOB_PREFIX}/excel/base_exposicao.xlsx", BASES_DRIVE / "base_exposicao.xlsx"),
+    (f"{BLOB_PREFIX}/excel/manga_percentages.xlsx", BASES_DRIVE / "manga_percentages.xlsx"),
+    (f"{BLOB_PREFIX}/parquet/manga_percentages.parquet",
+     BASES_DRIVE / "parquet" / "manga_percentages.parquet"),
+)
 
 # Assinatura do dado que gerou o snapshot publicado. Fica em assets/data/, que é
 # gitignored. Serve pra distinguir "mês completo e já publicado" (não roda) de
@@ -312,6 +339,42 @@ def grava_marcador(conn, ano, mes):
         log(f"!! AVISO: não gravei o marcador ({e}). O próximo run republica.")
 
 
+# --- Espelho Blob -> Drive --------------------------------------------------
+
+def espelha_drive(conn):
+    """Copia pro G: o que o job da Azure deixou no Blob. True se tudo ok.
+
+    Roda antes de qualquer passo: assim vale também quando o resto é pulado
+    (nada a fazer) ou morre no meio. Só regrava arquivo que mudou — o Drive for
+    Desktop sobe de novo qualquer arquivo tocado, e o mtime do G: passa a dizer
+    quando o dado chegou. Arquivo travado (aberto no Excel) não derruba os
+    outros: fica pro próximo run.
+    """
+    from azure.storage.blob import BlobServiceClient
+    try:
+        bsc = BlobServiceClient.from_connection_string(conn)
+    except Exception as e:
+        log(f"!! Espelho no Drive: sem conexão com o Blob ({e}).")
+        return False
+    ok = True
+    for remoto, local in ESPELHO:
+        try:
+            dado = _blob_bytes(bsc, remoto)
+            if dado is None:
+                log(f"!! Espelho no Drive: {remoto} não existe no Blob.")
+                ok = False
+                continue
+            if local.exists() and local.read_bytes() == dado:
+                continue
+            local.parent.mkdir(parents=True, exist_ok=True)
+            local.write_bytes(dado)
+            log(f">>> Espelho no Drive: {remoto} -> {local}")
+        except Exception as e:
+            log(f"!! Espelho no Drive: falhou {local.name} ({e}).")
+            ok = False
+    return ok
+
+
 # --- Relatório de cobertura -------------------------------------------------
 
 def cobertura(conn):
@@ -372,7 +435,9 @@ def main():
     log(f">>> Pipeline Indicadores — mês alvo {tag}")
     log(f"    xlsx (espelho do Blob): {INDICADORES_XLSX}")
     log(f"    cotas CVM:              {COTAS_DIR / 'cotas' / 'cvm.py'}")
+    log(f"    espelho no Drive:       Indicadores, exposição e manga ({BASES_DRIVE.parent})")
     log("    Resultado FO: NÃO roda aqui (fechamento provisório, rodar à parte).")
+    espelho_ok = True if dry else espelha_drive(conn)
     motivo_skip = None if force else nada_a_fazer(conn, ano, mes)
 
     if dry:
@@ -387,7 +452,7 @@ def main():
     if motivo_skip:
         log(f"\n>>> Nada a fazer: {motivo_skip}")
         log(">>> Nenhum passo executado. Use --force pra republicar de qualquer jeito.")
-        return 0
+        return 0 if espelho_ok else 1
 
     passo(1, f"Índices de mercado ({tag})")
     passo1_ok = roda_indicadores(tag, conn, force)
@@ -447,6 +512,9 @@ def main():
         # tarefa agendada denunciar, em vez de passar por run limpo.
         log(">>> Painel republicado a partir do Blob, mas o passo 1 falhou: "
             "sai 1 de propósito. Rodar de novo para fechar índices e cotas.")
+        return 1
+    if not espelho_ok:
+        log(">>> Espelho no Drive incompleto (ver '!! Espelho' acima): sai 1.")
         return 1
     return 0
 
