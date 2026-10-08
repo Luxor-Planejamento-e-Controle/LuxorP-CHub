@@ -79,7 +79,24 @@ class Estado:
         self.painel_depois = None   # o que o tarituba.json passa a ser depois do "Atualizar agora"
 
 
-def _abrir(cls, estado, pagina="simples"):
+def _com_saldos(payload, pendente=1, planilha=None):
+    """Payload com saldo na planilha em todos os meses menos `pendente` (1-12).
+
+    Janeiro de propósito: é o único mês que está encerrado em qualquer data em que o
+    teste rode (o painel decide "mês encerrado" pelo relógio de agora). `planilha` troca
+    os valores de algum mês: {mes: (corrente, aplicacao, caixa)}."""
+    planilha = planilha or {}
+    for reg in payload["saldos"]["mensal"]:
+        m = reg["mes"]
+        if m == pendente:
+            continue
+        c, a, x = planilha.get(m, (1000.0, 2000.0, 100.0))
+        reg.update(corrente=c, aplicacao=a, caixa=x, preenchido=True,
+                   total=round(c + a + x, 2))
+    return payload
+
+
+def _abrir(cls, estado, pagina="simples", locais=None):
     from playwright.sync_api import sync_playwright
 
     cls = type(cls)   # chamado com a instância; o navegador é um só para a classe
@@ -120,6 +137,12 @@ def _abrir(cls, estado, pagina="simples"):
         return route.continue_()
 
     pg.route("**/*.supabase.co/**", rota)
+    if locais is not None:
+        # saldo já digitado no navegador; só na 1ª carga, para recarregar não desfazer
+        pg.add_init_script(
+            "if (!sessionStorage.getItem('semeado')) {"
+            f" localStorage.setItem('tarituba.saldos.2026', {json.dumps(json.dumps(locais))});"
+            " sessionStorage.setItem('semeado', '1'); }")
     pg.goto((AQUI / "index.html").as_uri())
     pg.wait_for_timeout(1500)
     if pagina == "simples" and estado.painel is not None:
@@ -236,6 +259,104 @@ class TestPainelTarituba(unittest.TestCase):
         self.assertFalse(pg.is_visible("#btn-card-trello"))
         self.assertFalse(pg.is_visible("#btn-atualizar"))
         pg.close()
+
+
+class TestSaldoNoPainel(unittest.TestCase):
+    """O formulário de saldo bancário — lançar, reabrir, corrigir, apagar.
+
+    Existe pela revisão do Arthur (05/10/2026): o painel do hub não tinha teste nenhum do
+    formulário, e um saldo digitado errado ficava preso — o aviso de pendente era a única
+    porta para o formulário e sumia assim que se salvava."""
+
+    @classmethod
+    def setUpClass(cls):
+        try:
+            import playwright  # noqa: F401
+        except ImportError:
+            raise unittest.SkipTest("playwright não instalado")
+
+    @classmethod
+    def tearDownClass(cls):
+        if hasattr(cls, "_pw"):
+            cls._b.close()
+            cls._pw.stop()
+
+    def abrir(self, locais=None, planilha=None):
+        est = Estado()
+        est.painel = _com_saldos(est.painel, planilha=planilha)
+        pg, erros = _abrir(self, est, pagina="resumo", locais=locais)
+        self.addCleanup(pg.close)
+        self.erros = erros
+        return pg
+
+    @staticmethod
+    def locais(pg):
+        return pg.evaluate("JSON.parse(localStorage.getItem('tarituba.saldos.2026') || '{}')")
+
+    @staticmethod
+    def botoes(pg):
+        return pg.eval_on_selector_all(
+            ".btn-saldo", "bs => bs.map(b => b.className.split(' ')[0] + ':' + b.textContent.trim())")
+
+    def preencher(self, pg, corrente, aplicacao, caixa):
+        for campo, v in (("corrente", corrente), ("aplicacao", aplicacao), ("caixa", caixa)):
+            pg.fill(f"#sld-{campo}", v)
+
+    def test_1_lancar_o_mes_pendente(self):
+        pg = self.abrir()
+        self.assertEqual(self.botoes(pg), ["btn-acao:Lançar jan"])
+        pg.click(".btn-saldo")
+        self.assertFalse(pg.is_visible("#sld-limpar"), "mês sem valor no navegador não tem Apagar")
+        self.preencher(pg, "1.000,00", "2.000,00", "100,00")
+        pg.click("#sld-salvar")
+        self.assertEqual(self.locais(pg)["1"], {"corrente": 1000, "aplicacao": 2000, "caixa": 100})
+        # sai de pendente e passa a ter a porta de volta
+        self.assertEqual(self.botoes(pg), ["btn-ghost:Editar jan"])
+        self.assertIn("só neste", pg.text_content(".aviso-saldo.info"))
+        self.assertEqual(self.erros, [])
+
+    def test_2_corrigir_um_valor_digitado_errado(self):
+        """O caso do Arthur: um zero a mais, salvo, e nenhuma saída pela tela."""
+        pg = self.abrir(locais={"1": {"corrente": 10000, "aplicacao": 2000, "caixa": 100}})
+        pg.click("text=Editar jan")
+        self.assertEqual(pg.input_value("#sld-corrente"), "10.000,00")
+        pg.fill("#sld-corrente", "1.000,00")
+        pg.click("#sld-salvar")
+        self.assertEqual(self.locais(pg)["1"]["corrente"], 1000)
+        self.assertEqual(self.erros, [])
+
+    def test_3_apagar_volta_o_mes_para_pendente(self):
+        pg = self.abrir(locais={"1": {"corrente": 10000, "aplicacao": 2000, "caixa": 100}})
+        pg.click("text=Editar jan")
+        pg.click("#sld-limpar")
+        self.assertNotIn("1", self.locais(pg))
+        self.assertEqual(self.botoes(pg), ["btn-acao:Lançar jan"])
+        self.assertEqual(pg.query_selector_all(".aviso-saldo.info"), [])
+
+    def test_4_divergente_apaga_o_do_painel_e_fica_o_da_planilha(self):
+        """O aviso diz 'o valor local ficou para trás e pode ser apagado' — e o formulário
+        que ele abre não tinha Apagar."""
+        pg = self.abrir(locais={"2": {"corrente": 5, "aplicacao": 5, "caixa": 5}})
+        self.assertIn("btn-ghost:Ver fev", self.botoes(pg))
+        pg.click("text=Ver fev")
+        self.assertEqual(pg.input_value("#sld-corrente"), "1.000,00", "campos mostram a planilha")
+        dica = pg.text_content(".f-diverge")
+        self.assertIn("3.100,00", dica)   # total da planilha
+        self.assertIn("15,00", dica)      # total que estava no painel
+        pg.click("#sld-limpar")
+        self.assertNotIn("2", self.locais(pg))
+        self.assertEqual(pg.query_selector_all(".aviso-saldo.alerta"), [])
+        self.assertEqual(self.erros, [])
+
+    def test_5_formulario_nao_encosta_no_grafico(self):
+        pg = self.abrir()
+        pg.click(".btn-saldo")
+        fim_form = pg.evaluate("document.getElementById('form-saldo').getBoundingClientRect().bottom")
+        topo_seguinte = pg.evaluate(
+            "(() => { let n = document.getElementById('slot-form').nextElementSibling;"
+            " while (n && !n.offsetHeight) n = n.nextElementSibling;"
+            " return n.getBoundingClientRect().top; })()")
+        self.assertGreaterEqual(topo_seguinte - fim_form, 16)
 
 
 if __name__ == "__main__":

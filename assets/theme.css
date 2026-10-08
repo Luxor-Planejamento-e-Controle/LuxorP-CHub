@@ -181,6 +181,15 @@ select:focus,input:focus{border-color:var(--orange)}
 .card .desc{color:var(--ink-3);font-size:12px}
 .card-title{display:flex;align-items:center;gap:9px;margin-bottom:14px}
 .card-title h2{font-family:var(--font-serif);font-size:15px;margin:0;font-weight:600}
+/* legenda do gráfico no cabeçalho do cartão (legendaNoCabecalho, em app.js) */
+.card-title.com-legenda{flex-wrap:wrap}
+.legenda{margin-left:auto;display:flex;flex-wrap:wrap;gap:2px}
+.leg-item{display:inline-flex;align-items:center;gap:7px;background:transparent;border:0;border-radius:7px;
+  padding:4px 9px;color:var(--ink-2);font:inherit;font-size:12.5px;cursor:pointer}
+.leg-item i{width:11px;height:11px;border-radius:3px;flex:none}
+.leg-item:hover{color:var(--ink);background:rgba(255,255,255,.05)}
+.leg-item.off{opacity:.4}
+.leg-item:focus-visible{outline:2px solid var(--orange);outline-offset:1px}
 
 /* KPI */
 .card.kpi{padding:13px 16px}

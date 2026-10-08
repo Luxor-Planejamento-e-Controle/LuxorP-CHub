@@ -518,7 +518,27 @@ table.data.nat th.sub{text-align:center}
 .aviso-saldo>div{flex:1;min-width:260px}
 .aviso-saldo .ic{font-size:15px;flex:0 0 auto}
 .aviso-saldo.alerta{border-color:var(--neg)}
+/* saldo só no navegador: informação, não pendência — borda neutra, sem o laranja */
+.aviso-saldo.info{border-color:var(--line-strong)}
+.f-diverge{margin-top:12px}
 .btn-saldo{flex:0 0 auto}
+
+/* Botão da ação principal — o mesmo `.btn-acao` dos painéis de Saldo Bancário e Controle
+   de Pagamentos do hub (o theme.css só traz o `.btn-ghost`, o secundário). Antes os
+   botões usavam `btn-exportar`/`tbl-acao`, classes sem CSS nenhum aqui: saíam no estilo
+   padrão do navegador. */
+.btn-acao{background:var(--orange);border:1px solid var(--orange);color:#201700;
+  height:var(--ctl-h);box-sizing:border-box;padding:0 15px;border-radius:var(--r-sm);
+  font:inherit;font-size:13px;font-weight:600;cursor:pointer;
+  display:inline-flex;align-items:center;gap:7px}
+.btn-acao:hover:not(:disabled){background:var(--orange-deep);border-color:var(--orange-deep)}
+.btn-acao:disabled{opacity:.5;cursor:default}
+/* destrutivo: ghost que acende em vermelho, como a lixeira do Saldo Bancário */
+.btn-ghost.btn-perigo:hover:not(:disabled){border-color:var(--neg);color:var(--neg)}
+
+/* o formulário de saldo abre entre o aviso e o topo do Resumo (gráfico + KPIs): sem
+   margem própria, a borda dele encostava no gráfico */
+.form-saldo{margin-bottom:20px}
 
 .form-saldo .f-linha{display:flex;gap:16px;align-items:flex-end;flex-wrap:wrap}
 .f-campo{display:flex;flex-direction:column;gap:5px;flex:1;min-width:170px}

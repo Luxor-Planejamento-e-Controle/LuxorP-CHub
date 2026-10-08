@@ -89,9 +89,15 @@
     <ExecutionTimeLimit>PT2H</ExecutionTimeLimit>
     <Priority>7</Priority>
   </Settings>
+  <!--
+    wscript + VBS em vez do .cmd direto: o .cmd abria console visível, e fechar
+    a janela (ou um Ctrl+C que caía nela) matava o run com 0xC000013A. O VBS
+    roda o mesmo .cmd oculto e devolve o exit code dele.
+  -->
   <Actions>
     <Exec>
-      <Command>C:\Users\Arthur\repos\LuxorP&amp;CHub\tools\run_etl_indicadores_agendado.cmd</Command>
+      <Command>C:\Windows\System32\wscript.exe</Command>
+      <Arguments>//B //Nologo "C:\Users\Arthur\repos\LuxorP&amp;CHub\tools\run_etl_indicadores_oculto.vbs"</Arguments>
     </Exec>
   </Actions>
 </Task>
