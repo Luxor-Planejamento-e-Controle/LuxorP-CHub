@@ -623,7 +623,17 @@ function render(){
                 style="white-space:nowrap"
                 title="Busca os títulos do Bimer de novo e republica a semana">
           Atualizar agora</button>
-      </div></div>` : ''}
+        <!-- Cria (ou atualiza) o card da semana ATUAL no Trello, com o mesmo PDF do
+             botão "Exportar PDF" — gerado no Azure a partir do painel publicado, não
+             do que está na tela agora. Precisa do painel completo (sem saldo faltando)
+             para montar a análise de resgate/aplicação que entra no PDF. -->
+        <button class="btn-ghost" id="btCardTrello" type="button"
+                style="white-space:nowrap"
+                title="Cria no Trello o card desta semana, com o PDF de Movimentações e Sugestões">
+          Criar card no Trello</button>
+      </div>
+      <div class="sub" id="cardStatus" style="width:100%;text-align:right"></div>
+      </div>` : ''}
 
     <div class="card">
       <div class="card-title">
@@ -1292,6 +1302,20 @@ function ligar(){
     },
     aoConcluir: () => window.SB_PAINEL.recarregar(),
   });
+
+  /* Botão do Trello (09/10/2026, mesmo padrão do Tarituba): só existe dentro do hub,
+     que fornece SB_FONTE.ligarCard. O mês vai como FUNÇÃO porque é lido na hora do
+     clique e só escolhe a lista MENSAL do Trello a procurar — a semana do card vem
+     sempre da janela publicada (D.janela[0]), nunca deste mês (ver
+     shared_saldo_bancario/entrypoints.py, _criar_card). */
+  const btnCard = document.getElementById('btCardTrello');
+  if (btnCard && window.SB_FONTE && window.SB_FONTE.ligarCard) {
+    window.SB_FONTE.ligarCard(btnCard, document.getElementById('cardStatus'), () => {
+      const inicio = D && D.janela && D.janela[0];
+      return inicio ? (new Date(inicio + 'T00:00:00')).getMonth() + 1
+                    : (new Date()).getMonth() + 1;
+    });
+  }
   liga('btEditar',     entrarEdicao);
   liga('btAddSaida',   () => adicionar('saida'));
   liga('btAddEntrada', () => adicionar('entrada'));

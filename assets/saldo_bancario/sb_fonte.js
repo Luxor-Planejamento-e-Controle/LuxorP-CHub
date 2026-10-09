@@ -42,6 +42,7 @@ window.SB_FONTE = (function () {
 
   var DOC = 'saldo_bancario';
   var ARQUIVO = 'saldo_bancario.json';
+  var ARQ_CARD = 'saldo_bancario.card.json';
   var BUCKET = 'hub-data';
   var _sb = null;
 
@@ -251,12 +252,58 @@ window.SB_FONTE = (function () {
     return provs[semana];
   }
 
+  // null quando o arquivo não existe (ainda não houve "Criar card" nenhum) — não é erro
+  async function tentar(arquivo) {
+    try {
+      var dl = await cliente().storage.from(BUCKET).download(arquivo);
+      if (!dl.data) return null;
+      return JSON.parse(await dl.data.text());
+    } catch (e) { return null; }
+  }
+
+  /* "Criar card no Trello" — mesmo desenho do Tarituba (tt_fonte.js): lê o painel JÁ
+   * publicado no Azure (nenhuma chave passa por aqui), e o carimbo de `saldo_bancario
+   * .card.json` muda quando o robô termina — sobrevive a fechar a aba.
+   *
+   * `mesFn` é lido no clique, não guardado: o card é do mês da janela publicada QUE ESTÁ
+   * NA TELA naquele momento, e só escolhe em qual lista mensal do Trello procurar — a
+   * SEMANA do card vem sempre da janela publicada, nunca do mês mandado aqui (ver
+   * `shared_saldo_bancario/entrypoints.py`, `_criar_card`). */
+  function ligarCard(botao, status, mesFn) {
+    if (!window.HUB_REPROCESSAR) return;
+    window.HUB_REPROCESSAR.ligar({
+      painel: 'saldo_bancario',
+      botao: botao,
+      status: status,
+      cliente: cliente,
+      corpo: function () { return { acao: 'card_trello', mes: mesFn() }; },
+      rotulo: 'criando card…',
+      aguardando: 'pedido enviado — o Azure está gerando o PDF e o card…',
+      limite: 3 * 60000,
+      lerCarimbo: async function () {
+        var c = await tentar(ARQ_CARD);
+        return c ? c.gerado_em : null;
+      },
+      aoConcluir: async function () {
+        var c = await tentar(ARQ_CARD);
+        if (!c) return { texto: 'o pedido terminou, mas o resultado não pôde ser lido.', erro: true };
+        if (!c.ok) return { texto: 'card não criado: ' + c.erro, erro: true };
+        return {
+          texto: (c.card_novo ? 'Card criado' : 'PDF novo anexado ao card que já existia')
+                 + ' em "' + c.lista + '" (painel de ' + c.dados_de + ').',
+          link: c.card_url,
+          rotuloLink: 'abrir no Trello'
+        };
+      }
+    });
+  }
+
   /* `cliente` sai daqui para quem mais precisar falar com o Supabase nesta página —
-   * hoje o botão "Atualizar agora". Criar um segundo client faria dois GoTrueClient no
-   * mesmo contexto, disputando o mesmo storage de sessão e o lock de renovação de token:
-   * quando esse lock trava, o fetch falha ANTES de sair, e o supabase-js reporta
-   * "Failed to send a request to the Edge Function" — erro de rede para um problema que
-   * não é de rede. Um client por página. */
+   * hoje os botões "Atualizar agora" e "Criar card no Trello". Criar um segundo client
+   * faria dois GoTrueClient no mesmo contexto, disputando o mesmo storage de sessão e o
+   * lock de renovação de token: quando esse lock trava, o fetch falha ANTES de sair, e o
+   * supabase-js reporta "Failed to send a request to the Edge Function" — erro de rede
+   * para um problema que não é de rede. Um client por página. */
   return { carregar: carregar, salvar: salvar, salvarProvisoes: salvarProvisoes,
-           cliente: cliente };
+           cliente: cliente, ligarCard: ligarCard };
 })();
