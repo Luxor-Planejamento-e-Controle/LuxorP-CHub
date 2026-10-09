@@ -127,17 +127,27 @@ Deno.serve(async (req: Request) => {
   // e a AZURE_REPROCESSAR_KEY — a função pc_inadimplencia tem uma chave "reprocessar" com o
   // mesmo valor da do reprocessar_painel (05/10/2026). Assim o painel novo não depende de
   // secret novo, e quem tem o projeto não precisa mexer na tela de secrets.
-  const proprio = painel === 'inadimplencia'
+  //
+  // Vendas (09/10/2026) segue a mesma receita: rota pc/vendas no mesmo app, mesma chave
+  // "reprocessar" na função pc_vendas. Painel fora desta lista vai, como sempre, para o
+  // reprocessar_painel.
+  const ROTA_PROPRIA: Record<string, string> = {
+    inadimplencia: '/api/pc/inadimplencia',
+    vendas: '/api/pc/vendas',
+  }
+  const rota = ROTA_PROPRIA[painel]
+  const proprio = rota !== undefined
   const urlBase = Deno.env.get('AZURE_REPROCESSAR_URL')
   const url = proprio
-    ? (Deno.env.get('AZURE_INADIMPLENCIA_URL') ??
-       (urlBase ? new URL('/api/pc/inadimplencia', urlBase).toString() : undefined))
+    ? ((painel === 'inadimplencia' ? Deno.env.get('AZURE_INADIMPLENCIA_URL') : undefined) ??
+       (urlBase ? new URL(rota, urlBase).toString() : undefined))
     : urlBase
-  const chave = (proprio ? Deno.env.get('AZURE_INADIMPLENCIA_KEY') : undefined)
+  const chave = (painel === 'inadimplencia' ? Deno.env.get('AZURE_INADIMPLENCIA_KEY') : undefined)
     ?? Deno.env.get('AZURE_REPROCESSAR_KEY')
   if (!url || !chave) {
-    return json(req, { erro: proprio ? 'AZURE_INADIMPLENCIA_URL/KEY não configurados'
-                                     : 'AZURE_REPROCESSAR_URL/KEY não configurados' }, 500)
+    return json(req, { erro: painel === 'inadimplencia'
+                               ? 'AZURE_INADIMPLENCIA_URL/KEY não configurados'
+                               : 'AZURE_REPROCESSAR_URL/KEY não configurados' }, 500)
   }
 
   let resposta: Response
