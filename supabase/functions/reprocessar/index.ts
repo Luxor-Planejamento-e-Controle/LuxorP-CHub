@@ -12,16 +12,18 @@
 //              que decide o que ela enxerga no hub — não uma segunda lista para manter
 //   no Azure   se este painel pode ser reprocessado (lista fechada em shared_reprocessar)
 //
-// A chave guardada em AZURE_REPROCESSAR_KEY é a da função `reprocessar_painel`, NÃO a
-// master key do Function App. Se este projeto for comprometido, o que se perde é "alguém
-// reprocessa um painel", não o controle das 15 automações.
+// Cada destino no Azure tem o próprio par de secrets (tabela em rotas.js), e cada chave é
+// a da FUNÇÃO de destino, NÃO a master key do Function App. Se este projeto for
+// comprometido, o que se perde é "alguém reprocessa um painel", não o controle de todas
+// as automações.
 //
-// Deploy:
-//   supabase functions deploy reprocessar --project-ref hjducsxcolbspbkpflom
-//   supabase secrets set AZURE_REPROCESSAR_URL=... AZURE_REPROCESSAR_KEY=...
-//   supabase secrets set AZURE_INADIMPLENCIA_URL=... AZURE_INADIMPLENCIA_KEY=...  (pc_inadimplencia)
+// Deploy: automático pelo workflow `funcoes` a cada push na main. Secrets:
+//   supabase secrets set AZURE_AUTOMACOES_URL=.../api/reprocessar        AZURE_AUTOMACOES_KEY=<reprocessar_painel>
+//   supabase secrets set AZURE_INADIMPLENCIA_URL=.../api/pc/inadimplencia AZURE_INADIMPLENCIA_KEY=<pc_inadimplencia>
+//   supabase secrets set AZURE_VENDAS_URL=.../api/pc/vendas               AZURE_VENDAS_KEY=<pc_vendas>
 
 import { createClient } from 'jsr:@supabase/supabase-js@2'
+import { destino } from './rotas.js'
 
 // O JWT viaja no header Authorization, não em cookie, então o navegador nunca o manda
 // sozinho — não há o risco de CSRF que faria '*' ser imprudente aqui. Ainda assim dá
@@ -118,37 +120,17 @@ Deno.serve(async (req: Request) => {
     return json(req, { erro: 'sem acesso a este painel' }, 403)
   }
 
-  // A inadimplência tem rota própria no luxor-planejamento-functions (pc_inadimplencia):
-  // o reprocessar_painel é do repo Automacoes, de outro dono, e a lista fechada de
-  // painéis mora lá. Chave separada pelo mesmo motivo de antes — vazar uma não abre a
-  // outra. Os demais painéis seguem para o reprocessar_painel.
+  // Destino por painel, cada um com o próprio par de secrets — ver rotas.js. Depois do
+  // hub_can de propósito: antes dele, "painel sem botão" contaria a quem não tem acesso
+  // quais painéis existem.
   //
-  // Sem AZURE_INADIMPLENCIA_*, vale o mesmo app do AZURE_REPROCESSAR_URL com a rota trocada,
-  // e a AZURE_REPROCESSAR_KEY — a função pc_inadimplencia tem uma chave "reprocessar" com o
-  // mesmo valor da do reprocessar_painel (05/10/2026). Assim o painel novo não depende de
-  // secret novo, e quem tem o projeto não precisa mexer na tela de secrets.
-  //
-  // Vendas (09/10/2026) segue a mesma receita: rota pc/vendas no mesmo app, mesma chave
-  // "reprocessar" na função pc_vendas. Painel fora desta lista vai, como sempre, para o
-  // reprocessar_painel.
-  const ROTA_PROPRIA: Record<string, string> = {
-    inadimplencia: '/api/pc/inadimplencia',
-    vendas: '/api/pc/vendas',
-  }
-  const rota = ROTA_PROPRIA[painel]
-  const proprio = rota !== undefined
-  const urlBase = Deno.env.get('AZURE_REPROCESSAR_URL')
-  const url = proprio
-    ? ((painel === 'inadimplencia' ? Deno.env.get('AZURE_INADIMPLENCIA_URL') : undefined) ??
-       (urlBase ? new URL(rota, urlBase).toString() : undefined))
-    : urlBase
-  const chave = (painel === 'inadimplencia' ? Deno.env.get('AZURE_INADIMPLENCIA_KEY') : undefined)
-    ?? Deno.env.get('AZURE_REPROCESSAR_KEY')
-  if (!url || !chave) {
-    return json(req, { erro: painel === 'inadimplencia'
-                               ? 'AZURE_INADIMPLENCIA_URL/KEY não configurados'
-                               : 'AZURE_REPROCESSAR_URL/KEY não configurados' }, 500)
-  }
+  // `if (d.erro)` e não `'erro' in d`: o TS normaliza a união inferida do .js com os
+  // campos que faltam como opcionais, e aí o `in` não estreita — o deno check reprovava
+  // (achado do Arthur na revisão). O `?? 500` é só para o compilador: todo ramo de erro
+  // do rotas.js já define `status`.
+  const d = destino(painel, (nome: string) => Deno.env.get(nome))
+  if (d.erro) return json(req, { erro: d.erro }, d.status ?? 500)
+  const { url, chave } = d
 
   let resposta: Response
   try {
