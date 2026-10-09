@@ -25,6 +25,8 @@ CERTO = {
     "AZURE_AUTOMACOES_KEY": "chave-automacoes",
     "AZURE_INADIMPLENCIA_URL": f"{APP}/api/pc/inadimplencia",
     "AZURE_INADIMPLENCIA_KEY": "chave-inadimplencia",
+    "AZURE_VENDAS_URL": f"{APP}/api/pc/vendas",
+    "AZURE_VENDAS_KEY": "chave-vendas",
 }
 
 
@@ -57,6 +59,19 @@ class TestRotas(unittest.TestCase):
                              {"url": f"{APP}/api/reprocessar", "chave": "chave-automacoes"}, painel)
         self.assertEqual(self.destino("inadimplencia", CERTO),
                          {"url": f"{APP}/api/pc/inadimplencia", "chave": "chave-inadimplencia"})
+        self.assertEqual(self.destino("vendas", CERTO),
+                         {"url": f"{APP}/api/pc/vendas", "chave": "chave-vendas"})
+
+    def test_1b_vendas_nao_herda_o_par_de_ninguem(self):
+        """Vendas entrou no main (09/10) derivando a rota e a chave do par antigo; com a
+        chave errada nele, o botão nasceu recusado pelo pc_vendas. Sem o próprio par, erro
+        que nomeia o par que falta — nunca a chave de outro destino."""
+        sem_vendas = {k: v for k, v in CERTO.items() if "VENDAS" not in k}
+        r = self.destino("vendas", sem_vendas)
+        self.assertEqual(r["status"], 500)
+        self.assertIn("AZURE_VENDAS_URL/AZURE_VENDAS_KEY não configurados", r["erro"])
+        r = self.destino("vendas", dict(CERTO, AZURE_VENDAS_URL=f"{APP}/api/pc/inadimplencia"))
+        self.assertIn("AZURE_VENDAS_URL aponta para /api/pc/inadimplencia", r["erro"])
 
     def test_2_o_erro_de_05_10_vira_mensagem_que_nomeia_o_secret(self):
         """O secret dos painéis do Automacoes apontando para a rota da inadimplência — o
@@ -109,8 +124,8 @@ class TestRotas(unittest.TestCase):
                 if f.suffix in (".js", ".html", ".py") and not f.name.startswith("test_"):
                     ids |= set(re.findall(r"painel:\s*'([a-z_]+)'",
                                           f.read_text(encoding="utf-8", errors="ignore")))
-        self.assertTrue({"saldo_bancario", "controle_pagamentos", "tarituba", "inadimplencia"} <= ids,
-                        ids)
+        self.assertTrue({"saldo_bancario", "controle_pagamentos", "tarituba", "inadimplencia",
+                         "vendas"} <= ids, ids)
         rotas = set(self.pg.evaluate("Object.keys(window.__ROTAS)"))
         self.assertEqual(ids - rotas, set(), "botão sem destino na tabela")
 

@@ -25,12 +25,20 @@ const INADIMPLENCIA = {
   url: 'AZURE_INADIMPLENCIA_URL', chave: 'AZURE_INADIMPLENCIA_KEY',
   rota: '/api/pc/inadimplencia',       // pc_inadimplencia, luxor-planejamento-functions (Arthur)
 }
+// Vendas entrou no main em 09/10 derivando do par antigo — que naquele dia estava com a
+// chave do pc_inadimplencia, recusada pelo pc_vendas. Aqui ganha o próprio par, como os
+// outros: a chave é a do pc_vendas e mais nenhuma.
+const VENDAS = {
+  url: 'AZURE_VENDAS_URL', chave: 'AZURE_VENDAS_KEY',
+  rota: '/api/pc/vendas',              // pc_vendas, luxor-planejamento-functions (Arthur)
+}
 
 export const ROTAS = {
   saldo_bancario: AUTOMACOES,
   controle_pagamentos: AUTOMACOES,
   tarituba: AUTOMACOES,
   inadimplencia: INADIMPLENCIA,
+  vendas: VENDAS,
 }
 
 /* {url, chave} do destino do painel, ou {erro, status} dizendo o que falta.

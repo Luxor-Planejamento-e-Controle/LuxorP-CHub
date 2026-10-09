@@ -20,6 +20,7 @@
 // Deploy: automático pelo workflow `funcoes` a cada push na main. Secrets:
 //   supabase secrets set AZURE_AUTOMACOES_URL=.../api/reprocessar        AZURE_AUTOMACOES_KEY=<reprocessar_painel>
 //   supabase secrets set AZURE_INADIMPLENCIA_URL=.../api/pc/inadimplencia AZURE_INADIMPLENCIA_KEY=<pc_inadimplencia>
+//   supabase secrets set AZURE_VENDAS_URL=.../api/pc/vendas               AZURE_VENDAS_KEY=<pc_vendas>
 
 import { createClient } from 'jsr:@supabase/supabase-js@2'
 import { destino } from './rotas.js'
@@ -122,8 +123,13 @@ Deno.serve(async (req: Request) => {
   // Destino por painel, cada um com o próprio par de secrets — ver rotas.js. Depois do
   // hub_can de propósito: antes dele, "painel sem botão" contaria a quem não tem acesso
   // quais painéis existem.
+  //
+  // `if (d.erro)` e não `'erro' in d`: o TS normaliza a união inferida do .js com os
+  // campos que faltam como opcionais, e aí o `in` não estreita — o deno check reprovava
+  // (achado do Arthur na revisão). O `?? 500` é só para o compilador: todo ramo de erro
+  // do rotas.js já define `status`.
   const d = destino(painel, (nome: string) => Deno.env.get(nome))
-  if ('erro' in d) return json(req, { erro: d.erro }, d.status)
+  if (d.erro) return json(req, { erro: d.erro }, d.status ?? 500)
   const { url, chave } = d
 
   let resposta: Response
