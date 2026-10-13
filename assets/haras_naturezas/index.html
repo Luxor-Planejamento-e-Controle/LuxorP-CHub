@@ -1,0 +1,275 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Naturezas do Haras · Luxor P&amp;C</title>
+<!-- Fontes oficiais Luxor (Fakt Pro / Fakt Slab Pro), do próprio hub.
+     No repo da planilha o painel trazia uma cópia em `fontes/`; aqui aponta para o
+     arquivo do hub, para não versionar 172 KB de base64 duas vezes. -->
+<link rel="stylesheet" href="../fonts.css">
+<style>
+/* ============================================================
+   Tokens da identidade Luxor P&C.
+   Declarados aqui (não importados do hub) para o painel ser
+   autocontido: abre por file://, sem servidor e sem dependência.
+   Fonte: mesma pilha do hub — usa Fakt Pro se instalada, senão
+   degrada para a de sistema. Nenhum binário copiado.
+   ============================================================ */
+:root{
+  --bg:#0D2126; --bg-2:#113036;
+  --surface:#143840; --surface-2:#1B4650;
+  --ink:#EAF4F4; --ink-2:#A7C3C5; --ink-3:#6E8C90;
+  --orange:#FFA400; --orange-deep:#E08E00; --orange-soft:rgba(255,164,0,.14);
+  --teal:#1D6E79; --teal-light:#2E97A6;
+  --pos:#46B678; --neg:#E5674E; --warn:#F2C14E;
+  --line:rgba(255,255,255,.13); --line-strong:rgba(255,255,255,.24);
+  --r:14px; --r-sm:9px; --ctl-h:36px;
+  /* Largura útil: sem teto, em monitor grande a linha fica longa demais para ler. */
+  --largura-max:1800px;
+  --gutter:26px;
+  --shadow-card:0 1px 3px rgba(0,0,0,.35);
+  --font-sans:"Fakt Pro",system-ui,-apple-system,"Segoe UI",Arial,sans-serif;
+  --font-serif:"Fakt Slab Pro","Fakt Pro",Georgia,serif;
+  /* fundos tingidos dos status — alpha .16 sobre superfície, medido em
+     WCAG: texto --ink sobre eles fica entre 8.0:1 e 12.3:1 */
+  --pos-soft:rgba(70,182,120,.16);
+  --neg-soft:rgba(229,103,78,.16);
+  --warn-soft:rgba(242,193,78,.16);
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{
+  font-family:var(--font-sans);background:var(--bg);color:var(--ink);
+  font-size:14px;line-height:1.45;-webkit-font-smoothing:antialiased;
+}
+::-webkit-scrollbar{width:10px;height:10px}
+::-webkit-scrollbar-thumb{background:var(--surface-2);border-radius:8px}
+::-webkit-scrollbar-track{background:transparent}
+
+/* ---- topbar ---- */
+.topbar{
+  border-bottom:1px solid var(--line);background:var(--bg-2);
+  position:sticky;top:0;z-index:5;
+}
+/* A barra estica de ponta a ponta (o fundo e a borda devem cortar a tela
+   inteira), mas o conteúdo dela segue o mesmo eixo do .content — senão em
+   monitor grande o título fica na borda e os cards centralizados. */
+/* Faixa fina: sobrou só a linha de contexto, já que marca e título vêm do hub.
+   Continua sticky de propósito — a tabela é longa, e saber de que mês é a lista
+   importa depois de rolar cem fornecedores. */
+.topbar-inner{
+  display:flex;align-items:center;gap:16px;flex-wrap:wrap;
+  padding:9px var(--gutter);
+  max-width:var(--largura-max);margin-inline:auto;
+}
+.topbar .sub{color:var(--ink-3);font-size:12px}
+.topbar .spacer{flex:1}
+.content{
+  padding:22px var(--gutter) 56px;
+  max-width:var(--largura-max);
+  /* centraliza: sem isto, em tela mais larga que o teto o painel inteiro fica
+     encostado à esquerda com um vazio à direita */
+  margin-inline:auto;
+}
+
+/* ---- avisos ---- */
+.banner{
+  border-radius:var(--r-sm);padding:11px 15px;font-size:12.5px;margin-bottom:18px;
+  display:flex;gap:10px;align-items:flex-start;
+  background:var(--orange-soft);border:1px solid rgba(255,164,0,.35);color:var(--ink);
+}
+.banner svg{flex:0 0 auto;margin-top:1px}
+.banner b{color:var(--ink)}
+
+/* ---- barra de filtros: UMA linha, acima de tudo que ela filtra ---- */
+.toolbar{display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end;margin-bottom:18px}
+.field{display:flex;flex-direction:column;gap:4px}
+.field label{font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3)}
+select,input[type=search]{
+  background:var(--surface);border:1px solid var(--line);color:var(--ink);
+  padding:0 12px;border-radius:var(--r-sm);font:inherit;font-size:13px;outline:none;
+  height:var(--ctl-h);
+}
+select:focus,input:focus{border-color:var(--orange)}
+input[type=search]{min-width:230px}
+/* O campo de busca pode ENCOLHER, mas não crescer (flex-grow 0). Sem isso, a
+   entrada do seletor de fonte empurrava o botão "Limpar filtros" para uma
+   segunda linha órfã; e deixando crescer, a busca engolia a sobra e empurrava
+   o botão do mesmo jeito. */
+.field.cresce{flex:0 1 220px;min-width:0}
+.field.cresce input[type=search]{width:100%;min-width:150px}
+.seg{
+  display:inline-flex;align-items:center;padding:3px;gap:3px;height:var(--ctl-h);
+  background:var(--surface);border:1px solid var(--line);border-radius:var(--r-sm);
+}
+.seg button{
+  background:transparent;border:0;color:var(--ink-2);padding:0 12px;
+  height:calc(var(--ctl-h) - 8px);border-radius:6px;cursor:pointer;font:inherit;font-size:12px;
+  display:inline-flex;align-items:center;gap:6px;white-space:nowrap;
+}
+.seg button:hover{color:var(--ink)}
+.seg button.on{background:var(--orange);color:#201700;font-weight:600}
+.btn-ghost{
+  background:transparent;border:1px solid var(--line);color:var(--ink-2);height:var(--ctl-h);
+  padding:0 14px;border-radius:var(--r-sm);font:inherit;font-size:13px;cursor:pointer;
+}
+.btn-ghost:hover{border-color:var(--orange);color:var(--orange)}
+
+/* ---- telas estreitas ----
+   Dentro do iframe do hub a largura é a da janela menos os 248px da sidebar (a tela toda
+   abaixo de 760px, quando a sidebar vira overlay). O campo de busca tem base 220px e,
+   sem poder encolher, estourava um iframe de 390px e fazia a PÁGINA rolar na horizontal. */
+@media(max-width:620px){
+  .field,.field.cresce{min-width:0;max-width:100%}
+  .field.cresce input[type=search]{min-width:0}
+  .toolbar{gap:10px}
+}
+.card{
+  background:var(--surface);border:1px solid var(--line);border-radius:var(--r);
+  box-shadow:var(--shadow-card);padding:18px;
+}
+.card-title{display:flex;align-items:center;gap:9px;margin-bottom:14px;flex-wrap:wrap}
+.card-title h2{font-family:var(--font-serif);font-size:15px;margin:0;font-weight:600}
+.card-title .muted{color:var(--ink-3);font-size:12px;font-weight:400}
+
+.tbl-wrap{overflow-x:auto;border-radius:var(--r-sm);max-height:calc(100vh - 200px)}
+table.data{width:100%;border-collapse:collapse;font-size:13px;font-variant-numeric:tabular-nums}
+table.data th{
+  text-align:left;padding:9px 13px;background:#0b1f24;color:var(--ink-2);
+  font-weight:600;font-size:10.5px;letter-spacing:.05em;text-transform:uppercase;
+  position:sticky;top:0;z-index:1;white-space:nowrap;
+}
+table.data th.num,table.data td.num{text-align:right}
+table.data td{padding:8px 13px;border-top:1px solid var(--line);color:var(--ink);vertical-align:top}
+table.data tbody tr:hover td{background:rgba(255,255,255,.03)}
+.sub2{color:var(--ink-3);font-size:11px;margin-top:2px}
+.nowrap{white-space:nowrap}
+.empty{display:grid;place-items:center;text-align:center;padding:60px 20px;color:var(--ink-3)}
+.empty .big{font-size:40px;margin-bottom:10px;opacity:.5}
+.empty code{background:var(--surface-2);padding:2px 7px;border-radius:5px;color:var(--orange);font-size:12.5px}
+
+/* ---- tela de cadastro (CP_CADASTRO) ----
+   Botão primário e caixa de erro não existiam neste painel, que é só de leitura.
+   Os valores vêm do theme.css do hub, não de escolhas novas. */
+.btn-acao{
+  background:var(--orange);border:1px solid var(--orange);color:#201700;height:var(--ctl-h);
+  padding:0 18px;border-radius:var(--r-sm);font:inherit;font-size:13px;font-weight:600;
+  cursor:pointer;display:inline-flex;align-items:center;gap:7px;
+}
+.btn-acao:hover:not(:disabled){background:var(--orange-deep);border-color:var(--orange-deep)}
+.btn-acao:disabled{opacity:.45;cursor:default}
+.erro-box{
+  margin-bottom:14px;padding:11px 14px;border-radius:var(--r-sm);font-size:12.5px;
+  background:rgba(229,103,78,.16);border:1px solid rgba(229,103,78,.45);color:var(--ink);
+}
+.cpc-acoes{
+  display:flex;align-items:center;gap:12px;flex-wrap:wrap;
+  margin-top:20px;padding-top:16px;border-top:1px solid var(--line);
+}
+.cpc-acoes .txt{flex:1;min-width:210px;font-size:12.5px;color:var(--ink-2)}
+
+/* Campos do cadastro: padrão de controle do hub (altura --ctl-h, fundo --surface),
+   o mesmo de qualquer outro campo do produto. */
+table.data input.cpc,table.data select.cpc{
+  background:var(--surface);border:1px solid var(--line);color:var(--ink);
+  height:var(--ctl-h);padding:0 10px;border-radius:var(--r-sm);
+  font:inherit;font-size:13px;max-width:100%;
+}
+table.data input.cpc:focus,table.data select.cpc:focus{border-color:var(--orange);outline:none}
+table.data input.cpc::placeholder{color:var(--ink-3)}
+/* Empresa gravada com grafia que o robô não reconhece. Não é erro de digitação inofensivo:
+   o batimento casa título com fornecedor por este nome, então a linha nunca casaria e
+   apareceria "Não Recebido" todo mês. A borda avisa; o valor fica, para quem vê decidir. */
+table.data select.cpc[data-fora]{border-color:var(--warn);background:var(--warn-soft)}
+table.data.cadastro td{vertical-align:top;padding-top:9px;padding-bottom:9px}
+table.data.cadastro tr.inativo td{opacity:.6}
+table.data.cadastro tr.inativo td:first-child{box-shadow:inset 3px 0 0 var(--ink-3)}
+
+/* ---- específico desta tela ---- */
+table.data.cadastro tr.grupo td{
+  background:#0b1f24;color:var(--ink-2);font-size:11px;letter-spacing:.06em;
+  text-transform:uppercase;font-weight:600;padding:7px 13px;border-top:1px solid var(--line-strong);
+}
+table.data.cadastro tr.grupo .muted{color:var(--ink-3);font-weight:400;text-transform:none;letter-spacing:0}
+/* Código do Bimer que não é inteiro: o campo avisa, e o problema aparece na caixa de erros. */
+table.data input.cpc.ruim{border-color:var(--neg);background:var(--neg-soft)}
+/* Pendente: o dinheiro está FORA do painel por grupo — é o único card que pede ação. */
+.card.destaque{border-color:rgba(229,103,78,.45);background:linear-gradient(180deg,var(--neg-soft),var(--surface) 70%)}
+.card + .card, .card + .toolbar, .erro-box + .card, .banner + .card{margin-top:16px}
+.toolbar{margin-top:18px}
+.btn-mv{
+  background:transparent;border:1px solid var(--line);color:var(--ink-2);width:26px;height:26px;
+  border-radius:6px;cursor:pointer;font:inherit;font-size:13px;line-height:1;padding:0;
+}
+.btn-mv:hover:not(:disabled){border-color:var(--orange);color:var(--orange)}
+.btn-mv:disabled{opacity:.3;cursor:default}
+details > summary{cursor:pointer;list-style:none}
+details > summary::-webkit-details-marker{display:none}
+details > summary::before{content:'▸';color:var(--ink-3);margin-right:8px}
+details[open] > summary::before{content:'▾'}
+.muted{color:var(--ink-3);font-size:12.5px}
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="topbar-inner">
+    <div class="sub" id="pageSub">carregando…</div>
+    <div class="spacer"></div>
+  </div>
+</header>
+
+<div class="content" id="content">
+  <div class="empty"><div>Carregando o cadastro…</div></div>
+</div>
+
+<!-- Os dados vêm do Supabase, não de um .js ao lado:
+
+       cadastro    tabela `app_state`, id 'haras_naturezas' — editado nesta tela
+       pendentes   bucket privado `hub-data`, `haras_naturezas.json`, publicado pelo job
+                   do painel de Gastos (códigos do Bimer que o cadastro não conhece) -->
+<script src="../vendor/supabase.min.js"></script>
+<script src="config.js"></script>
+<script src="hn_dados.js"></script>
+<script src="hn_fonte.js"></script>
+<script src="hn_cadastro.js"></script>
+<script>
+'use strict';
+
+function subtitulo(est) {
+  var n = est.doc.naturezas.length, i = est.doc.ignoradas.length;
+  return n + ' naturezas no Controle · ' + i + ' fora do escopo' +
+    (est.pendentes ? ' · pendentes de ' + String(est.pendentes.gerado_em || '').slice(0, 10)
+      .split('-').reverse().join('/') : '');
+}
+
+async function carregarTela() {
+  var est = await HN_FONTE.carregar();
+  document.getElementById('pageSub').textContent = subtitulo(est);
+  HN_CADASTRO.abrir(document.getElementById('content'), est, {
+    salvar: async function (cad) {
+      var r = await HN_FONTE.salvar(cad);
+      document.getElementById('pageSub').textContent =
+        subtitulo({ doc: r, pendentes: est.pendentes });
+      return r;
+    }
+  });
+}
+
+/* Exposto para os testes. */
+window.HN_PAINEL = { recarregar: carregarTela };
+
+(async function boot() {
+  try {
+    await carregarTela();
+  } catch (e) {
+    document.getElementById('pageSub').textContent = 'não foi possível carregar: ' + e.message;
+    document.getElementById('content').innerHTML =
+      '<div class="erro-box">Não foi possível carregar o cadastro: ' +
+      String(e.message).replace(/[<&]/g, '') + '</div>';
+  }
+})();
+</script>
+</body>
+</html>

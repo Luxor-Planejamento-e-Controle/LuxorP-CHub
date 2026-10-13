@@ -67,7 +67,9 @@ const ICON = {
         + 'M14.6 9.6h-3.4a2 2 0 000 4h1.6a2 2 0 010 4H9.2',
   // Tarituba é um imóvel: prédio, e não `fluxo` — esse já é o Fluxo de Caixa do grupo,
   // e dois ícones iguais no menu é o problema que o comentário acima já resolveu uma vez.
-  imovel:'M4 21V5l8-3v19M12 21V9l8 3v9M2 21h20M7 8h2M7 12h2M7 16h2M15 14h2M15 18h2'
+  imovel:'M4 21V5l8-3v19M12 21V9l8 3v9M2 21h20M7 8h2M7 12h2M7 16h2M15 14h2M15 18h2',
+  // Cadastro de naturezas: lista com marcadores. `proj` (checklist) já é o de Projetos.
+  lista:'M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01'
 };
 const ROUTES = [
   {id:'', title:'Início', sub:'Hub de Planejamento & Controle', icon:'home', render:renderHome},
@@ -80,6 +82,7 @@ const ROUTES = [
   {id:'saldo_bancario', title:'Saldo Bancário', sub:'Projeção de caixa da semana — Grupo Luxor', icon:'moeda', render:renderSaldoBancario},
   {id:'controle_pagamentos', title:'Controle de Pagamentos', sub:'Fornecedores fixos do mês e o que já foi pago', icon:'pagamentos', render:renderControlePagamentos},
   {id:'tarituba', title:'Fluxo de Caixa — Tarituba', sub:'Orçado × realizado do imóvel, mês a mês', icon:'imovel', render:renderTarituba},
+  {id:'haras_naturezas', title:'Naturezas do Haras', sub:'Cadastro que monta o painel de Gastos do Haras', icon:'lista', render:renderHarasNaturezas},
 ];
 // Rotas que o usuário logado pode abrir (Início sempre). Fora da allowlist a
 // aba nem aparece — e o dado dela nem foi baixado (ver assets/auth.js).
@@ -95,6 +98,7 @@ function temDado(id, hub){
   if(id==='saldo_bancario') return true;          // lê o bucket e app_state por conta própria
   if(id==='controle_pagamentos') return true;     // idem
   if(id==='tarituba') return true;                // idem
+  if(id==='haras_naturezas') return true;         // idem
   return true;                                    // Projetos lê direto do Postgres
 }
 function allowed(){
@@ -932,6 +936,15 @@ function renderControlePagamentos(el){
 function renderTarituba(el){
   el.classList.add('flush');
   el.innerHTML=`<iframe class="embed" src="assets/tarituba/index.html" title="Fluxo de Caixa — Tarituba"></iframe>`;
+}
+
+/* ---- Naturezas do Haras (mesmo padrão) ----
+   O cadastro que o job do Azure lê para montar o painel de Gastos do Haras (publicado no
+   HubHPG). Mantido na própria tela e gravado em app_state. Por isso iframe com src local:
+   a página precisa gravar, não só mostrar. */
+function renderHarasNaturezas(el){
+  el.classList.add('flush');
+  el.innerHTML=`<iframe class="embed" src="assets/haras_naturezas/index.html" title="Naturezas do Haras"></iframe>`;
 }
 
 /* ---- sidebar: desktop colapsa pra ícone, mobile vira drawer ----

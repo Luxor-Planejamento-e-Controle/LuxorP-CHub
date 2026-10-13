@@ -37,7 +37,7 @@ create table if not exists user_dashboard_access (
   email      text not null references allowed_users(email) on update cascade on delete cascade,
   dashboard  text not null check (dashboard in
                ('indicadores','dre','inadimplencia','vendas','projetos','fluxo','participacoes','plantel',
-                'saldo_bancario','controle_pagamentos','tarituba')),
+                'saldo_bancario','controle_pagamentos','tarituba','haras_naturezas')),
   granted_at timestamptz not null default now(),
   primary key (email, dashboard)
 );
@@ -54,7 +54,7 @@ alter table user_dashboard_access drop constraint if exists user_dashboard_acces
 alter table user_dashboard_access add constraint user_dashboard_access_dashboard_check
   check (dashboard in
           ('indicadores','dre','inadimplencia','vendas','projetos','fluxo','participacoes','plantel',
-           'saldo_bancario','controle_pagamentos','tarituba'));
+           'saldo_bancario','controle_pagamentos','tarituba','haras_naturezas'));
 
 -- ---------------------------------------------------------------------
 -- 3) Helpers. SECURITY DEFINER para as policies não recursarem na própria
@@ -142,8 +142,9 @@ create policy hub_data_read on storage.objects
 --      id = 'projetos'             Controle de Projetos
 --      id = 'saldo_bancario'       saldo de cada conta, entradas, provisões
 --      id = 'controle_pagamentos'  cadastro de fornecedores fixos
+--      id = 'haras_naturezas'      cadastro de naturezas do painel de Gastos do Haras
 --
---    Mora AQUI, e não num arquivo por painel, porque a RLS é DA TABELA: as seis
+--    Mora AQUI, e não num arquivo por painel, porque a RLS é DA TABELA: as oito
 --    policies abaixo só fazem sentido lidas juntas. Enquanto estiveram em três
 --    arquivos, cada um declarou uma policy válida para a tabela inteira sem saber
 --    das outras — e policies permissivas SOMAM (OR). O resultado era acesso
@@ -210,6 +211,20 @@ create policy hub_controle_pagamentos_update on app_state
   using      ( id = 'controle_pagamentos' and public.hub_can('controle_pagamentos') )
   with check ( id = 'controle_pagamentos' and public.hub_can('controle_pagamentos') );
 
+-- Cadastro de naturezas do painel de Gastos do Haras. Quem EDITA é a Controladoria,
+-- aqui; o painel em si é publicado no HubHPG pelo job do Azure, que lê este documento
+-- com a service role.
+drop policy if exists hub_haras_naturezas_select on app_state;
+create policy hub_haras_naturezas_select on app_state
+  for select to authenticated
+  using ( id = 'haras_naturezas' and public.hub_can('haras_naturezas') );
+
+drop policy if exists hub_haras_naturezas_update on app_state;
+create policy hub_haras_naturezas_update on app_state
+  for update to authenticated
+  using      ( id = 'haras_naturezas' and public.hub_can('haras_naturezas') )
+  with check ( id = 'haras_naturezas' and public.hub_can('haras_naturezas') );
+
 -- Linha de cada painel, vazia. O conteúdo real vem do seed (sql/*.local.sql, não
 -- versionado: este repo é público e colchão de conta e fornecedor com valor são
 -- dado interno) e depois é mantido pela própria tela.
@@ -217,10 +232,17 @@ create policy hub_controle_pagamentos_update on app_state
 --   projetos            : lista de projetos            -> '[]'
 --   saldo_bancario      : { contas, entradas, provisoes }
 --   controle_pagamentos : { fornecedores }
+--   haras_naturezas     : { versao, naturezas, ignoradas }
 --
 -- Em saldo_bancario, a chave de `entradas` e `provisoes` é a QUARTA-FEIRA da
 -- semana: a projeção sempre foi de quarta a quarta, e guardar por semana preserva
 -- o histórico.
+--
+-- Em haras_naturezas, `naturezas` é o que entra no Controle (ordem, cod, nome, resp,
+-- path = grupos da raiz ao pai, bimer = códigos numéricos do Bimer que contam para ela)
+-- e `ignoradas` é o que o Bimer traz e está FORA do escopo por decisão. Código que não
+-- está em nenhuma das duas é PENDENTE — a tela lista para alguém decidir. O conteúdo
+-- real vem do seed (sql/haras_naturezas.local.sql, não versionado).
 --
 -- Em controle_pagamentos, (ano, cod, empresa, contagem) é a chave do batimento: o
 -- mesmo fornecedor pode ter mais de um título fixo no mês, e a N-ésima linha do
@@ -229,7 +251,8 @@ create policy hub_controle_pagamentos_update on app_state
 insert into app_state (id, data) values
   ('projetos',            '[]'::jsonb),
   ('saldo_bancario',      '{}'::jsonb),
-  ('controle_pagamentos', '{}'::jsonb)
+  ('controle_pagamentos', '{}'::jsonb),
+  ('haras_naturezas',     '{}'::jsonb)
 on conflict (id) do nothing;
 
 -- Realtime: sem isto o app sobe e salva, mas os clientes não se sincronizam —

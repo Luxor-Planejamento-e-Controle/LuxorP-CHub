@@ -26,6 +26,8 @@ const HUB_DATASETS = {
   // o painel baixa o snapshot do bucket por conta própria, dentro do iframe,
   // porque precisa recarregar depois de gravar o formulário
   saldo_bancario: null, controle_pagamentos: null,
+  // idem: lê o cadastro (app_state) e a lista de pendentes (bucket) por conta própria
+  haras_naturezas: null,
   // idem: relê o snapshot depois do "Atualizar agora" e o status do card do Trello
   tarituba: null,
 };
