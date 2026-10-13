@@ -1646,5 +1646,148 @@ class TestExportPdf(unittest.TestCase):
                 self.assertIn("não movimenta dinheiro", p)
 
 
+class TestCardTrello(unittest.TestCase):
+    """Botão "Criar card no Trello" (09/10/2026) — mesma rede real interceptada dos
+    outros testes deste arquivo, agora incluindo a Edge Function `reprocessar` e o
+    arquivo `saldo_bancario.card.json`, como em `assets/tarituba/test_painel.py`.
+
+    O painel abre direto na projeção (saldos já informados nesta fixture) porque o
+    botão só existe fora do formulário."""
+
+    @classmethod
+    def setUpClass(cls):
+        try:
+            from playwright.sync_api import sync_playwright
+        except ImportError:
+            raise unittest.SkipTest("playwright não instalado")
+
+        cls.estado = json.loads(json.dumps(ESTADO_INICIAL))
+        semana = FATOS["meta"]["janela_inicio"]   # 2026-09-09
+        cls.estado["entradas"] = {semana: [
+            {"chave": chave, "saldo": float(v.replace(".", "").replace(",", "."))}
+            for chave, v in SALDOS.items()]}
+        cls.card = None               # saldo_bancario.card.json, antes do clique
+        cls.pedidos = []              # corpos enviados à Edge Function
+        cls.card_depois = None        # o que o card.json passa a ser depois do pedido
+        cls.erros = []
+
+        cls._pw = sync_playwright().start()
+        cls._b = cls._pw.chromium.launch()
+        cls.pg = cls._b.new_page(viewport={"width": 1400, "height": 900})
+        cls.pg.on("pageerror", lambda e: cls.erros.append(str(e)))
+
+        def rota(route, request):
+            url = request.url
+            if "/functions/v1/reprocessar" in url:
+                if request.method == "OPTIONS":
+                    return route.fulfill(status=200,
+                                         headers={"Access-Control-Allow-Origin": "*",
+                                                  "Access-Control-Allow-Headers": "*"})
+                corpo = json.loads(request.post_data or "{}")
+                cls.pedidos.append(corpo)
+                if cls.card_depois is not None:
+                    cls.card = cls.card_depois
+                return route.fulfill(status=202, content_type="application/json",
+                                     headers={"Access-Control-Allow-Origin": "*"},
+                                     body=json.dumps({"aceito": True}))
+            if "/storage/v1/object/" in url:
+                caminho = url.split("?")[0]
+                if caminho.endswith("/saldo_bancario.card.json"):
+                    if cls.card is None:
+                        return route.fulfill(
+                            status=400, content_type="application/json",
+                            body=json.dumps({"statusCode": "404", "error": "not_found",
+                                             "message": "Object not found"}))
+                    return route.fulfill(status=200, content_type="application/json",
+                                         body=json.dumps(cls.card))
+                return route.fulfill(status=200, content_type="application/json",
+                                     body=json.dumps(FATOS))
+            if "/rest/v1/app_state" in url:
+                return route.fulfill(status=200,
+                                     content_type="application/vnd.pgrst.object+json",
+                                     body=json.dumps({"data": cls.estado,
+                                                      "updated_at": "v1"}))
+            return route.continue_()
+
+        cls.pg.route("**/*.supabase.co/**", rota)
+        cls.pg.add_init_script("window.HUB = {email:'fulano@luxor.com.br'};")
+        cls.pg.goto((AQUI / "index.html").as_uri())
+        cls.pg.wait_for_timeout(1500)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls._b.close()
+        cls._pw.stop()
+
+    def test_1_abriu_direto_na_projecao(self):
+        self.assertTrue(self.pg.is_visible("#btCardTrello"))
+        self.assertEqual(self.erros, [])
+
+    def test_2_botao_manda_acao_e_o_mes_da_janela_publicada(self):
+        """O mês vem de `D.janela[0]` (a janela PUBLICADA, "2026-09-09" -> setembro),
+        não do relógio de quem clicou nem de nenhum seletor na tela — este painel, ao
+        contrário do Tarituba, não tem escolha de mês na tela."""
+        # classe, não instância: a rota fechou sobre `cls` em setUpClass, e `self.x = ...`
+        # criaria um atributo de instância que a rota nunca veria.
+        type(self).card_depois = {"ok": True, "gerado_em": "2026-09-18T12:00:00-03:00",
+                                  "card_url": "https://trello.com/c/abc123",
+                                  "lista": "Planilha Setembro 2026", "card_novo": True,
+                                  "dados_de": "11/09/2026 11:47", "semana": "2026-09-09"}
+        self.pg.click("#btCardTrello")
+        self.pg.wait_for_timeout(7000)   # reprocessar.js relê o carimbo a cada 5s
+        self.assertEqual(self.pedidos, [{"painel": "saldo_bancario", "acao": "card_trello",
+                                         "mes": 9}])
+        st = self.pg.text_content("#cardStatus")
+        self.assertIn("Card criado", st)
+        self.assertIn("Planilha Setembro 2026", st)
+        self.assertEqual(self.pg.get_attribute("#cardStatus a", "href"),
+                         "https://trello.com/c/abc123")
+
+    def test_3_erro_vira_mensagem_com_classe_erro(self):
+        pg = type(self)._b.new_page(viewport={"width": 1400, "height": 900})
+        try:
+            card_depois = {"ok": False, "gerado_em": "2026-09-18T12:05:00-03:00",
+                           "erro": "Não existe lista de Setembro 2026 no board do Trello."}
+            card_atual = {"card": None}
+
+            def rota(route, request):
+                url = request.url
+                if "/functions/v1/reprocessar" in url:
+                    if request.method == "OPTIONS":
+                        return route.fulfill(status=200,
+                                             headers={"Access-Control-Allow-Origin": "*",
+                                                      "Access-Control-Allow-Headers": "*"})
+                    card_atual["card"] = card_depois
+                    return route.fulfill(status=202, content_type="application/json",
+                                         headers={"Access-Control-Allow-Origin": "*"},
+                                         body=json.dumps({"aceito": True}))
+                if "/storage/v1/object/" in url:
+                    if url.split("?")[0].endswith("/saldo_bancario.card.json"):
+                        if card_atual["card"] is None:
+                            return route.fulfill(
+                                status=400, content_type="application/json",
+                                body=json.dumps({"statusCode": "404",
+                                                 "message": "Object not found"}))
+                        return route.fulfill(status=200, content_type="application/json",
+                                             body=json.dumps(card_atual["card"]))
+                    return route.fulfill(status=200, content_type="application/json",
+                                         body=json.dumps(FATOS))
+                if "/rest/v1/app_state" in url:
+                    return route.fulfill(
+                        status=200, content_type="application/vnd.pgrst.object+json",
+                        body=json.dumps({"data": self.estado, "updated_at": "v1"}))
+                return route.continue_()
+
+            pg.route("**/*.supabase.co/**", rota)
+            pg.add_init_script("window.HUB = {email:'fulano@luxor.com.br'};")
+            pg.goto((AQUI / "index.html").as_uri())
+            pg.wait_for_timeout(1500)
+            pg.click("#btCardTrello")
+            pg.wait_for_timeout(7000)
+            self.assertIn("Não existe lista de Setembro 2026", pg.text_content("#cardStatus"))
+            self.assertIn("erro", pg.get_attribute("#cardStatus", "class"))
+        finally:
+            pg.close()
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
