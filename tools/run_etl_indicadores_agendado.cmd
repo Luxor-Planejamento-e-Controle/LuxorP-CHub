@@ -3,7 +3,7 @@ rem Wrapper de agendamento do pipeline Indicadores (tools\run_etl_indicadores.py
 rem indices de mercado -> cotas CVM -> build_data -> publish_hub.
 rem
 rem Amarra a republicacao do hub a atualizacao dos indicadores: roda depois do
-rem Container App Job (cron 0 11 1-20 * * = 08:00 BRT), pega o Blob ja
+rem Container App Job (cron 0 15,21 1-3,5-16 * * = 12:00 e 18:00 BRT), pega o Blob ja
 rem atualizado e republica o snapshot indicadores.json no bucket hub-data.
 rem
 rem Usado pela tarefa agendada "Luxor - ETL Indicadores (hub)". Sem argumento o

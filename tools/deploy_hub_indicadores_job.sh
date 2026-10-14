@@ -3,12 +3,14 @@
 # indicadores.json -> bucket privado do Supabase.
 #
 # Por que existe: o cálculo dos índices já era automático no Azure
-# (financial-indicators-job, cron 11:00 UTC), mas a REPUBLICAÇÃO do snapshot que
+# (financial-indicators-job, cron 15:00 e 21:00 UTC), mas a REPUBLICAÇÃO do snapshot que
 # o painel lê rodava numa tarefa agendada do Windows — logo, só com a máquina
 # ligada, logada e sem ninguém fechar a janela do console. Em 13/08, 17/08 e
 # 01/09/2026 essa tarefa morreu com CTRL+C e o painel ficou com dado velho.
 #
-# Roda 30 min depois do job de índices, nos mesmos dias (1-3 e 5-16).
+# Roda 30 min depois de cada horário do job de índices, nos mesmos dias (1-3 e
+# 5-16): 12:30 e 18:30 BRT. Ver FinancialIndicators/DEPLOY.md, seção 3, para o
+# porquê dos horários (até 14/10/2026 rodava antes do IPCA/CPI do dia sair).
 #
 # Credenciais: lidas dos .env locais na hora de rodar; nada fica no repo. São
 # gravadas como secret do job e referenciadas por secretref.
@@ -28,7 +30,7 @@ RG=rg-luxor
 ENV_NOME=luxor-env
 JOB_IRMAO=financial-indicators-job   # de onde sai o ID do environment
 IMAGE=luxoracr.azurecr.io/hub-indicadores:latest
-CRON="30 11 1-3,5-16 * *"
+CRON="30 15,21 1-3,5-16 * *"
 
 # Sem isso o az CLI no Windows quebra com UnicodeEncodeError (cp1252) ao imprimir
 # log/erro com acento, e o erro real se perde.

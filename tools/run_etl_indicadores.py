@@ -31,8 +31,11 @@ lê o que estiver publicado no Blob.
 Agendamento: `run_etl_indicadores_agendado.cmd` (wrapper com log), lançado sem
 janela por `run_etl_indicadores_oculto.vbs`, + tarefa
 "Luxor - ETL Indicadores (hub)", definida em `etl_indicadores_task.xml` — dias
-1-3 e 5-16 às 09:30 BRT, depois do Container App Job (cron 11:00 UTC = 08:00
-BRT). 09:30 porque esta tarefa precisa da máquina ligada e do G: montado.
+1-3 e 5-16 às 13:00 e 17:00 BRT. Até 14/10/2026 era 09:30, cedo demais: o IPCA
+(IBGE 09:00, BCB depois) e o CPI (BLS 09:30 BRT, FRED depois) ainda não estavam na
+fonte e ficavam para o dia útil seguinte. 13:00 vem depois do Container App Job
+das 12:00; 17:00 é a segunda chance com a máquina ainda ligada (precisa dela e do
+G: montado).
 Só esses dias porque é quando índice é liberado: 1-3 fecha o mês (dólar e as
 diárias), 5-16 cobre cotas CVM (5º dia útil), IPCA e CPI.
 
