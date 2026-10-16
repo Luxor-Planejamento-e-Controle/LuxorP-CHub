@@ -585,7 +585,7 @@ tr.confere.forte>td{font-weight:600;color:var(--ink-2)}
   * { -webkit-print-color-adjust:exact !important; print-color-adjust:exact !important; }
   /* controles interativos não fazem sentido num PDF estático */
   #nav-slot, #btn-export-pdf, #btn-card-trello, #card-status, #btn-atualizar, #reproc-status,
-  .seg, #sel-mes-simples,
+  #btn-cadastro, .seg, #sel-mes-simples,
   label[for="sel-mes-simples"], .aviso-saldo, .rodape-proc,
   #banner-slot, #b-avisos { display:none !important; }
   /* `--largura-max`/padding de `.content` existem pra tela; na impressão o
@@ -594,6 +594,68 @@ tr.confere.forte>td{font-weight:600;color:var(--ink-2)}
   .content{ max-width:none !important; padding:0 !important; }
   .card{ box-shadow:none !important }
 }
+
+/* ── CADASTRO DE NATUREZAS (tt_cadastro.js) ──
+   Mesmo desenho do cadastro de naturezas do Haras e do Controle de Pagamentos; as cores
+   são os tokens do theme.css do hub (laranja no lugar do âmbar do HPG). */
+[hidden]{display:none !important}
+.tt-cad-topo{display:flex;align-items:center;gap:14px;margin-bottom:16px}
+.tt-cad-topo h2{margin:0;font-size:17px}
+.erro-box{margin-bottom:14px;padding:11px 14px;border-radius:var(--r-sm);font-size:12.5px;
+  background:rgba(229,103,78,.16);border:1px solid rgba(229,103,78,.45);color:var(--ink)}
+.cpc-acoes{display:flex;align-items:center;gap:12px;flex-wrap:wrap;
+  margin-top:20px;padding-top:16px;border-top:1px solid var(--line)}
+.cpc-acoes .txt{flex:1;min-width:210px;font-size:12.5px;color:var(--ink-2)}
+table.data input.cpc,table.data select.cpc{background:var(--surface);border:1px solid var(--line);
+  color:var(--ink);height:var(--ctl-h);padding:0 10px;border-radius:var(--r-sm);
+  font:inherit;font-size:13px;max-width:100%;color-scheme:dark}
+table.data input.cpc:focus,table.data select.cpc:focus{border-color:var(--orange);outline:none}
+table.data input.cpc::placeholder{color:var(--ink-3)}
+table.data.cadastro td{vertical-align:top;padding-top:9px;padding-bottom:9px}
+/* largura dos CAMPOS, não da tela: esticada a 100%, a tabela espremia o seletor de grupo
+   e o caminho do grupo aparecia cortado */
+table.data.cadastro{width:auto}
+table.data.cadastro th{text-align:left}
+table.data.cadastro th,table.data.cadastro td{min-width:0;width:auto}
+table.data.cadastro tr.grupo td{background:#0b1f24;color:var(--ink-2);font-size:11px;
+  letter-spacing:.06em;text-transform:uppercase;font-weight:600;padding:7px 13px;
+  border-top:1px solid var(--line-strong)}
+table.data.cadastro tr.grupo .muted{color:var(--ink-3);font-weight:400;text-transform:none;letter-spacing:0}
+table.data.cadastro tr.nova td{background:var(--orange-soft);animation:tt-nova 6s ease-out forwards}
+@keyframes tt-nova{to{background:transparent}}
+.card.destaque{border-color:rgba(229,103,78,.45);
+  background:linear-gradient(180deg,rgba(229,103,78,.14),var(--surface) 70%)}
+#view > .card + .card, #view > .card + .toolbar, #view > .erro-box + .card,
+#view > .banner + .card, #view > div + .card{margin-top:16px}
+#view > .toolbar{margin-top:18px}
+.btn-mv{background:transparent;border:1px solid var(--line);color:var(--ink-2);width:26px;height:26px;
+  border-radius:6px;cursor:pointer;font:inherit;font-size:13px;line-height:1;padding:0}
+.btn-mv:hover:not(:disabled){border-color:var(--orange);color:var(--orange)}
+.btn-mv:disabled{opacity:.3;cursor:default}
+.btn-lixo{background:transparent;border:1px solid var(--line);color:var(--ink-2);border-radius:6px;
+  width:28px;height:26px;cursor:pointer;display:grid;place-items:center;padding:0}
+.btn-lixo:hover{border-color:var(--neg);color:var(--neg)}
+.sub2{color:var(--ink-3);font-size:11px;margin-top:2px}
+.nowrap{white-space:nowrap}
+.muted{color:var(--ink-3);font-size:12.5px}
+.modal-fundo{position:fixed;inset:0;z-index:50;background:rgba(2,14,18,.72);
+  display:flex;align-items:flex-start;justify-content:center;padding:32px 16px;overflow:auto}
+.modal{width:100%;max-width:560px;background:var(--surface);border:1px solid var(--line-strong);
+  border-radius:var(--r);box-shadow:0 12px 40px rgba(0,0,0,.55);padding:22px}
+.modal h2{font-size:17px;margin:0 0 14px;font-weight:600}
+.form-campo{display:flex;flex-direction:column;gap:5px;margin-bottom:14px}
+.form-campo label{font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3);font-weight:600}
+.form-campo input,.form-campo select{width:100%;box-sizing:border-box;background:var(--bg-2);
+  border:1px solid var(--line);color:var(--ink);height:var(--ctl-h);padding:0 11px;
+  border-radius:var(--r-sm);font:inherit;font-size:13.5px;color-scheme:dark}
+.form-campo input:focus,.form-campo select:focus{border-color:var(--orange);outline:none;
+  box-shadow:0 0 0 3px var(--orange-soft)}
+.form-dica{font-size:11.5px;color:var(--ink-3)}
+.form-erro{font-size:12px;color:var(--neg)}
+.form-erro:empty{display:none}
+.form-falta{font-size:12.5px;color:var(--ink-2);min-height:18px;margin:2px 0 4px}
+.form-acoes{display:flex;justify-content:flex-end;gap:10px;margin-top:10px;padding-top:16px;
+  border-top:1px solid var(--line)}
 </style>
 </head>
 <!-- hub-ready: o theme.css do hub esconde .app até o porteiro de login liberar
@@ -620,6 +682,11 @@ tr.confere.forte>td{font-weight:600;color:var(--ink-2)}
                 title="Refaz o painel no Azure com as planilhas e o Bimer de agora (~10 min)">
           Atualizar agora</button>
         <button type="button" class="btn-ghost" id="btn-export-pdf">⬇ Exportar PDF</button>
+        <!-- O cadastro abre DENTRO do painel, como o do Controle de Pagamentos: quem
+             cuida do painel cuida do cadastro. O app.js o mostra só no hub. -->
+        <button type="button" class="btn-ghost" id="btn-cadastro" hidden
+                title="Quais naturezas aparecem, em que grupo e em que ordem">
+          Editar cadastro de naturezas</button>
         <span class="chip" id="chip-fonte">
           <span class="dot" style="background:var(--teal-light)"></span>
           <span id="chip-fonte-txt">—</span>
@@ -642,6 +709,8 @@ tr.confere.forte>td{font-weight:600;color:var(--ink-2)}
 <script src="../vendor/supabase.min.js"></script>
 <script src="config.js"></script>
 <script src="../reprocessar.js"></script>
+<script src="tt_dados.js"></script>
+<script src="tt_cadastro.js"></script>
 <!-- baixa o dado do bucket e SÓ ENTÃO carrega o app.js (que lê o dado no topo) -->
 <script src="tt_fonte.js"></script>
 </body>

@@ -12,6 +12,7 @@ Uso: python assets/tarituba/test_painel.py   (da raiz do repo do hub)
 import json
 import pathlib
 import unittest
+import urllib.parse
 
 AQUI = pathlib.Path(__file__).resolve().parent
 
@@ -77,6 +78,10 @@ class Estado:
         self.pedidos = []           # corpos enviados à Edge Function
         self.card_depois = None     # o que o card.json passa a ser depois do pedido
         self.painel_depois = None   # o que o tarituba.json passa a ser depois do "Atualizar agora"
+        self.cadastro = {}          # app_state 'tarituba' (o cadastro de naturezas)
+        self.versao = "2026-10-01T00:00:00+00:00"
+        self.gravacoes = []
+        self.conflito = False       # outra pessoa gravou no meio do caminho
 
 
 def _com_saldos(payload, pendente=1, planilha=None):
@@ -122,6 +127,23 @@ def _abrir(cls, estado, pagina="simples", locais=None):
             return route.fulfill(status=202, content_type="application/json",
                                  headers={"Access-Control-Allow-Origin": "*"},
                                  body=json.dumps({"aceito": True}))
+        if "/rest/v1/app_state" in url:
+            if request.method in ("PATCH", "POST"):
+                # guarda de concorrência: o UPDATE leva `updated_at=eq.<versão lida>`; versão
+                # vencida não casa linha nenhuma e o PostgREST devolve lista vazia
+                pedida = None
+                if "updated_at=eq." in url:
+                    pedida = urllib.parse.unquote(url.split("updated_at=eq.")[1].split("&")[0])
+                if estado.conflito or (pedida is not None and pedida != estado.versao):
+                    return route.fulfill(status=200, content_type="application/json", body="[]")
+                corpo = json.loads(request.post_data)
+                estado.gravacoes.append(corpo)
+                estado.cadastro = corpo["data"]
+                estado.versao = corpo.get("updated_at") or estado.versao
+                return route.fulfill(status=200, content_type="application/json",
+                                     body=json.dumps([{"id": "tarituba", "updated_at": estado.versao}]))
+            return route.fulfill(status=200, content_type="application/vnd.pgrst.object+json",
+                                 body=json.dumps({"data": estado.cadastro, "updated_at": estado.versao}))
         if "/storage/v1/object/" in url:
             if url.split("?")[0].endswith("/tarituba.card.json"):
                 doc = estado.card
@@ -357,6 +379,180 @@ class TestSaldoNoPainel(unittest.TestCase):
             " while (n && !n.offsetHeight) n = n.nextElementSibling;"
             " return n.getBoundingClientRect().top; })()")
         self.assertGreaterEqual(topo_seguinte - fim_form, 16)
+
+
+def _cadastro():
+    """Cadastro sintético coerente com `_payload()`: as mesmas 3 naturezas e grupos."""
+    return {"versao": 1, "naturezas": [
+        {"ordem": 10, "aba": "receitas", "cod": "13.1.1.01.01", "nome": "RENDIMENTOS",
+         "bimer": "000001", "path": ["Receitas", "Receita Financeira"]},
+        {"ordem": 20, "aba": "despesas", "cod": "13.2.1.01.01", "nome": "SALARIOS",
+         "bimer": "000002", "path": ["Despesas", "Despesas Gerais", "Pessoal"]},
+        {"ordem": 30, "aba": "despesas", "cod": "13.2.1.01.02", "nome": "SERVICOS",
+         "bimer": "000003", "path": ["Despesas", "Despesas Gerais"]},
+    ]}
+
+
+PENDENTE = {"cod": "13.2.1.01.77", "nome": "NOVA <b>NATUREZA</b>", "bimer": "001999",
+            "aba": "despesas", "valor": -40.0}
+
+
+class TestCadastroNaturezas(unittest.TestCase):
+    """O botão "Editar cadastro de naturezas" e a tela que ele abre (16/10/2026)."""
+
+    @classmethod
+    def setUpClass(cls):
+        try:
+            import playwright  # noqa: F401
+        except ImportError:
+            raise unittest.SkipTest("playwright não instalado")
+
+    @classmethod
+    def tearDownClass(cls):
+        if hasattr(cls, "_pw"):
+            cls._b.close()
+            cls._pw.stop()
+
+    def abrir(self, pendentes=(), cadastro=True):
+        est = Estado()
+        est.painel["pendentes"] = list(pendentes)
+        est.painel["meta"]["estrutura"] = {"origem": "cadastro"}
+        est.cadastro = _cadastro() if cadastro else {}
+        pg, erros = _abrir(self, est, pagina="resumo")
+        self.addCleanup(pg.close)
+        self.erros, self.est = erros, est
+        return pg
+
+    def entrar(self, pg):
+        pg.click("#btn-cadastro")
+        pg.wait_for_selector("table.cadastro")
+
+    def nomes(self, pg):
+        return pg.eval_on_selector_all("table.cadastro input[data-campo='nome']",
+                                       "xs => xs.map(x => x.value)")
+
+    def test_1_botao_abre_o_cadastro_dentro_do_painel(self):
+        pg = self.abrir()
+        self.assertTrue(pg.is_visible("#btn-cadastro"))
+        self.entrar(pg)
+        self.assertEqual(self.nomes(pg), ["RENDIMENTOS", "SALARIOS", "SERVICOS"])
+        self.assertFalse(pg.is_visible("#nav-slot"), "a navegação do painel some no cadastro")
+        self.assertTrue(pg.is_disabled("#ttSalvar"), "nada alterado, nada a gravar")
+        self.assertIn("Receitas › Receita Financeira",
+                      pg.text_content("table.cadastro tr.grupo"))
+        self.assertEqual(self.erros, [])
+
+    def test_2_editar_e_gravar_carimba_so_o_que_mudou(self):
+        pg = self.abrir()
+        self.entrar(pg)
+        pg.fill("table.cadastro tr:has(input[value='SALARIOS']) input[data-campo='nome']",
+                "SALARIOS E ORDENADOS")
+        self.assertFalse(pg.is_disabled("#ttSalvar"))
+        pg.click("#ttSalvar")
+        pg.wait_for_timeout(500)
+        self.assertEqual(len(self.est.gravacoes), 1)
+        nats = {n["cod"]: n for n in self.est.gravacoes[0]["data"]["naturezas"]}
+        self.assertEqual(nats["13.2.1.01.01"]["nome"], "SALARIOS E ORDENADOS")
+        self.assertIn("atualizado_em", nats["13.2.1.01.01"])
+        self.assertNotIn("atualizado_em", nats["13.1.1.01.01"], "carimbo só no que mudou")
+        self.assertNotIn("uid", nats["13.2.1.01.01"], "campo da tela não vai para o banco")
+        self.assertIn("Cadastro gravado", pg.text_content("#ttStatus"))
+
+    def test_3_problema_bloqueia_a_gravacao(self):
+        """Mesma regra do validar() do Python: o Azure recusaria publicar."""
+        pg = self.abrir()
+        self.entrar(pg)
+        pg.fill("table.cadastro tr:has(input[value='SALARIOS']) input[data-campo='bimer']", "12a")
+        self.assertTrue(pg.is_visible(".erro-box"))
+        self.assertIn("Bimer", pg.text_content(".erro-box"))
+        self.assertTrue(pg.is_disabled("#ttSalvar"))
+        pg.fill("table.cadastro tr:has(input[value='SALARIOS']) input[data-campo='bimer']", "000003")
+        self.assertIn("código do Bimer", pg.text_content(".erro-box"), "repetido com SERVICOS")
+        self.assertTrue(pg.is_disabled("#ttSalvar"))
+
+    def test_4_pendente_vira_natureza(self):
+        pg = self.abrir(pendentes=[PENDENTE])
+        self.entrar(pg)
+        self.assertIn("13.2.1.01.77", pg.text_content(".card.destaque"))
+        self.assertEqual(pg.query_selector_all(".card.destaque b"), [], "nome da API não vira HTML")
+        pg.click("[data-pa='0']")
+        self.assertEqual(pg.input_value("#ttFCod"), "13.2.1.01.77", "a API já traz o código")
+        self.assertEqual(pg.input_value("#ttFBimer"), "001999")
+        self.assertTrue(pg.is_disabled("#ttFAdd"), "falta o grupo")
+        pg.select_option("#ttFGrupo", "Despesas › Despesas Gerais › Pessoal")
+        pg.fill("#ttFNome", "NOVA NATUREZA")
+        pg.click("#ttFAdd")
+        self.assertEqual(pg.query_selector_all(".card.destaque"), [], "classificada sai dos pendentes")
+        self.assertIn("NOVA NATUREZA", self.nomes(pg))
+        pg.click("#ttSalvar")
+        pg.wait_for_timeout(500)
+        nova = [n for n in self.est.gravacoes[0]["data"]["naturezas"] if n["cod"] == "13.2.1.01.77"][0]
+        self.assertEqual((nova["aba"], nova["bimer"], nova["path"]),
+                         ("despesas", "001999", ["Despesas", "Despesas Gerais", "Pessoal"]))
+        salario = [n for n in self.est.gravacoes[0]["data"]["naturezas"] if n["cod"] == "13.2.1.01.01"][0]
+        self.assertGreater(nova["ordem"], salario["ordem"], "entra no fim do grupo")
+
+    def test_5_grupo_novo_tem_de_comecar_pelo_total_da_aba(self):
+        pg = self.abrir()
+        self.entrar(pg)
+        pg.click("#ttAdd")
+        pg.fill("#ttFNome", "X")
+        pg.fill("#ttFCod", "13.2.1.01.50")
+        pg.fill("#ttFBimer", "000050")
+        pg.select_option("#ttFGrupo", "__novo__")
+        pg.fill("#ttFNovoGrupo", "Outra Raiz > Grupo")
+        self.assertIn("total da aba", pg.text_content("[data-erro='grupo']"))
+        self.assertTrue(pg.is_disabled("#ttFAdd"))
+        pg.fill("#ttFNovoGrupo", "Receitas > Outras Receitas")
+        self.assertFalse(pg.is_disabled("#ttFAdd"))
+        pg.click("#ttFAdd")
+        # grupo novo de Receitas fica junto das receitas, não depois das despesas
+        grupos = pg.eval_on_selector_all("table.cadastro tr.grupo td",
+                                         "xs => xs.map(x => x.firstChild.textContent.trim())")
+        self.assertEqual(grupos, ["Receitas › Receita Financeira", "Receitas › Outras Receitas",
+                                  "Despesas › Despesas Gerais › Pessoal", "Despesas › Despesas Gerais"])
+
+    def test_6_conflito_nao_sobrescreve(self):
+        pg = self.abrir()
+        self.entrar(pg)
+        pg.fill("table.cadastro tr:has(input[value='SERVICOS']) input[data-campo='nome']", "SERV")
+        self.est.conflito = True
+        pg.click("#ttSalvar")
+        pg.wait_for_timeout(500)
+        self.assertEqual(self.est.gravacoes, [])
+        self.assertIn("outra pessoa gravou", pg.text_content("#ttStatus"))
+
+    def test_7_voltar_ao_painel(self):
+        pg = self.abrir()
+        self.entrar(pg)
+        pg.fill("table.cadastro tr:has(input[value='SERVICOS']) input[data-campo='nome']", "SERV")
+        pg.once("dialog", lambda d: d.dismiss())
+        pg.click("#ttVoltar")
+        self.assertTrue(pg.is_visible("table.cadastro"), "cancelou: continua no cadastro")
+        pg.once("dialog", lambda d: d.accept())
+        pg.click("#ttVoltar")
+        pg.wait_for_timeout(300)
+        self.assertTrue(pg.is_visible("#b-pag"))
+        self.assertTrue(pg.is_visible("#nav-slot"))
+        self.assertEqual(self.erros, [])
+
+    def test_8_aviso_de_pendentes_no_painel(self):
+        pg = self.abrir(pendentes=[PENDENTE])
+        aviso = pg.text_content("#banner-slot")
+        self.assertIn("fora do cadastro", aviso)
+        self.assertIn("NOVA <b>NATUREZA</b>", aviso, "o nome aparece como texto, não como HTML")
+        pg.click("#btn-pend-cadastro")
+        pg.wait_for_selector("table.cadastro")
+        self.assertTrue(pg.is_visible(".card.destaque"))
+
+    def test_9_cadastro_vazio_abre_e_diz_que_o_painel_veio_da_planilha(self):
+        """Antes do seed: a tela abre (vazia, com o aviso), em vez de quebrar."""
+        pg = self.abrir(cadastro=False)
+        pg.evaluate("TARITUBA_DATA.meta.estrutura = {origem: 'planilha'}")
+        self.entrar(pg)
+        self.assertIn("ainda veio da planilha", pg.text_content(".banner"))
+        self.assertEqual(self.nomes(pg), [])
+        self.assertEqual(self.erros, [])
 
 
 if __name__ == "__main__":

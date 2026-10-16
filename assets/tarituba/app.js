@@ -1410,9 +1410,35 @@ function renderAvisos(el) {
   </div>`;
 }
 
+/* texto vindo de fora (nome de natureza da API do Bimer) nunca vira HTML */
+const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c =>
+  ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+/* Naturezas com lançamento que não estão no cadastro (out/2026, cadastro no Hub). Entram
+   no total, num grupo "Pendentes" no fim da aba — sumir do total seria pior que aparecer
+   fora do lugar —, e este aviso diz o que fazer. No Hub, o botão abre o cadastro. */
+function renderPendentes() {
+  const el = document.getElementById('banner-slot');
+  if (!el) return;
+  const p = D.pendentes || [];
+  if (!p.length) { el.innerHTML = ''; return; }
+  const abrir = window.TARITUBA_HUB && window.TARITUBA_HUB.abrirCadastro;
+  el.innerHTML = `<div class="aviso-saldo alerta">
+    <span class="ic">⚠</span>
+    <div><b>${p.length} natureza${p.length === 1 ? '' : 's'} com lançamento fora do cadastro:</b>
+      ${p.map(x => `${esc(x.cod)} ${esc(x.nome)} (${fmt.n(x.valor)})`).join('; ')}.
+      ${p.length === 1 ? 'Está' : 'Estão'} no grupo “Pendentes” e ${p.length === 1 ? 'entra' : 'entram'}
+      no total — classifique no cadastro de naturezas.</div>
+    ${abrir ? '<button type="button" class="btn-ghost" id="btn-pend-cadastro">Classificar</button>' : ''}
+  </div>`;
+  const b = document.getElementById('btn-pend-cadastro');
+  if (b) b.addEventListener('click', () => window.TARITUBA_HUB.abrirCadastro());
+}
+
 /* ── casca ── */
 function render() {
   clearCharts();
+  renderPendentes();
   const view = document.getElementById('view');
   view.innerHTML = `<div id="b-pag"></div><div id="b-avisos"></div>`;
   const alvo = document.getElementById('b-pag');
@@ -1523,8 +1549,21 @@ function boot() {
   document.getElementById('sub').textContent =
     `${D.meta.ano} · ${D.qual.naturezas} naturezas · ${fmt.int(D.qual.lancamentos)} lançamentos`;
   document.getElementById('chip-fonte-txt').textContent = `extraído em ${D.meta.gerado_em}`;
+  const origem = (D.meta.estrutura || {}).origem === 'cadastro'
+    ? 'cadastro de naturezas do Hub' : 'abas Receitas/Despesas da planilha';
   document.getElementById('foot-gen').textContent =
-    `realizado: ${D.meta.fontes.realizado} · orçado: ${D.meta.fontes.orcado} · saldos: ${D.meta.fontes.saldos}`;
+    `realizado: ${D.meta.fontes.realizado} · orçado: ${D.meta.fontes.orcado} · saldos: ${D.meta.fontes.saldos}` +
+    ` · estrutura: ${origem}`;
+
+  /* "Editar cadastro de naturezas" só no Hub (TARITUBA_HUB, de tt_fonte.js): é lá que o
+     cadastro mora e grava. Solto por file:// não há onde gravar. */
+  const btnCad = document.getElementById('btn-cadastro');
+  if (btnCad) {
+    if (window.TARITUBA_HUB && window.TARITUBA_HUB.abrirCadastro) {
+      btnCad.hidden = false;
+      btnCad.addEventListener('click', () => window.TARITUBA_HUB.abrirCadastro());
+    } else btnCad.hidden = true;
+  }
   render();
 }
 

@@ -142,8 +142,9 @@ create policy hub_data_read on storage.objects
 --      id = 'projetos'             Controle de Projetos
 --      id = 'saldo_bancario'       saldo de cada conta, entradas, provisões
 --      id = 'controle_pagamentos'  cadastro de fornecedores fixos
+--      id = 'tarituba'             cadastro de naturezas do Fluxo de Caixa Tarituba
 --
---    Mora AQUI, e não num arquivo por painel, porque a RLS é DA TABELA: as seis
+--    Mora AQUI, e não num arquivo por painel, porque a RLS é DA TABELA: as oito
 --    policies abaixo só fazem sentido lidas juntas. Enquanto estiveram em três
 --    arquivos, cada um declarou uma policy válida para a tabela inteira sem saber
 --    das outras — e policies permissivas SOMAM (OR). O resultado era acesso
@@ -210,6 +211,19 @@ create policy hub_controle_pagamentos_update on app_state
   using      ( id = 'controle_pagamentos' and public.hub_can('controle_pagamentos') )
   with check ( id = 'controle_pagamentos' and public.hub_can('controle_pagamentos') );
 
+-- Quem vê a aba Tarituba mantém o cadastro dela, como no Controle de Pagamentos
+-- (decisão do Leonardo, 16/10/2026): sem tabela de editores à parte.
+drop policy if exists hub_tarituba_select on app_state;
+create policy hub_tarituba_select on app_state
+  for select to authenticated
+  using ( id = 'tarituba' and public.hub_can('tarituba') );
+
+drop policy if exists hub_tarituba_update on app_state;
+create policy hub_tarituba_update on app_state
+  for update to authenticated
+  using      ( id = 'tarituba' and public.hub_can('tarituba') )
+  with check ( id = 'tarituba' and public.hub_can('tarituba') );
+
 -- Linha de cada painel, vazia. O conteúdo real vem do seed (sql/*.local.sql, não
 -- versionado: este repo é público e colchão de conta e fornecedor com valor são
 -- dado interno) e depois é mantido pela própria tela.
@@ -217,6 +231,11 @@ create policy hub_controle_pagamentos_update on app_state
 --   projetos            : lista de projetos            -> '[]'
 --   saldo_bancario      : { contas, entradas, provisoes }
 --   controle_pagamentos : { fornecedores }
+--   tarituba            : { versao, naturezas }  — ver assets/tarituba/tt_dados.js
+--
+-- Em tarituba, o documento vazio mantém o painel na estrutura da planilha: o job do
+-- Azure só passa a ler o cadastro quando ele tem naturezas. O seed (gerado por
+-- `cadastro_tarituba.py` no repo Automacoes) só grava se a linha ainda estiver vazia.
 --
 -- Em saldo_bancario, a chave de `entradas` e `provisoes` é a QUARTA-FEIRA da
 -- semana: a projeção sempre foi de quarta a quarta, e guardar por semana preserva
@@ -229,7 +248,8 @@ create policy hub_controle_pagamentos_update on app_state
 insert into app_state (id, data) values
   ('projetos',            '[]'::jsonb),
   ('saldo_bancario',      '{}'::jsonb),
-  ('controle_pagamentos', '{}'::jsonb)
+  ('controle_pagamentos', '{}'::jsonb),
+  ('tarituba',            '{}'::jsonb)
 on conflict (id) do nothing;
 
 -- Realtime: sem isto o app sobe e salva, mas os clientes não se sincronizam —
