@@ -1,4 +1,5 @@
-/* De onde o painel do Tarituba lê, e os dois botões que só existem no hub.
+/* De onde o painel do Tarituba lê, e o que só existe no hub: os botões "Atualizar agora"
+ * e "Criar card no Trello" e o cadastro de naturezas (app_state, id 'tarituba').
  *
  *   painel   bucket privado `hub-data`, `tarituba.json` — o mesmo payload que o
  *            extrair_dados.py gera na máquina, publicado pelo Azure toda segunda e pelo
@@ -101,6 +102,108 @@ window.TARITUBA_HUB = (function () {
     });
   }
 
+  /* ------------------------------------------------ cadastro de naturezas
+   *
+   * `app_state`, id 'tarituba' — a mesma tabela do cadastro do Controle de Pagamentos, com
+   * policy por hub_can('tarituba'): quem vê a aba edita (decisão do Leonardo, 16/10/2026).
+   * O job do Azure lê este documento com a service_role e monta o painel a partir dele.
+   *
+   * `_versao` é o updated_at no instante em que a TELA abriu: o UPDATE só casa se a linha
+   * ainda estiver nessa versão, então duas pessoas com o cadastro aberto não apagam o
+   * trabalho uma da outra em silêncio (mesma guarda do cp_fonte.js). */
+  var DOC = 'tarituba';
+  var _versao = null;
+
+  async function lerCadastro() {
+    var r = await cliente().from('app_state').select('data, updated_at').eq('id', DOC).maybeSingle();
+    if (r.error) throw new Error('app_state: ' + r.error.message);
+    if (!r.data) throw new Error('o documento do cadastro não existe no hub (falta o SQL de implantação)');
+    _versao = r.data.updated_at;
+    return window.TT_DADOS.normalizar(r.data.data);
+  }
+
+  async function quemSou() {
+    try {
+      var s = await cliente().auth.getSession();
+      return (s.data && s.data.session && s.data.session.user && s.data.session.user.email) || null;
+    } catch (e) { return null; }
+  }
+
+  /* Grava o cadastro inteiro, carimbando só o que MUDOU — carimbar tudo a cada gravação
+   * tornaria `atualizado_em` inútil para responder "quem mexeu nesta natureza". */
+  async function salvarCadastro(naturezas) {
+    var sb = cliente();
+    var lido = await sb.from('app_state').select('data').eq('id', DOC).maybeSingle();
+    if (lido.error) throw new Error('app_state: ' + lido.error.message);
+    var estado = (lido.data && lido.data.data) || {};
+    var antes = {};
+    (estado.naturezas || []).forEach(function (n) { antes[n.cod] = n; });
+    var email = await quemSou();
+    var agora = new Date().toISOString();
+    var chave = function (n) {
+      return JSON.stringify([n.ordem, n.aba, n.cod, n.nome, n.bimer, n.path]);
+    };
+    var novas = naturezas.map(function (n) {
+      var v = antes[n.cod];
+      if (v && chave(v) === chave(n)) return v;
+      return Object.assign({}, n, { atualizado_em: agora, atualizado_por: email });
+    });
+    var novo = Object.assign({}, estado, { versao: 1, naturezas: novas });
+    var r = await sb.from('app_state').update({ data: novo, updated_at: agora })
+      .eq('id', DOC).eq('updated_at', _versao).select('id, updated_at');
+    if (r.error) throw new Error('não foi possível gravar: ' + r.error.message);
+    if (!r.data || !r.data.length) {
+      throw new Error('outra pessoa gravou o cadastro enquanto esta tela estava aberta. ' +
+                      'Nada foi sobrescrito — volte ao painel, abra o cadastro de novo e refaça.');
+    }
+    _versao = r.data[0].updated_at || agora;
+    return window.TT_DADOS.normalizar(novo);
+  }
+
+  /* Troca o painel pela tela do cadastro, no mesmo lugar (como o "Editar cadastro" do
+   * Controle de Pagamentos) e volta com "← Voltar ao painel". */
+  var ESCONDER = ['nav-slot', 'btn-export-pdf', 'btn-atualizar', 'btn-cadastro', 'banner-slot',
+                  'reproc-status'];
+
+  function mostrarPainel(sim) {
+    ESCONDER.forEach(function (id) {
+      var el = document.getElementById(id);
+      if (el) el.hidden = !sim;
+    });
+  }
+
+  async function abrirCadastro() {
+    var view = document.getElementById('view');
+    if (typeof clearCharts === 'function') clearCharts();
+    mostrarPainel(false);
+    view.innerHTML = '<div class="card"><div class="hint">carregando o cadastro…</div></div>';
+    window.scrollTo(0, 0);
+    var doc;
+    try {
+      doc = await lerCadastro();
+    } catch (e) {
+      view.innerHTML = '<div class="card"><h2>Cadastro indisponível</h2><div class="hint"></div>' +
+        '<button type="button" class="btn-ghost" id="tt-voltar-erro" style="margin-top:12px">' +
+        '← Voltar ao painel</button></div>';
+      view.querySelector('.hint').textContent = e.message;
+      document.getElementById('tt-voltar-erro').onclick = voltarAoPainel;
+      return;
+    }
+    var D = window.TARITUBA_DATA || {};
+    window.TT_CADASTRO.abrir(view, {
+      doc: doc,
+      pendentes: D.pendentes || [],
+      origem: (D.meta && D.meta.estrutura && D.meta.estrutura.origem) || 'planilha',
+      gerado_em: D.meta && D.meta.gerado_em
+    }, { salvar: salvarCadastro, voltar: voltarAoPainel });
+  }
+
+  function voltarAoPainel() {
+    mostrarPainel(true);
+    if (typeof render === 'function') render();
+    window.scrollTo(0, 0);
+  }
+
   function ligarAtualizar() {
     if (!window.HUB_REPROCESSAR) return;
     window.HUB_REPROCESSAR.ligar({
@@ -148,5 +251,5 @@ window.TARITUBA_HUB = (function () {
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
   else boot();
 
-  return { ligarCard: ligarCard, cliente: cliente };
+  return { ligarCard: ligarCard, cliente: cliente, abrirCadastro: abrirCadastro };
 })();
