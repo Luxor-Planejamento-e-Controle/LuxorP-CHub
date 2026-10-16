@@ -144,7 +144,7 @@ create policy hub_data_read on storage.objects
 --      id = 'controle_pagamentos'  cadastro de fornecedores fixos
 --      id = 'tarituba'             cadastro de naturezas do Fluxo de Caixa Tarituba
 --
---    Mora AQUI, e não num arquivo por painel, porque a RLS é DA TABELA: as seis
+--    Mora AQUI, e não num arquivo por painel, porque a RLS é DA TABELA: as oito
 --    policies abaixo só fazem sentido lidas juntas. Enquanto estiveram em três
 --    arquivos, cada um declarou uma policy válida para a tabela inteira sem saber
 --    das outras — e policies permissivas SOMAM (OR). O resultado era acesso
