@@ -6,7 +6,7 @@ Uso: python tools/build_data.py [indicadores|dre|fluxo ...]
 Requer: pandas, pyarrow, azure-storage-blob, python-dotenv e a conn do Azure
 (pega do .env do FinancialIndicators).
 """
-import io, os, json, sys, unicodedata
+import io, os, json, re, sys, unicodedata
 from pathlib import Path
 import pandas as pd
 
@@ -315,12 +315,58 @@ def _nat_order(df):
     return [[r["Natureza Ordenada"], bool(r["É Subtotal"])] for _, r in nn.iterrows()]
 
 
+# Receita bruta dos gráficos Orçado × Realizado em 2022 e 2023 = Receita Bruta −
+# Reavaliação do Plantel − Ativos Biológicos (pedido do Arthur, 09/11/2026, por
+# questões conceituais). Até 2023 o DRE punha as duas DENTRO da Receita Operacional
+# Bruta; de 2024 em diante ficam fora dela, e sem o ajuste os dois primeiros anos
+# não comparam com os outros. Só existem no HPG Competência.
+#
+# A base (DRE_Historico.xlsx) não muda: o ajuste é do que o hub plota. Entra como
+# linha NEGATIVA na natureza da receita bruta, e o groupby que já existe faz a
+# conta — nada de sobrescrever valor em linha que pode vir repetida.
+# REAVALIAÇÃO DA TROPA (2023) é a única linha dentro do subtotal Reavaliação do
+# Plantel e tem o mesmo valor dele: só subtotais são descontados, senão sai duas vezes.
+RB_SEM_AVALIACAO_ANOS = (2022, 2023)
+_RB_NOMES = ("RECEITA OPERACIONAL BRUTA", "RECEITA BRUTA")
+
+
+def _nat_norm(x) -> str:
+    """'213 Reavaliação do Plantel' -> 'REAVALIACAO DO PLANTEL'."""
+    s = unicodedata.normalize("NFKD", str(x)).encode("ascii", "ignore").decode().upper()
+    return " ".join(re.sub(r"^\s*\d+\s*", "", s).split())
+
+
+def _rb_sem_avaliacao(df, ano, valores):
+    """`df` com as linhas negativas de Ativos Biológicos e Reavaliação do Plantel
+    na natureza da receita bruta, nos anos de RB_SEM_AVALIACAO_ANOS."""
+    n = df["Natureza Ordenada"].map(_nat_norm)
+    sub = df["É Subtotal"].astype(bool)
+    no_ano = ano.isin(RB_SEM_AVALIACAO_ANOS)
+    rb = no_ano & sub & n.isin(_RB_NOMES)
+    tira = no_ano & sub & (n.str.startswith("ATIVOS BIOLOGIC") | (n == "REAVALIACAO DO PLANTEL"))
+    if not tira.any():
+        return df
+    # nome da receita bruta no mesmo recorte (modelo, CC, ano) — o prefixo de ordem
+    # muda de ano pra ano
+    chave = lambda d, a: list(zip(d["Modelo"], d["Centro de Custo"], a))
+    nome_rb = dict(zip(chave(df[rb], ano[rb]), df.loc[rb, "Natureza Ordenada"]))
+    neg = df[tira].copy()
+    neg["Natureza Ordenada"] = [nome_rb.get(k) for k in chave(neg, ano[tira])]
+    neg = neg[neg["Natureza Ordenada"].notna()]
+    for v in valores:
+        neg[v] = -neg[v]
+    print(f"[dre] receita bruta {'/'.join(map(str, RB_SEM_AVALIACAO_ANOS))} sem ativos "
+          f"biológicos e reavaliação do plantel: {len(neg)} linha(s) de desconto")
+    return pd.concat([df, neg], ignore_index=True)
+
+
 def build_dre():
     xl = pd.ExcelFile(DRE_XLSX)
 
     # ---- Comparativo YTD (Base YTD Unpivot): barras Orçado x Realizado por ano.
     # Grão completo (com Natureza Ordenada) p/ o JS replicar exatamente os slicers do PBIX.
-    u = xl.parse("Base YTD Unpivot")
+    u0 = xl.parse("Base YTD Unpivot")
+    u = _rb_sem_avaliacao(u0, u0["Ano"], ["Valor YTD"])
     ytd = (u.groupby(["Modelo", "Centro de Custo", "Acumulado", "Natureza Ordenada", "Ano", "Cenário"],
                      dropna=False)["Valor YTD"].sum().reset_index())
     ytd_rows = [[r["Modelo"], r["Centro de Custo"], r["Acumulado"], r["Natureza Ordenada"],
@@ -330,6 +376,7 @@ def build_dre():
     # ---- Orçado x Realizado (Base DRE Geral): linha por Data de Fechamento
     g = xl.parse("Base DRE Geral")
     g["Data de Fechamento"] = pd.to_datetime(g["Data de Fechamento"])
+    g = _rb_sem_avaliacao(g, g["Data de Fechamento"].dt.year, ["Orçado", "Realizado"])
     ger = (g.groupby(["Modelo", "Centro de Custo", "Natureza Ordenada", "Data de Fechamento"], dropna=False)[["Orçado", "Realizado"]]
              .sum().reset_index().sort_values("Data de Fechamento"))
     ger_rows = [[r["Modelo"], r["Centro de Custo"], r["Natureza Ordenada"],
@@ -338,11 +385,12 @@ def build_dre():
                 for _, r in ger.iterrows() if pd.notna(r["Natureza Ordenada"])]
 
     payload = {
-        "modelos": sorted(u["Modelo"].dropna().unique().tolist()),
-        "centros": sorted(u["Centro de Custo"].dropna().unique().tolist()),
-        "acumulados": sorted(u["Acumulado"].dropna().unique().tolist()),
-        "anos": sorted(int(a) for a in u["Ano"].dropna().unique()),
-        "naturezas": _nat_order(u),
+        "modelos": sorted(u0["Modelo"].dropna().unique().tolist()),
+        "centros": sorted(u0["Centro de Custo"].dropna().unique().tolist()),
+        "acumulados": sorted(u0["Acumulado"].dropna().unique().tolist()),
+        "anos": sorted(int(a) for a in u0["Ano"].dropna().unique()),
+        # da base original: a linha de desconto tem a Ordem da linha descontada
+        "naturezas": _nat_order(u0),
         "ytd": {"cols": ["modelo", "cc", "acumulado", "natureza", "ano", "cenario", "valor"], "rows": ytd_rows},
         "geral": {"cols": ["modelo", "cc", "natureza", "data", "orcado", "realizado"], "rows": ger_rows},
     }
