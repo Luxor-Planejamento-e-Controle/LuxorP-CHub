@@ -409,6 +409,33 @@ FC_ACUMULADOS = [f"{m:02d}-Jan a {n}" for m, n in enumerate(
     ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"], 1)]
 
 
+def _bases_fc() -> list[Path]:
+    """Bases que o FCDataExtractor reconhece hoje: as do FC_indice.xlsx.
+
+    Glob na pasta pegava arquivo gerado que não vale mais. Em nov/2026 as versões
+    "v2 (...)"/"v3 (...)" do fluxo do Family Office viraram entidades à parte
+    (Family_Office_v2/_v3) até o versoes.py ser corrigido; os arquivos ficaram
+    na pasta e o painel contaria o FO 2026 três vezes. O índice é o que o
+    extrator mantém, então só ele diz quais bases valem.
+    """
+    indice = FC_DIR.parent / "FC_indice.xlsx"
+    soltos = sorted(FC_DIR.glob("FC_*__*.xlsx"))
+    if not indice.exists():
+        if not soltos:
+            raise FileNotFoundError(f"nenhuma base FC_*.xlsx em {FC_DIR}")
+        print(f"[fluxo] AVISO: sem {indice.name}; lendo todas as FC_*.xlsx da pasta")
+        return soltos
+    nomes = pd.read_excel(indice)["Arquivo"].dropna().astype(str).tolist()
+    arquivos = [FC_DIR / n for n in nomes]
+    faltam = [p.name for p in arquivos if not p.exists()]
+    if faltam:
+        raise FileNotFoundError(f"base listada no {indice.name} não existe: {faltam}")
+    fora = sorted(set(p.name for p in soltos) - set(nomes))
+    if fora:
+        print(f"[fluxo] ignorando bases fora do {indice.name}: {fora}")
+    return arquivos
+
+
 def build_fluxo():
     """Fluxos de caixa de todas as entidades, no molde do DRE Orçado × Realizado.
 
@@ -418,9 +445,7 @@ def build_fluxo():
     agrega. A natureza é (aba, Natureza Ordenada): o mesmo nome existe no Resumo
     e na aba de Receitas/Despesas, e somar os dois contaria a linha duas vezes.
     """
-    arquivos = sorted(FC_DIR.glob("FC_*__*.xlsx"))
-    if not arquivos:
-        raise FileNotFoundError(f"nenhuma base FC_*.xlsx em {FC_DIR}")
+    arquivos = _bases_fc()
     cols = ["Operacao", "Empresa", "Data", "Aba", "Natureza Ordenada", "Ordem", "Nivel",
             "Cenario", "ValorSinalizado", "ValorSinalizadoAcumulado"]
     df = pd.concat([pd.read_excel(p, sheet_name="fato_fluxo", usecols=cols) for p in arquivos],
