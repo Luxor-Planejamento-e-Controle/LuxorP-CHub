@@ -143,7 +143,7 @@ window.SB_FORM = (function () {
       return '<div class="card"><div class="empty">' +
         '<div class="big">&#x1F4CB;</div>' +
         '<div><b>Nenhuma conta cadastrada ainda.</b><br>' +
-        'O painel lê o cadastro das contas e o colchão de cada uma de ' +
+        'O painel lê o cadastro das contas e o saldo segurança de cada uma de ' +
         '<code>app_state</code>, documento <code>saldo_bancario</code>.<br>' +
         'Peça a quem administra o Supabase do hub para rodar o seed — o formato está em ' +
         '<code>sql/seed_saldo_bancario.example.sql</code>.</div></div></div>';
