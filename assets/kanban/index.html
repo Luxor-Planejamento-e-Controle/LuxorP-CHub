@@ -205,9 +205,11 @@ a{color:var(--teal-light)}
 .lnk.perigo:hover{color:var(--neg)}
 .novo-coment{display:flex;gap:10px;align-items:flex-start;margin-bottom:12px}
 .novo-coment .caixa{flex:1}
-.novo-coment textarea{width:100%;min-height:40px;resize:vertical;background:var(--surface);border:1px solid var(--line);
+/* altura fixa de propósito: crescer no foco e encolher no blur movia o "Salvar"
+   para cima no meio do clique, e o clique caía fora do botão */
+.novo-coment textarea{width:100%;min-height:64px;resize:vertical;background:var(--surface);border:1px solid var(--line);
   border-radius:9px;padding:8px 10px;outline:none}
-.novo-coment textarea:focus{border-color:var(--orange);min-height:80px}
+.novo-coment textarea:focus{border-color:var(--orange)}
 .evento{display:flex;gap:10px;align-items:flex-start;padding:7px 0}
 .evento .corpo{flex:1;min-width:0}
 .evento .quem{font-size:13px}
