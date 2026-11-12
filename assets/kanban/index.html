@@ -1734,7 +1734,7 @@ async function iniciar() {
     }
     KB_FONTE.assinar(aoMudar);
     // link direto (Copiar link, aviso do Slack): o hub passa o card no endereço do iframe
-    const alvo = /(?:^|[#&])card=([0-9a-f-]{36})/i.exec(location.hash);
+    const alvo = /(?:^|[#&])card=([0-9a-z-]{4,40})/i.exec(location.hash);
     if (alvo) abrirCard(alvo[1]);
   } catch (e) {
     S.erro = e.message; renderBoard();

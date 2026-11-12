@@ -86,7 +86,11 @@ BASE = {
         {"id": "a1", "card_id": "c-fech", "nome": "relatorio.pdf", "caminho": "trello/x/relatorio.pdf",
          "url": None, "mime": "application/pdf", "bytes": 123456, "autor_nome": "Aline",
          "autor_email": "alguem@luxor.com.br", "criado_em": "2026-11-04T09:00:00Z", "pos": 1},
+        {"id": "a2", "card_id": "c-fech", "nome": "foto.png", "caminho": "trello/y/foto.png",
+         "url": None, "mime": "image/png", "bytes": 2000, "autor_nome": "Aline",
+         "autor_email": "alguem@luxor.com.br", "criado_em": "2026-11-04T09:30:00Z", "pos": 2},
     ],
+    "kanban_seguidores": [],
     "kanban_atividade": [
         {"id": "at1", "card_id": "c-fech", "tipo": "moveu", "dados": {"de": "Backlog", "para": "To Do"},
          "autor_nome": "Aline", "autor_email": "alguem@luxor.com.br", "criado_em": "2026-11-03T12:00:00Z"},
@@ -123,7 +127,10 @@ class Fake:
 
     def card_resumo(self, c):
         cls = [k for k in self.db["kanban_checklists"] if k["card_id"] == c["id"]]
+        capa = next((a for a in self.db["kanban_anexos"] if a["id"] == c.get("capa_anexo_id")), None)
         return {**c,
+                "capa": {"caminho": capa["caminho"], "nome": capa["nome"]} if capa else None,
+                "kanban_seguidores": [{"membro_id": x["membro_id"]} for x in self.db["kanban_seguidores"] if x["card_id"] == c["id"]],
                 "kanban_card_etiquetas": [{"etiqueta_id": x["etiqueta_id"]} for x in self.db["kanban_card_etiquetas"] if x["card_id"] == c["id"]],
                 "kanban_card_membros": [{"membro_id": x["membro_id"]} for x in self.db["kanban_card_membros"] if x["card_id"] == c["id"]],
                 "kanban_checklists": [{"kanban_checkitens": [{"concluido": i["concluido"]} for i in self.db["kanban_checkitens"] if i["checklist_id"] == k["id"]]} for k in cls],
@@ -224,6 +231,16 @@ def _pagina(cls):
             return responder({"Key": caminho})
         if caminho == "/rest/v1/rpc/kanban_entrar":
             return responder(M_EU)
+        if caminho == "/rest/v1/rpc/kanban_buscar":
+            q = json.loads(request.post_data)["p_texto"].lower()
+            db = cls.fake.db
+            achados = []
+            for c in db["kanban_cards"]:
+                kls = [k["id"] for k in db["kanban_checklists"] if k["card_id"] == c["id"]]
+                if any(q in i["nome"].lower() for i in db["kanban_checkitens"] if i["checklist_id"] in kls):
+                    achados.append({"card_id": c["id"], "nome": c["nome"], "lista_id": c["lista_id"],
+                                    "arquivado": c["arquivado"], "arquivado_em": c["arquivado_em"], "onde": "checklist"})
+            return responder(achados)
         if caminho == "/rest/v1/rpc/kanban_copiar_card":
             corpo = json.loads(request.post_data)
             cls.fake.escritas.append(("RPC", "kanban_copiar_card", {}, corpo))
@@ -409,6 +426,40 @@ class TestKanban(unittest.TestCase):
         self.assertEqual(f, {"id": ultimo})
         self.assertEqual(c, {"pos": primeiro[1] / 2}, "metade do primeiro, e só a posição")
 
+    def test_17_busca_acha_item_de_checklist(self):
+        pg = self.pg
+        self._fechar()
+        pg.fill("#fTexto", "enviar ao board")      # só existe como item do checklist
+        pg.wait_for_timeout(900)
+        self.assertEqual([e.get_attribute("data-id") for e in pg.locator(".kcard").all()], ["c-fech"],
+                         "a busca do banco acha o card pelo item do checklist")
+        pg.fill("#fTexto", "")
+        pg.wait_for_timeout(300)
+
+    def test_18_botao_direito_arquiva_com_desfazer(self):
+        pg = self.pg
+        pg.click('.kcard[data-id="c-dre"]', button="right")
+        pg.wait_for_selector(".pop")
+        pg.click('.pop [data-q="arquivar"]')
+        pg.wait_for_timeout(500)
+        f, c = _ultima(self, "PATCH", "kanban_cards")
+        self.assertEqual((f, c), ({"id": "c-dre"}, {"arquivado": True}))
+        self.assertEqual(pg.locator('.kcard[data-id="c-dre"]').count(), 0)
+        pg.click("#btToast")                       # Desfazer
+        pg.wait_for_timeout(500)
+        f, c = _ultima(self, "PATCH", "kanban_cards")
+        self.assertEqual((f, c), ({"id": "c-dre"}, {"arquivado": False}))
+        self.assertEqual(pg.locator('.kcard[data-id="c-dre"]').count(), 1, "voltou para o board")
+
+    def test_19_sem_atalho_de_teclado_para_arquivar(self):
+        pg = self.pg
+        antes = len(self.fake.escritas)
+        pg.focus('.kcard[data-id="c-dre"]')
+        for tecla in ("c", "C", "Delete", "Backspace"):
+            pg.keyboard.press(tecla)
+        pg.wait_for_timeout(300)
+        self.assertEqual(len(self.fake.escritas), antes, "nenhuma tecla grava nada no card")
+
     def test_20_arquivados(self):
         pg = self.pg
         pg.click("#btArquivados")
@@ -427,6 +478,99 @@ class TestKanban(unittest.TestCase):
         pg.wait_for_timeout(500)
         self.assertIn("moveu", pg.inner_text(".gaveta"))
         pg.click("#btFecharGav")
+
+    def test_22_arquivar_todos_os_cards_da_lista(self):
+        pg = self.pg
+        pg.once("dialog", lambda d: d.accept())
+        pg.click(f'.kcol[data-lista="{L_WIP}"] [data-acao="menu-lista"]')
+        pg.click('.pop [data-a="arquivar-cards"]')
+        pg.wait_for_timeout(500)
+        f, c = _ultima(self, "PATCH", "kanban_cards")
+        self.assertEqual(f, {"lista_id": L_WIP, "arquivado": "false"}, "só os abertos daquela lista")
+        self.assertEqual(c, {"arquivado": True})
+
+    # ---------------- recursos que o time usava no Trello ----------------
+
+    def _abrir(self, card="c-fech"):
+        self._fechar()
+        self.pg.evaluate(f"() => KB_TELA.abrirCard('{card}')")
+        self.pg.wait_for_selector("#ovl")
+        self.pg.wait_for_timeout(300)
+
+    def test_30_sugestao_ao_digitar_arroba(self):
+        pg = self.pg
+        self._abrir()
+        pg.click("#novoComent")
+        pg.keyboard.type("oi @ful")
+        pg.wait_for_selector(".mencoes")
+        self.assertIn("Fulano de Tal", pg.inner_text(".mencoes"))
+        self.assertIn("card", pg.inner_text(".mencoes"), "@card avisa todos os membros")
+        pg.keyboard.press("Enter")
+        self.assertEqual(pg.input_value("#novoComent"), "oi @fulano123 ",
+                         "insere o @usuario, que é o que o banco procura para avisar")
+        self.assertEqual(pg.locator(".mencoes").count(), 0)
+        pg.fill("#novoComent", "")
+
+    def test_31_print_colado_vira_anexo_e_imagem_no_texto(self):
+        pg = self.pg
+        pg.click("#novoComent")
+        pg.evaluate("""() => {
+          const dt = new DataTransfer();
+          dt.items.add(new File([new Uint8Array([137,80,78,71])], 'image.png', {type: 'image/png'}));
+          document.getElementById('novoComent').dispatchEvent(
+            new ClipboardEvent('paste', {clipboardData: dt, bubbles: true, cancelable: true}));
+        }""")
+        pg.wait_for_timeout(800)
+        _f, c = _ultima(self, "POST", "kanban_anexos")
+        self.assertEqual(c["nome"], "image.png")
+        self.assertTrue(c["caminho"].startswith("cards/c-fech/"))
+        self.assertIn(f"![image.png](anexo:{c['caminho']})", pg.input_value("#novoComent"))
+        self.assertTrue(any(t == "storage" for _m, t, _f2, _c in self.fake.escritas), "arquivo enviado ao bucket")
+        pg.fill("#novoComent", "")
+
+    def test_32_seguir_card(self):
+        pg = self.pg
+        pg.click('.dlg-side [data-a="seguir"]')
+        pg.wait_for_timeout(500)
+        _f, c = _ultima(self, "POST", "kanban_seguidores")
+        self.assertEqual(c, {"card_id": "c-fech", "membro_id": M_EU})
+        self.assertIn("Seguindo", pg.inner_text(".dlg-side"))
+
+    def test_33_capa_so_para_imagem(self):
+        pg = self.pg
+        self.assertEqual(pg.locator('[data-anexo-id="a1"] [data-a="capa"]').count(), 0, "pdf não vira capa")
+        pg.click('[data-anexo-id="a2"] [data-a="capa"]')
+        pg.wait_for_timeout(600)
+        f, c = _ultima(self, "PATCH", "kanban_cards")
+        self.assertEqual((f, c), ({"id": "c-fech"}, {"capa_anexo_id": "a2"}))
+        self.assertEqual(pg.locator('.kcard[data-id="c-fech"] .capa img').count(), 1, "capa aparece no board")
+
+    def test_34_ocultar_marcados_e_converter_item(self):
+        pg = self.pg
+        self.assertEqual(pg.locator('[data-item="i1"]').count(), 1)
+        pg.click('[data-a="ocultar-feitos"]')
+        self.assertEqual(pg.locator('[data-item="i1"]').count(), 0, "item marcado some")
+        pg.hover('[data-item="i2"]')
+        pg.click('[data-item="i2"] [data-a="converter-item"]')
+        pg.wait_for_timeout(700)
+        _f, c = _ultima(self, "POST", "kanban_cards")
+        self.assertEqual(c["nome"], "Enviar ao board")
+        f, _c = _ultima(self, "DELETE", "kanban_checkitens")
+        self.assertEqual(f, {"id": "i2"})
+
+    def test_35_link_do_card(self):
+        url = self.pg.evaluate("() => linkDoCard('abc-123')")
+        self.assertTrue(url.endswith("/#/kanban?card=abc-123"))
+
+    def test_36_link_abre_o_card(self):
+        pg = self._b.new_page()
+        pg.route("**/*.supabase.co/**", lambda route, req: self.pg.context  # noqa: E731
+                 and route.continue_())
+        pg.close()
+        # a rota de mentira é da página principal: abre uma nova com o mesmo roteamento
+        pg2 = _pagina_com_hash(self, "#card=c-fech")
+        self.assertIn("Fechamento Resultado", pg2.inner_text("#ovl"))
+        pg2.close()
 
     def test_99_sem_erro_de_console(self):
         self.assertEqual(self.erros, [], f"erros no navegador: {self.erros}")
