@@ -1645,14 +1645,40 @@ class TestExportPdf(unittest.TestCase):
                 self.assertIn("09/09/2026 a 16/09/2026", p, "a janela em toda página")
                 self.assertIn("não movimenta dinheiro", p)
 
+    def test_14_colchao_virou_saldo_seguranca(self):
+        """Pedido do Leonardo (11/11/2026): o termo visível é "saldo segurança", na tela
+        e no papel. O campo gravado continua `colchao` — só o texto mudou. O cabeçalho do
+        PDF tem de sair INTEIRO: a régua do PDF conta o "ç" como letra larga, e numa
+        coluna estreita ele saía "Saldo seguranç…"."""
+        _, paginas = self._texto()
+        tela = self.pg.inner_text("#content")
+        for onde, txt in (("tela", tela), ("PDF", "\n".join(paginas))):
+            with self.subTest(onde=onde):
+                self.assertIn("saldo segurança", txt.lower())
+                self.assertNotIn("colchão", txt.lower())
+        self.assertIn("Saldo segurança", paginas[0])
+        self.assertNotIn("seguranç…", paginas[0])
 
-class TestCardTrello(unittest.TestCase):
-    """Botão "Criar card no Trello" (09/10/2026) — mesma rede real interceptada dos
-    outros testes deste arquivo, agora incluindo a Edge Function `reprocessar` e o
-    arquivo `saldo_bancario.card.json`, como em `assets/tarituba/test_painel.py`.
 
-    O painel abre direto na projeção (saldos já informados nesta fixture) porque o
-    botão só existe fora do formulário."""
+def _estado_com_saldos():
+    """ESTADO_INICIAL com os saldos da semana já informados: o painel abre direto na
+    projeção, onde ficam o botão do Slack e os cards de movimentação.
+
+    Neste cenário a regra sugere DUAS movimentações: resgatar 20k na Luxor Investimentos
+    (restante 13.617,66 contra colchão de 30 mil) e aplicar 35k na Tarituba (restante
+    49.850,10 contra colchão de 10 mil). A Luxor Participação - BTG sobra, mas tem colchão
+    zero (em descontinuação) e não recebe aplicação."""
+    estado = json.loads(json.dumps(ESTADO_INICIAL))
+    estado["entradas"] = {FATOS["meta"]["janela_inicio"]: [
+        {"chave": chave, "saldo": float(v.replace(".", "").replace(",", "."))}
+        for chave, v in SALDOS.items()]}
+    return estado
+
+
+class TestEnviarSlack(unittest.TestCase):
+    """Botão "Enviar no Slack" (11/11/2026, substituiu o "Criar card no Trello") — mesma
+    rede real interceptada dos outros testes, incluindo a Edge Function `reprocessar` e o
+    arquivo `saldo_bancario.slack.json` que o Azure grava ao terminar."""
 
     @classmethod
     def setUpClass(cls):
@@ -1661,14 +1687,120 @@ class TestCardTrello(unittest.TestCase):
         except ImportError:
             raise unittest.SkipTest("playwright não instalado")
 
-        cls.estado = json.loads(json.dumps(ESTADO_INICIAL))
-        semana = FATOS["meta"]["janela_inicio"]   # 2026-09-09
-        cls.estado["entradas"] = {semana: [
-            {"chave": chave, "saldo": float(v.replace(".", "").replace(",", "."))}
-            for chave, v in SALDOS.items()]}
-        cls.card = None               # saldo_bancario.card.json, antes do clique
-        cls.pedidos = []              # corpos enviados à Edge Function
-        cls.card_depois = None        # o que o card.json passa a ser depois do pedido
+        cls.conversa = {"estado": _estado_com_saldos(), "status": None, "pedidos": [],
+                        "status_depois": None}
+        cls.erros = []
+
+        cls._pw = sync_playwright().start()
+        cls._b = cls._pw.chromium.launch()
+        cls.pg = cls._b.new_page(viewport={"width": 1400, "height": 900})
+        cls.pg.on("pageerror", lambda e: cls.erros.append(str(e)))
+        cls.pg.route("**/*.supabase.co/**", cls._rota(cls.conversa))
+        cls.pg.add_init_script("window.HUB = {email:'fulano@luxor.com.br'};")
+        cls.pg.goto((AQUI / "index.html").as_uri())
+        cls.pg.wait_for_timeout(1500)
+
+    @staticmethod
+    def _rota(c):
+        """`c` guarda a conversa: o estado do app_state, o .slack.json publicado, os
+        pedidos recebidos e o que o .slack.json passa a ser depois de um pedido."""
+        def rota(route, request):
+            url = request.url
+            if "/functions/v1/reprocessar" in url:
+                if request.method == "OPTIONS":
+                    return route.fulfill(status=200,
+                                         headers={"Access-Control-Allow-Origin": "*",
+                                                  "Access-Control-Allow-Headers": "*"})
+                c["pedidos"].append(json.loads(request.post_data or "{}"))
+                if c["status_depois"] is not None:
+                    c["status"] = c["status_depois"]
+                return route.fulfill(status=202, content_type="application/json",
+                                     headers={"Access-Control-Allow-Origin": "*"},
+                                     body=json.dumps({"aceito": True}))
+            if "/storage/v1/object/" in url:
+                if url.split("?")[0].endswith("/saldo_bancario.slack.json"):
+                    if c["status"] is None:
+                        return route.fulfill(
+                            status=400, content_type="application/json",
+                            body=json.dumps({"statusCode": "404", "error": "not_found",
+                                             "message": "Object not found"}))
+                    return route.fulfill(status=200, content_type="application/json",
+                                         body=json.dumps(c["status"]))
+                return route.fulfill(status=200, content_type="application/json",
+                                     body=json.dumps(FATOS))
+            if "/rest/v1/app_state" in url:
+                return route.fulfill(status=200,
+                                     content_type="application/vnd.pgrst.object+json",
+                                     body=json.dumps({"data": c["estado"],
+                                                      "updated_at": "v1"}))
+            return route.continue_()
+        return rota
+
+    @classmethod
+    def tearDownClass(cls):
+        cls._b.close()
+        cls._pw.stop()
+
+    def test_1_abriu_direto_na_projecao_e_o_trello_saiu(self):
+        self.assertTrue(self.pg.is_visible("#btSlack"))
+        self.assertEqual(self.pg.locator("#btCardTrello").count(), 0)
+        self.assertNotIn("Trello", self.pg.inner_text("body"))
+        self.assertEqual(self.erros, [])
+
+    def test_2_botao_manda_a_acao_e_mostra_o_resultado(self):
+        self.conversa["status_depois"] = {
+            "ok": True, "gerado_em": "2026-09-18T12:00:00-03:00",
+            "link": "https://luxor.slack.com/archives/C1/p1", "movimentacoes": 2,
+            "editado": False, "dados_de": "11/09/2026 11:47", "semana": "2026-09-09"}
+        self.pg.click("#btSlack")
+        self.pg.wait_for_timeout(7000)   # reprocessar.js relê o carimbo a cada 5s
+        self.assertEqual(self.conversa["pedidos"], [{"painel": "saldo_bancario",
+                                                     "acao": "mensagem_slack", "mes": 9}])
+        st = self.pg.text_content("#slackStatus")
+        self.assertIn("Enviado no Slack: 2 movimentações sugeridas", st)
+        self.assertEqual(self.pg.get_attribute("#slackStatus a", "href"),
+                         "https://luxor.slack.com/archives/C1/p1")
+
+    def test_3_erro_vira_mensagem_com_classe_erro(self):
+        pg = type(self)._b.new_page(viewport={"width": 1400, "height": 900})
+        try:
+            conversa = {"estado": _estado_com_saldos(), "status": None, "pedidos": [],
+                        "status_depois": {"ok": False, "gerado_em": "2026-09-18T12:05:00-03:00",
+                                          "erro": "O bot do Saldo Bancário não está no canal "
+                                                  "do Slack. Convide-o com /invite e clique "
+                                                  "de novo."}}
+            pg.route("**/*.supabase.co/**", self._rota(conversa))
+            pg.add_init_script("window.HUB = {email:'fulano@luxor.com.br'};")
+            pg.goto((AQUI / "index.html").as_uri())
+            pg.wait_for_timeout(1500)
+            pg.click("#btSlack")
+            pg.wait_for_timeout(7000)
+            st = pg.text_content("#slackStatus")
+            self.assertIn("mensagem não enviada", st)
+            self.assertIn("/invite", st)
+            self.assertIn("erro", pg.get_attribute("#slackStatus", "class"))
+        finally:
+            pg.close()
+
+
+class TestEditarMovimentacoes(unittest.TestCase):
+    """Botão "Editar movimentações" (pedido da gestão, 11/11/2026): os cards passam a
+    mostrar o que a gestão decidiu pedir ao banco, gravado em
+    `app_state.movimentacoes[semana]`. Os testes rodam EM ORDEM sobre o mesmo documento:
+    sugestão -> decisão gravada -> decisão vazia -> volta às sugestões."""
+
+    SEMANA = FATOS["meta"]["janela_inicio"]
+
+    @classmethod
+    def setUpClass(cls):
+        try:
+            from playwright.sync_api import sync_playwright
+        except ImportError:
+            raise unittest.SkipTest("playwright não instalado")
+
+        cls.estado = _estado_com_saldos()
+        cls.versao = "2026-09-01T00:00:00+00:00"
+        cls.gravacoes = []
         cls.erros = []
 
         cls._pw = sync_playwright().start()
@@ -1677,36 +1809,28 @@ class TestCardTrello(unittest.TestCase):
         cls.pg.on("pageerror", lambda e: cls.erros.append(str(e)))
 
         def rota(route, request):
-            url = request.url
-            if "/functions/v1/reprocessar" in url:
-                if request.method == "OPTIONS":
-                    return route.fulfill(status=200,
-                                         headers={"Access-Control-Allow-Origin": "*",
-                                                  "Access-Control-Allow-Headers": "*"})
-                corpo = json.loads(request.post_data or "{}")
-                cls.pedidos.append(corpo)
-                if cls.card_depois is not None:
-                    cls.card = cls.card_depois
-                return route.fulfill(status=202, content_type="application/json",
-                                     headers={"Access-Control-Allow-Origin": "*"},
-                                     body=json.dumps({"aceito": True}))
+            url, metodo = request.url, request.method
             if "/storage/v1/object/" in url:
-                caminho = url.split("?")[0]
-                if caminho.endswith("/saldo_bancario.card.json"):
-                    if cls.card is None:
-                        return route.fulfill(
-                            status=400, content_type="application/json",
-                            body=json.dumps({"statusCode": "404", "error": "not_found",
-                                             "message": "Object not found"}))
-                    return route.fulfill(status=200, content_type="application/json",
-                                         body=json.dumps(cls.card))
                 return route.fulfill(status=200, content_type="application/json",
                                      body=json.dumps(FATOS))
+            if "/rest/v1/app_state" in url and metodo in ("PATCH", "POST"):
+                pedida = None
+                if "updated_at=eq." in url:
+                    pedida = urllib.parse.unquote(url.split("updated_at=eq.")[1].split("&")[0])
+                if pedida is not None and pedida != cls.versao:
+                    return route.fulfill(status=200, content_type="application/json", body="[]")
+                corpo = json.loads(request.post_data)
+                cls.gravacoes.append(corpo)
+                cls.estado = corpo["data"]
+                cls.versao = corpo.get("updated_at") or cls.versao
+                return route.fulfill(
+                    status=200, content_type="application/json",
+                    body=json.dumps([{"id": "saldo_bancario", "updated_at": cls.versao}]))
             if "/rest/v1/app_state" in url:
                 return route.fulfill(status=200,
                                      content_type="application/vnd.pgrst.object+json",
                                      body=json.dumps({"data": cls.estado,
-                                                      "updated_at": "v1"}))
+                                                      "updated_at": cls.versao}))
             return route.continue_()
 
         cls.pg.route("**/*.supabase.co/**", rota)
@@ -1719,75 +1843,180 @@ class TestCardTrello(unittest.TestCase):
         cls._b.close()
         cls._pw.stop()
 
-    def test_1_abriu_direto_na_projecao(self):
-        self.assertTrue(self.pg.is_visible("#btCardTrello"))
+    # -------- ajudantes --------
+
+    def _cards(self):
+        return self.pg.locator(".g-mov .mov").all_inner_texts()
+
+    def _linha(self, n):
+        return f"#tbMov tbody tr:nth-child({n})"
+
+    def _valor(self, n, v):
+        sel = f'{self._linha(n)} input[data-c="valor"]'
+        self.pg.fill(sel, str(v))
+        self.pg.dispatch_event(sel, "change")
+
+    def _decisao(self):
+        return (type(self).estado.get("movimentacoes") or {}).get(self.SEMANA)
+
+    def _pdf_ultima_pagina(self):
+        try:
+            import fitz
+        except ImportError:
+            raise unittest.SkipTest("PyMuPDF não instalado")
+        b64 = self.pg.evaluate("""() => {
+            const bytes = SB_PAINEL.pdf();
+            let s = '';
+            for (const b of bytes) s += String.fromCharCode(b);
+            return btoa(s);
+        }""")
+        doc = fitz.open(stream=base64.b64decode(b64), filetype="pdf")
+        return doc[doc.page_count - 1].get_text().replace("\xa0", " ")
+
+    # -------- sem decisão --------
+
+    def test_1_sem_decisao_os_cards_sao_as_sugestoes(self):
+        corpo = self.pg.inner_text("body")
+        self.assertIn("Sugestões de Movimentação", corpo)
+        self.assertEqual(self.pg.locator("#btMovRegra").count(), 0,
+                         "sem decisão gravada não há o que desfazer")
+        cards = self._cards()
+        self.assertEqual(len(cards), 2, cards)
+        self.assertIn("20k", cards[0])
+        self.assertIn("Luxor Investimentos - Itau CDB-DI", cards[0])
+        self.assertIn("35k", cards[1])
+        self.assertNotIn("ajustada", " ".join(cards))
+
+    def test_2_editar_abre_com_as_sugestoes_e_trava_o_resto(self):
+        self.pg.click("#btMovEditar")
+        self.pg.wait_for_timeout(200)
+        self.assertEqual(self.pg.locator("#tbMov tbody tr").count(), 2)
+        self.assertTrue(self.pg.is_disabled("#btMovGravar"),
+                        "nada mudou ainda: gravar a sugestão como decisão a congelaria")
+        self.assertTrue(self.pg.is_disabled("#btSlack"),
+                        "o Slack lê o que está gravado, não o que está na tela")
+        self.assertEqual(self.pg.locator("#btEditar").count(), 0,
+                         "os dois editores gravam o documento inteiro: um de cada vez")
+
+    def test_3_ajustar_incluir_e_remover_e_gravar(self):
+        self._valor(1, 25000)                                    # ajusta o resgate
+        self.pg.click(f'{self._linha(2)} [data-del]')            # tira a aplicação
+        self.pg.click("#btMovAdd")                               # inclui uma transferência
+        self.pg.select_option(f'{self._linha(2)} select[data-c="tipo"]', "transferencia")
+        self.pg.select_option(f'{self._linha(2)} select[data-c="chave"]', "TARITUBA")
+        self.pg.select_option(f'{self._linha(2)} select[data-c="contraparte"]',
+                              "LUXOR INVESTIMENTOS")
+        self._valor(2, "1234.56")
+        sel = f'{self._linha(2)} input[data-c="obs"]'
+        self.pg.fill(sel, "  cobrir folha  ")
+        self.pg.dispatch_event(sel, "change")
+
+        antes = len(self.gravacoes)
+        self.pg.click("#btMovGravar")
+        self.pg.wait_for_timeout(800)
+        self.assertEqual(len(self.gravacoes), antes + 1)
+        d = self._decisao()
+        self.assertEqual(d["por"], "fulano@luxor.com.br")
+        self.assertEqual(d["itens"], [
+            {"tipo": "resgate", "chave": "LUXOR INVESTIMENTOS",
+             "contraparte": "Luxor Investimentos - Itau CDB-DI", "valor": 25000, "obs": ""},
+            {"tipo": "transferencia", "chave": "TARITUBA",
+             "contraparte": "LUXOR INVESTIMENTOS", "valor": 1234.56, "obs": "cobrir folha"},
+        ])
+        self.assertIn(self.SEMANA, type(self).estado["entradas"],
+                      "gravar a decisão não pode levar os saldos da semana junto")
+
+    def test_4_os_cards_mostram_a_decisao_e_onde_ela_diverge_da_regra(self):
+        corpo = self.pg.inner_text("body")
+        self.assertIn("Movimentações decididas", corpo)
+        self.assertIn("Decididas por fulano@luxor.com.br", corpo)
+        cards = self._cards()
+        self.assertEqual(len(cards), 2, cards)
+        self.assertIn("25k", cards[0])
+        self.assertIn("ajustada · regra 20k", cards[0])
+        self.assertIn("R$ 1.234,56", cards[1])
+        self.assertIn("incluída", cards[1])
+        self.assertIn("para Luxor Investimentos - Itau", cards[1])
+        self.assertIn("cobrir folha", cards[1])
+        self.assertIn("deixadas de fora", corpo)
+        self.assertIn("Aplicar 35k", self.pg.inner_text(".mov-descartadas"))
+
+    def test_5_a_tabela_continua_com_a_sugestao_da_regra(self):
+        """Decisão do Leonardo: a decisão muda cards/PDF/Slack, não a projeção."""
+        tabela = self.pg.inner_text("table.principal")
+        self.assertIn("35k", tabela)
+        self.assertIn("20k", tabela)
+        self.assertNotIn("25k", tabela)
+
+    def test_6_o_pdf_leva_a_decisao(self):
+        p = self._pdf_ultima_pagina()
+        self.assertIn("Movimentações decididas", p)
+        self.assertIn("TRANSFERIR", p)
+        self.assertIn("R$ 1.234,56", p)
+        self.assertIn("para Luxor Investimentos - Itau", p)
+        self.assertNotIn("APLICAR", p)
+        self.assertIn("não movimenta dinheiro", p)
+
+    def test_7_filtro_mostra_a_transferencia_nas_duas_pontas(self):
+        self.pg.select_option("#fConta", "LUXOR INVESTIMENTOS")
+        self.pg.wait_for_timeout(200)
+        try:
+            cards = self._cards()
+            self.assertEqual(len(cards), 2, "o resgate dela e a transferência que chega")
+        finally:
+            self.pg.select_option("#fConta", "")
+            self.pg.wait_for_timeout(200)
+
+    def test_8_validacao_nao_grava_movimentacao_sem_valor(self):
+        self.pg.click("#btMovEditar")
+        self.pg.click("#btMovAdd")
+        antes = len(self.gravacoes)
+        self.pg.click("#btMovGravar")
+        self.pg.wait_for_timeout(300)
+        self.assertEqual(len(self.gravacoes), antes)
+        self.assertIn("incompleta", self.pg.inner_text(".erro-box"))
+
+        # Virar transferência tem de LIMPAR o investimento que a linha trazia: senão o
+        # nome do CDB passaria por "conta de destino" e a validação deixaria gravar uma
+        # transferência para lugar nenhum.
+        n = self.pg.locator("#tbMov tbody tr").count()
+        self.pg.select_option(f'{self._linha(n)} select[data-c="tipo"]', "transferencia")
+        self.assertEqual(self.pg.input_value(f'{self._linha(n)} select[data-c="contraparte"]'), "")
+        self._valor(n, 100)
+        self.pg.click("#btMovGravar")
+        self.pg.wait_for_timeout(300)
+        self.assertEqual(len(self.gravacoes), antes, "transferência sem destino foi gravada")
+        self.assertIn("conta de destino", self.pg.inner_text(".erro-box"))
+
+        self.pg.once("dialog", lambda d: d.accept())
+        self.pg.click("#btMovCancelar")
+        self.pg.wait_for_timeout(200)
+        self.assertEqual(self.pg.locator("#tbMov").count(), 0)
+
+    def test_9_gravar_sem_nenhuma_e_decidir_nao_movimentar(self):
+        """`itens: []` é decisão, não ausência dela: o Slack e os cards não podem trazer
+        de volta as sugestões que a gestão descartou."""
+        self.pg.click("#btMovEditar")
+        while self.pg.locator("#tbMov tbody tr [data-del]").count():
+            self.pg.click("#tbMov tbody tr:first-child [data-del]")
+        self.pg.click("#btMovGravar")
+        self.pg.wait_for_timeout(800)
+        self.assertEqual(self._decisao()["itens"], [])
+        self.assertEqual(self._cards(), [])
+        self.assertIn("Nenhuma movimentação decidida", self.pg.inner_text("body"))
+
+    def test_a_voltar_as_sugestoes_apaga_a_decisao(self):
+        self.pg.once("dialog", lambda d: d.accept())
+        self.pg.click("#btMovRegra")
+        self.pg.wait_for_timeout(800)
+        self.assertNotIn(self.SEMANA, type(self).estado.get("movimentacoes", {}),
+                         "voltar às sugestões apaga a semana, não grava a sugestão de hoje")
+        self.assertIn("Sugestões de Movimentação", self.pg.inner_text("body"))
+        self.assertEqual(len(self._cards()), 2)
+
+    def test_b_sem_erro_de_console(self):
         self.assertEqual(self.erros, [])
 
-    def test_2_botao_manda_acao_e_o_mes_da_janela_publicada(self):
-        """O mês vem de `D.janela[0]` (a janela PUBLICADA, "2026-09-09" -> setembro),
-        não do relógio de quem clicou nem de nenhum seletor na tela — este painel, ao
-        contrário do Tarituba, não tem escolha de mês na tela."""
-        # classe, não instância: a rota fechou sobre `cls` em setUpClass, e `self.x = ...`
-        # criaria um atributo de instância que a rota nunca veria.
-        type(self).card_depois = {"ok": True, "gerado_em": "2026-09-18T12:00:00-03:00",
-                                  "card_url": "https://trello.com/c/abc123",
-                                  "lista": "Planilha Setembro 2026", "card_novo": True,
-                                  "dados_de": "11/09/2026 11:47", "semana": "2026-09-09"}
-        self.pg.click("#btCardTrello")
-        self.pg.wait_for_timeout(7000)   # reprocessar.js relê o carimbo a cada 5s
-        self.assertEqual(self.pedidos, [{"painel": "saldo_bancario", "acao": "card_trello",
-                                         "mes": 9}])
-        st = self.pg.text_content("#cardStatus")
-        self.assertIn("Card criado", st)
-        self.assertIn("Planilha Setembro 2026", st)
-        self.assertEqual(self.pg.get_attribute("#cardStatus a", "href"),
-                         "https://trello.com/c/abc123")
-
-    def test_3_erro_vira_mensagem_com_classe_erro(self):
-        pg = type(self)._b.new_page(viewport={"width": 1400, "height": 900})
-        try:
-            card_depois = {"ok": False, "gerado_em": "2026-09-18T12:05:00-03:00",
-                           "erro": "Não existe lista de Setembro 2026 no board do Trello."}
-            card_atual = {"card": None}
-
-            def rota(route, request):
-                url = request.url
-                if "/functions/v1/reprocessar" in url:
-                    if request.method == "OPTIONS":
-                        return route.fulfill(status=200,
-                                             headers={"Access-Control-Allow-Origin": "*",
-                                                      "Access-Control-Allow-Headers": "*"})
-                    card_atual["card"] = card_depois
-                    return route.fulfill(status=202, content_type="application/json",
-                                         headers={"Access-Control-Allow-Origin": "*"},
-                                         body=json.dumps({"aceito": True}))
-                if "/storage/v1/object/" in url:
-                    if url.split("?")[0].endswith("/saldo_bancario.card.json"):
-                        if card_atual["card"] is None:
-                            return route.fulfill(
-                                status=400, content_type="application/json",
-                                body=json.dumps({"statusCode": "404",
-                                                 "message": "Object not found"}))
-                        return route.fulfill(status=200, content_type="application/json",
-                                             body=json.dumps(card_atual["card"]))
-                    return route.fulfill(status=200, content_type="application/json",
-                                         body=json.dumps(FATOS))
-                if "/rest/v1/app_state" in url:
-                    return route.fulfill(
-                        status=200, content_type="application/vnd.pgrst.object+json",
-                        body=json.dumps({"data": self.estado, "updated_at": "v1"}))
-                return route.continue_()
-
-            pg.route("**/*.supabase.co/**", rota)
-            pg.add_init_script("window.HUB = {email:'fulano@luxor.com.br'};")
-            pg.goto((AQUI / "index.html").as_uri())
-            pg.wait_for_timeout(1500)
-            pg.click("#btCardTrello")
-            pg.wait_for_timeout(7000)
-            self.assertIn("Não existe lista de Setembro 2026", pg.text_content("#cardStatus"))
-            self.assertIn("erro", pg.get_attribute("#cardStatus", "class"))
-        finally:
-            pg.close()
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

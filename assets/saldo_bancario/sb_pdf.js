@@ -170,7 +170,7 @@ window.SB_PDF = (function () {
     cab: '#1A3C34', cabTxt: '#FFFFFF', papel: '#FFFFFF',
     conta: '#F2F7F6', inv: '#FFFFFF', total: '#DCE9E6',
     txt: '#12211E', suave: '#5B6B68', linha: '#C8D6D3',
-    resgate: '#C00000', aplicar: '#1F6B3F', neutro: '#5B6B68'
+    resgate: '#C00000', aplicar: '#1F6B3F', transferencia: '#1D6E79', neutro: '#5B6B68'
   };
 
   var A4H = { l: 841.89, a: 595.28 };   // A4 paisagem, em pontos
@@ -185,12 +185,15 @@ window.SB_PDF = (function () {
    * saía como "…origem do re.". As colunas de número foram medidas contra o maior valor
    * que aparece — R$ 8.485.119,17, o total aplicado — e sobrava espaço em todas. */
   var COLS = [
-    { k: 'conta',    t: 'Conta',              w: 240, a: 'e' },
+    { k: 'conta',    t: 'Conta',              w: 232, a: 'e' },
     { k: 'saldo',    t: 'Saldo',              w: 66,  a: 'd' },
     { k: 'a_pagar',  t: 'Saídas da semana',   w: 78,  a: 'd' },
     { k: 'a_receber', t: 'Entradas previstas', w: 78, a: 'd' },
     { k: 'restante', t: 'Saldo restante',     w: 78,  a: 'd' },
-    { k: 'colchao',  t: 'Colchão',            w: 60,  a: 'd' },
+    // 68 e não 60: "Saldo segurança" em negrito mede 60,4pt pela régua de `larguraTexto`
+    // (que conta o "ç" como letra larga), e o texto tem 4pt de respiro — em 60 saía
+    // "Saldo seguranç…". Os 8pt saíram da Conta, que já corta com reticências.
+    { k: 'colchao',  t: 'Saldo segurança',    w: 68,  a: 'd' },
     // 84 e não 70: "Em descontinuação" é o rótulo mais longo e saía "Em descontinuaçã.."
     { k: 'sit',      t: 'Situação',           w: 84,  a: 'e' },
     // e 110 aqui: embaixo da ação vai o nome inteiro da aplicação par, que é o texto
@@ -207,7 +210,7 @@ window.SB_PDF = (function () {
   }
 
   var ROTULO_SIT = {
-    resgate: 'Resgatar', sem_colchao: 'Sem colchão', aplicar: 'Aplicar',
+    resgate: 'Resgatar', sem_colchao: 'Sem saldo segurança', aplicar: 'Aplicar',
     sem_acao: 'Sem ação', descontinuada: 'Em descontinuação'
   };
 
@@ -235,7 +238,7 @@ window.SB_PDF = (function () {
         movSub: c.acao
           ? (c.par_nome || 'sem investimento par')
           : (s === 'descontinuada' ? 'sendo encerrada'
-            : s === 'sem_colchao' ? 'colchão não definido' : 'dentro do colchão'),
+            : s === 'sem_colchao' ? 'saldo segurança não definido' : 'dentro do saldo segurança'),
         acao: c.acao || null
       });
       (c.investimentos || []).forEach(function (i) {
@@ -381,53 +384,78 @@ window.SB_PDF = (function () {
   var SUG_ALT = 74;
   var SUG_GAP = 10;
 
-  function desenharSugestoes(tela, contas, y) {
-    var comAcao = (contas || []).filter(function (c) { return c.acao; });
-    var resg = comAcao.filter(function (c) { return c.acao === 'resgate'; }).length;
-    var apl = comAcao.length - resg;
-    tela.texto('Sugestões de Movimentação', MG, y - 13, 340, 13, COR.cab, true, 'e');
-    tela.texto(comAcao.length
-      ? resg + (resg === 1 ? ' resgate' : ' resgates') + ' e '
-        + apl + (apl === 1 ? ' aplicação' : ' aplicações')
-      : 'nada a movimentar nesta semana',
-      MG + 196, y - 13, 300, 9, COR.suave, false, 'e');
+  /* Desde 11/11/2026 os cartões são as MOVIMENTAÇÕES DA SEMANA (sb_mov.js): a decisão
+   * da gestão, ou as sugestões da regra se ninguém decidiu. Chegam prontas em
+   * `meta.movs`, do mesmo `movDaSemana()` que desenha os cards da tela — não há segundo
+   * caminho para o papel divergir dela. A tabela das páginas anteriores continua com a
+   * sugestão da regra, como na tela. */
+  var VERBO_PDF = { resgate: 'RESGATAR', aplicar: 'APLICAR', transferencia: 'TRANSFERIR' };
+
+  function resumo(movs) {
+    if (!movs.length) return 'nada a movimentar nesta semana';
+    var n = function (t) { return movs.filter(function (m) { return m.tipo === t; }).length; };
+    var r = n('resgate'), a = n('aplicar'), t = n('transferencia'), partes = [];
+    if (r) partes.push(r + (r === 1 ? ' resgate' : ' resgates'));
+    if (a) partes.push(a + (a === 1 ? ' aplicação' : ' aplicações'));
+    if (t) partes.push(t + (t === 1 ? ' transferência' : ' transferências'));
+    return partes.length > 1
+      ? partes.slice(0, -1).join(', ') + ' e ' + partes[partes.length - 1] : partes[0];
+  }
+
+  /* A preposição só existe quando há nome para regê-la: concatenada com o texto de
+     ausência, saía "no sem investimento par" — e "do sem investimento par" num resgate. */
+  function deOuPara(m, nomeConta) {
+    if (m.tipo === 'transferencia') {
+      return m.contraparte ? 'para ' + nomeConta(m.contraparte) : 'destino não informado';
+    }
+    if (!m.contraparte) return 'sem investimento par';
+    return (m.tipo === 'resgate' ? 'do ' : 'no ') + m.contraparte;
+  }
+
+  function desenharSugestoes(tela, meta, y) {
+    var movs = meta.movs || [];
+    var nomeConta = meta.nomeConta || function (k) { return k; };
+    var rotulo = (window.SB_MOV && SB_MOV.rotulo) || function (v) { return String(v); };
+    tela.texto(meta.movEditado ? 'Movimentações decididas' : 'Sugestões de Movimentação',
+      MG, y - 13, 340, 13, COR.cab, true, 'e');
+    tela.texto(resumo(movs), MG + 196, y - 13, 400, 9, COR.suave, false, 'e');
     y -= 24;
 
-    if (!comAcao.length) {
-      tela.texto('Nenhuma movimentação sugerida nesta semana.', MG, y - 12, 500, 9,
-        COR.suave, false, 'e');
+    if (!movs.length) {
+      tela.texto(meta.movEditado ? 'Nenhuma movimentação decidida nesta semana.'
+                                 : 'Nenhuma movimentação sugerida nesta semana.',
+        MG, y - 12, 500, 9, COR.suave, false, 'e');
       return y - 20;
     }
 
+    // a observação ganha uma linha a mais em TODOS os cartões, e não só no que a tem:
+    // cartões de alturas diferentes na mesma fileira desalinhariam a grade
+    var alt = SUG_ALT + (movs.some(function (m) { return m.obs; }) ? 11 : 0);
     var larg = (A4H.l - 2 * MG - (SUG_POR_LINHA - 1) * SUG_GAP) / SUG_POR_LINHA;
-    comAcao.forEach(function (c, i) {
+    movs.forEach(function (m, i) {
       var col = i % SUG_POR_LINHA;
       var fila = Math.floor(i / SUG_POR_LINHA);
-      var topo = y - fila * (SUG_ALT + SUG_GAP);
-      var base = topo - SUG_ALT;
+      var topo = y - fila * (alt + SUG_GAP);
+      var base = topo - alt;
       var x = MG + col * (larg + SUG_GAP);
-      var cor = c.acao === 'resgate' ? COR.resgate : COR.aplicar;
-      tela.retangulo(x, base, larg, SUG_ALT, COR.conta);
+      var cor = COR[m.tipo] || COR.neutro;
+      tela.retangulo(x, base, larg, alt, COR.conta);
       // a barra colorida na lateral é a marca visual; em impressão preto e branco quem
-      // diz o que fazer é a palavra RESGATAR/APLICAR, não a cor
+      // diz o que fazer é a palavra RESGATAR/APLICAR/TRANSFERIR, não a cor
       tela.linha(x + 1.5, base, x + 1.5, topo, cor, 3);
-      tela.texto(c.acao === 'resgate' ? 'RESGATAR' : 'APLICAR', x + 10, topo - 15,
-        larg - 16, 8.5, cor, true, 'e');
-      tela.texto(c.valor_rotulo || '', x + 10, topo - 40, larg - 16, 23, COR.txt, true, 'e');
-      tela.texto(c.conta, x + 10, topo - 54, larg - 16, 9, COR.txt, true, 'e', true);
-      /* A preposição só existe quando há nome para regê-la: concatenada com o texto de
-         ausência, saía "no sem investimento par" — e "do sem investimento par" num
-         resgate. A tabela (ver `linhas`) já mostrava o mesmo campo sem preposição. */
-      tela.texto(c.par_nome
-          ? (c.acao === 'resgate' ? 'do ' : 'no ') + c.par_nome
-          : 'sem investimento par',
-        x + 10, topo - 66, larg - 16, 8, COR.suave, false, 'e', true);
+      tela.texto(VERBO_PDF[m.tipo] || m.tipo, x + 10, topo - 15, larg - 16, 8.5, cor, true, 'e');
+      tela.texto(rotulo(m.valor), x + 10, topo - 40, larg - 16, 23, COR.txt, true, 'e');
+      tela.texto(nomeConta(m.chave), x + 10, topo - 54, larg - 16, 9, COR.txt, true, 'e', true);
+      tela.texto(deOuPara(m, nomeConta), x + 10, topo - 66, larg - 16, 8, COR.suave, false, 'e', true);
+      if (m.obs) tela.texto(m.obs, x + 10, topo - 77, larg - 16, 7.5, COR.suave, false, 'e', true);
     });
-    return y - Math.ceil(comAcao.length / SUG_POR_LINHA) * (SUG_ALT + SUG_GAP);
+    return y - Math.ceil(movs.length / SUG_POR_LINHA) * (alt + SUG_GAP);
   }
 
   function rodape(tela, meta) {
-    var txt = 'Resgate e aplicação são sugestão para o gestor solicitar ao banco: '
+    var txt = (meta.movEditado
+      ? 'Movimentações decididas pela gestão, a solicitar ao banco: '
+      : 'Resgate e aplicação são sugestão para o gestor solicitar ao banco: ')
       + 'esta projeção não movimenta dinheiro.';
     if (meta.geradoEm) txt += ' Dados de ' + meta.geradoEm + '.';
     tela.texto(txt, MG, MG - 6, A4H.l - 2 * MG, 6.5, COR.suave, false, 'e');
@@ -483,7 +511,7 @@ window.SB_PDF = (function () {
     var telaSug = new Tela();
     telaSug.retangulo(0, 0, A4H.l, A4H.a, COR.papel);
     var ySug = cabecalhoPagina(telaSug, meta, nPags, nPags);
-    desenharSugestoes(telaSug, contas, ySug);
+    desenharSugestoes(telaSug, meta, ySug);
     rodape(telaSug, meta);
     streams.push(telaSug.fim());
 

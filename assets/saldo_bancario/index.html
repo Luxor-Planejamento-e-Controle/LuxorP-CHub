@@ -137,6 +137,23 @@ select:focus{border-color:var(--orange)}
   font-variant-numeric:lining-nums proportional-nums;font-feature-settings:"lnum" 1,"pnum" 1}
 .mov .conta{font-size:13px;font-weight:500;margin-top:5px}
 .mov .de{color:var(--ink-3);font-size:11.5px;margin-top:2px}
+/* Transferência entre contas: a regra nunca sugere (cada conta se resolve com o próprio
+   investimento), mas a gestão pode decidir — ganha o teal, que não é nem saída nem
+   entrada de investimento. */
+.mov.transferencia{border-left-color:var(--teal-light);
+  background:linear-gradient(90deg,rgba(46,151,166,.16),var(--bg-2) 60%)}
+.mov .obs{color:var(--ink-2);font-size:11.5px;margin-top:6px;font-style:italic}
+/* Onde a decisão diverge da regra. Fica no canto da linha do verbo: é informação de
+   conferência, não o que se pede ao banco, e não pode competir com o valor. */
+.mov .marca{margin-left:auto;font-size:9.5px;letter-spacing:.06em;color:var(--ink-3);
+  border:1px solid var(--line);border-radius:4px;padding:1px 5px;text-transform:none}
+.mov .marca.incluida{color:var(--teal-light);border-color:rgba(46,151,166,.5)}
+.mov .marca.ajustada{color:var(--warn);border-color:rgba(242,193,78,.5)}
+.mov-nota{color:var(--ink-3);font-size:11.5px;margin:-4px 0 12px}
+.mov-descartadas{color:var(--ink-3);font-size:11.5px;margin-top:12px}
+.mov-descartadas s{color:var(--ink-2)}
+.btn-mini{height:28px;padding:0 11px;font-size:12px}
+.sub-title .acoes-mov{margin-left:auto;display:flex;gap:8px}
 
 /* ---- marca de status: ponto + ícone + rótulo em --ink ----
    Nunca cor sozinha, e nunca a cor do status como texto em corpo pequeno:
@@ -379,6 +396,7 @@ table.data .sub2.fixo{text-align:right;margin-top:3px;color:var(--teal-light)}
 <script src="config.js"></script>
 <script src="../reprocessar.js"></script>
 <script src="sb_regra.js"></script>
+<script src="sb_mov.js"></script>
 <script src="sb_dados.js"></script>
 <script src="sb_fonte.js"></script>
 <script src="sb_formulario.js"></script>
@@ -393,7 +411,7 @@ window.onerror = (m, f, l) => { document.title = 'ERRO JS: ' + m + ' @' + l; };
 /* ---------- situação da conta: rótulo + ícone. Nunca cor sozinha. ---------- */
 const ST = {
   resgate:       {label:'Resgatar',   ordem:1, ico:'M12 5v14M19 12l-7 7-7-7'},
-  sem_colchao:   {label:'Sem colchão',ordem:2, ico:'M12 17h.01M9.1 9a3 3 0 015.8 1c0 2-3 2.2-3 4M12 21a9 9 0 100-18 9 9 0 000 18z'},
+  sem_colchao:   {label:'Sem saldo segurança',ordem:2, ico:'M12 17h.01M9.1 9a3 3 0 015.8 1c0 2-3 2.2-3 4M12 21a9 9 0 100-18 9 9 0 000 18z'},
   aplicar:       {label:'Aplicar',    ordem:3, ico:'M12 19V5M5 12l7-7 7 7'},
   sem_acao:      {label:'Sem ação',   ordem:4, ico:'M20 6L9 17l-5-5'},
   descontinuada: {label:'Em descontinuação', ordem:5, ico:'M12 8v4M12 16h.01M12 22a10 10 0 100-20 10 10 0 000 20z'},
@@ -465,6 +483,16 @@ let E = null;
 let erroEdicao = null;
 let salvando = false;
 
+/* Movimentações da semana. `DEC` é a decisão gravada em app_state (null = ninguém
+   decidiu, valem as sugestões da regra — ver sb_mov.js). `M` é a cópia de trabalho do
+   editor de movimentações, no mesmo espírito do `E` das provisões: só vira gravação no
+   "Gravar". Os dois editores não abrem juntos — cada um grava o documento inteiro, e o
+   segundo a gravar levaria o "outra pessoa gravou" por causa do primeiro. */
+let DEC = null;
+let M = null;
+let erroMov = null;
+let salvandoMov = false;
+
 /* Situação derivada da ação sugerida em Python. A AÇÃO vem primeiro: conta em
    descontinuação ainda recebe pagamento durante a transição, e quando precisa de
    resgate é isso que o gestor tem de ver — rotular "em descontinuação" ali
@@ -528,8 +556,6 @@ function render(){
   const rec = D.a_receber.filter(t => chaves.has(t.chave));
   const filtrado = contas.length !== D.contas.length;
 
-  const resgates = contas.filter(c => c.acao === 'resgate');
-  const aplicar  = contas.filter(c => c.acao === 'Aplicar');
 
   document.getElementById('pageSub').textContent =
     `${fmt.iso(D.janela[0])} a ${fmt.iso(D.janela[1])} · saldo de ${fmt.iso(D.data_saldo)} · `
@@ -562,7 +588,7 @@ function render(){
       <div class="field"><label>&nbsp;</label>
         <button class="btn-ghost" id="fLimpar" type="button">${
           temRecorte() ? 'Limpar filtros' : 'Restaurar ordem'}</button></div>` : ''}
-      ${podeEditar() && !E ? `
+      ${podeEditar() && !E && !M ? `
       <div class="field"><label>Provisões</label>
         <button class="btn-acao" id="btEditar" type="button">
           ${svg('M11 4h2M4 20h16M7 17l9.5-9.5a2.1 2.1 0 00-3-3L4 14v3h3z',13)}
@@ -623,15 +649,17 @@ function render(){
                 style="white-space:nowrap"
                 title="Busca os títulos do Bimer de novo e republica a semana">
           Atualizar agora</button>
-        <!-- Cria (ou atualiza) o card da semana ATUAL no Trello, com o mesmo PDF do
-             botão "Exportar PDF" — gerado no Azure a partir do painel publicado, não
-             do que está na tela agora. Precisa do painel completo (sem saldo faltando)
-             para montar a análise de resgate/aplicação que entra no PDF. -->
-        <button class="btn-ghost" id="btCardTrello" type="button"
-                style="white-space:nowrap"
-                title="Cria no Trello o card desta semana, com o PDF de Movimentações e Sugestões">
-          Criar card no Trello</button>
-        <span class="sub" id="cardStatus"></span>
+        <!-- Posta no canal do Slack as movimentações da semana ATUAL: as decididas pela
+             gestão, ou as sugestões se ninguém decidiu. Montada no Azure a partir do
+             painel publicado e do que está GRAVADO, não do que está na tela, por isso
+             fica travado com o editor de movimentações aberto. Substituiu o card do
+             Trello em 11/11/2026. -->
+        <button class="btn-ghost" id="btSlack" type="button"
+                style="white-space:nowrap" ${M ? 'disabled' : ''}
+                title="${M ? 'Grave ou descarte a edição das movimentações antes de enviar'
+                           : 'Envia as movimentações desta semana no canal do Slack'}">
+          Enviar no Slack</button>
+        <span class="sub" id="slackStatus"></span>
       </div></div>` : ''}
 
     <div class="card">
@@ -640,24 +668,7 @@ function render(){
       </div>
       <div class="tbl-wrap baixa">${tabelaContas(contas, filtrado)}</div>
 
-      <div class="sub-title">
-        <h3>Sugestões de Movimentação</h3>
-        <span class="muted">${(resgates.length + aplicar.length)
-          ? `${resgates.length} resgate${resgates.length===1?'':'s'} e ${aplicar.length} aplicaç${aplicar.length===1?'ão':'ões'}`
-          : 'nada a movimentar nesta semana'}</span>
-      </div>
-      ${(resgates.length + aplicar.length) ? `
-      <div class="grid g-mov">
-        ${contas.filter(c => c.acao).map(c => `
-          <div class="mov ${c.acao === 'resgate' ? 'resgate' : 'aplicar'}">
-            <div class="acao">${svg(ST[c.acao==='resgate'?'resgate':'aplicar'].ico,12)}
-              ${c.acao === 'resgate' ? 'Resgatar' : 'Aplicar'}</div>
-            <div class="vlr">${esc(c.valor_rotulo)}</div>
-            <div class="conta">${esc(c.conta)}</div>
-            <div class="de">${c.acao === 'resgate' ? 'do' : 'no'}
-              ${c.par_nome ? esc(c.par_nome) : '<i>sem investimento par</i>'}</div>
-          </div>`).join('')}
-      </div>` : `<div class="empty">Nenhuma movimentação sugerida${filtrado?' nesta conta':''}.</div>`}
+      ${blocoMov(filtrado)}
     </div>
 
     ${F.fluxo ? `
@@ -712,8 +723,8 @@ function render(){
       O que a API não traz entra como <b>provisão</b>, de entrada ou de saída.
       Resgate e aplicação são
       <b>sugestão para o gestor solicitar ao banco</b>: esta projeção não movimenta dinheiro.
-      Colchão por conta e degrau de 5&nbsp;mil definidos pela Controladoria; resgate
-      arredonda para cima e aplicação para baixo, para que o arredondamento nunca invada o colchão.
+      Saldo segurança por conta e degrau de 5&nbsp;mil definidos pela Controladoria; resgate
+      arredonda para cima e aplicação para baixo, para que o arredondamento nunca invada o saldo segurança.
       Arquivo: <b>${esc(D.arquivo)}</b>, de ${fmt.dtHora(D.atualizado_em)} ·
       dados extraídos em ${fmt.dtHora(D.gerado_em)}.
     </div>`;
@@ -879,8 +890,8 @@ function tabelaContas(contas, filtrado){
         ? `<b>${c.acao === 'resgate' ? 'Resgatar' : 'Aplicar'} ${esc(c.valor_rotulo)}</b>`
           + `<div class="sub2">${c.par_nome ? esc(c.par_nome) : 'sem investimento par'}</div>`
         : `<span class="sub2" style="margin:0">${s === 'descontinuada'
-              ? 'conta sendo encerrada — sem colchão'
-              : (s === 'sem_colchao' ? 'colchão não definido' : 'dentro do colchão')}</span>`}</td>
+              ? 'conta sendo encerrada — sem saldo segurança'
+              : (s === 'sem_colchao' ? 'saldo segurança não definido' : 'dentro do saldo segurança')}</span>`}</td>
     </tr>`;
 
     const linhasInv = c.investimentos.map(i => {
@@ -910,7 +921,7 @@ function tabelaContas(contas, filtrado){
       <th data-t="c" data-c="pagar"    class="num">Saídas da semana${arw(oC,'pagar')}</th>
       <th data-t="c" data-c="receber"  class="num">Entradas previstas${arw(oC,'receber')}</th>
       <th data-t="c" data-c="restante" class="num">Saldo restante${arw(oC,'restante')}</th>
-      <th data-t="c" data-c="colchao"  class="num">Colchão${arw(oC,'colchao')}</th>
+      <th data-t="c" data-c="colchao"  class="num">Saldo segurança${arw(oC,'colchao')}</th>
       <th data-t="c" data-c="sit">Situação${arw(oC,'sit')}</th>
       <th>Movimentação</th>
     </tr></thead>
@@ -1177,6 +1188,267 @@ const payloadLinha = l => ({
   emissao:l.emissao, vencimento:l.vencimento, valor:l.valor,
 });
 
+/* ---------- movimentações da semana: cards, editor e "Voltar às sugestões" ----------
+   Pedido da gestão (11/11/2026): os cards mostram o que DE FATO vai ser pedido ao banco.
+   A regra de colchão continua sendo o ponto de partida — sem decisão gravada, os cards
+   são as sugestões dela, como sempre foram. Ver sb_mov.js para a forma do dado.
+
+   A TABELA de Movimentações não muda com a decisão (decisão do Leonardo): ela é a
+   projeção sem movimentação nenhuma, a base sobre a qual a sugestão é calculada. */
+const ICO_LAPIS  = 'M11 4h2M4 20h16M7 17l9.5-9.5a2.1 2.1 0 00-3-3L4 14v3h3z';
+const ICO_LIXO   = 'M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14';
+const ICO_TRANSF = 'M5 12h14M13 6l6 6-6 6';
+const icoMov = t => t === 'resgate' ? ST.resgate.ico : t === 'aplicar' ? ST.aplicar.ico : ICO_TRANSF;
+
+const nomeConta = chave => (D.contas.find(c => c.chave === chave) || {}).conta || chave;
+const parDe = chave => (D.contas.find(c => c.chave === chave) || {}).par_nome || '';
+const movDaSemana = () => SB_MOV.daSemana(D.contas, DEC);
+/* Com uma conta filtrada, a transferência aparece nas DUAS pontas: para quem olha a
+   conta de destino, o dinheiro que chega é tão parte da semana quanto o que sai. */
+const movNoEscopo = itens => itens.filter(m => !F.conta || m.chave === F.conta
+  || (m.tipo === 'transferencia' && m.contraparte === F.conta));
+
+function resumoMov(itens){
+  if(!itens.length) return 'nada a movimentar nesta semana';
+  const n = t => itens.filter(m => m.tipo === t).length;
+  const r = n('resgate'), a = n('aplicar'), t = n('transferencia');
+  const partes = [];
+  if(r) partes.push(`${r} resgate${r===1?'':'s'}`);
+  if(a) partes.push(`${a} aplicaç${a===1?'ão':'ões'}`);
+  if(t) partes.push(`${t} transferência${t===1?'':'s'}`);
+  return partes.length > 1
+    ? partes.slice(0, -1).join(', ') + ' e ' + partes[partes.length - 1]
+    : partes[0];
+}
+
+/* A preposição só existe quando há nome para regê-la — mesmo cuidado do PDF, que já
+   tinha impresso "do sem investimento par". */
+function deOuPara(m){
+  if(m.tipo === 'transferencia')
+    return m.contraparte ? 'para ' + esc(nomeConta(m.contraparte)) : '<i>destino não informado</i>';
+  if(!m.contraparte) return '<i>sem investimento par</i>';
+  return (m.tipo === 'resgate' ? 'do ' : 'no ') + esc(m.contraparte);
+}
+
+function cardMov(m){
+  const rot = SB_MOV.rotulo;
+  const marca = m.marca === 'ajustada'
+    ? `<span class="marca ajustada" title="A regra sugeria ${esc(rot(m.sugerido.valor))}${
+        m.sugerido.contraparte ? ' ' + (m.tipo === 'resgate' ? 'do ' : 'no ') + esc(m.sugerido.contraparte) : ''}">ajustada · regra ${esc(rot(m.sugerido.valor))}</span>`
+    : m.marca === 'incluida' ? `<span class="marca incluida" title="A regra não sugeria esta movimentação">incluída</span>` : '';
+  return `
+    <div class="mov ${m.tipo}">
+      <div class="acao">${svg(icoMov(m.tipo),12)} ${SB_MOV.VERBO[m.tipo]}${marca}</div>
+      <div class="vlr">${esc(rot(m.valor))}</div>
+      <div class="conta">${esc(nomeConta(m.chave))}</div>
+      <div class="de">${deOuPara(m)}</div>
+      ${m.obs ? `<div class="obs">${esc(m.obs)}</div>` : ''}
+    </div>`;
+}
+
+function blocoMov(filtrado){
+  const mov = movDaSemana();
+  const cmp = SB_MOV.comparar(D.contas, mov.itens);
+  const itens = movNoEscopo(cmp.itens);
+  const descartadas = mov.editado ? movNoEscopo(cmp.descartadas) : [];
+  const quando = mov.em ? new Date(mov.em).toLocaleString('pt-BR',
+    {day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit'}) : null;
+
+  const botoes = (E || M) ? '' : `
+        <div class="acoes-mov">
+          ${mov.editado ? `<button class="btn-ghost btn-mini" id="btMovRegra" type="button"
+                  title="Apaga a decisão gravada e volta a seguir a regra de saldo segurança">
+            Voltar às sugestões</button>` : ''}
+          <button class="btn-acao btn-mini" id="btMovEditar" type="button">
+            ${svg(ICO_LAPIS,12)} Editar movimentações</button>
+        </div>`;
+
+  return `
+      <div class="sub-title">
+        <h3>${mov.editado ? 'Movimentações decididas' : 'Sugestões de Movimentação'}</h3>
+        <span class="muted">${M ? 'em edição' : resumoMov(itens)}</span>${botoes}
+      </div>
+      ${erroMov && !M ? `<div class="erro-box"><b>Não foi possível gravar.</b> ${esc(erroMov)}</div>` : ''}
+      ${M ? editorMov() : `
+      ${mov.editado ? `<div class="mov-nota">Decididas${mov.por ? ' por ' + esc(mov.por) : ''}${
+        quando ? ' em ' + esc(quando) : ''} · a tabela acima continua mostrando a sugestão da
+        regra de saldo segurança.</div>` : ''}
+      ${itens.length ? `<div class="grid g-mov">${itens.map(cardMov).join('')}</div>`
+        : `<div class="empty">Nenhuma movimentação ${mov.editado ? 'decidida' : 'sugerida'}${
+            filtrado ? ' nesta conta' : ''}.</div>`}
+      ${descartadas.length ? `<div class="mov-descartadas">Sugestões da regra deixadas de fora:
+        ${descartadas.map(d => `<s>${SB_MOV.VERBO[d.tipo]} ${esc(SB_MOV.rotulo(d.valor))} —
+          ${esc(nomeConta(d.chave))}</s>`).join(' · ')}</div>` : ''}`}`;
+}
+
+/* ---- editor ---- */
+let seqMov = 0;
+const linhaMov = m => ({uid: 'm' + (++seqMov), tipo: m.tipo, chave: m.chave,
+  contraparte: m.contraparte || '', valor: Number(m.valor) || 0, obs: m.obs || ''});
+const assinaturaMov = ls => JSON.stringify(ls.map(l =>
+  [l.tipo, l.chave, l.contraparte, Number(l.valor) || 0, (l.obs || '').trim()]));
+const temMudancaMov = () => !!M && assinaturaMov(M.linhas) !== M.origem;
+
+/* Abre com o que vale HOJE: a decisão gravada, ou as sugestões se não houver. Editar
+   parte da sugestão porque é o que a gestão faz na prática — conferir a regra e mexer
+   em uma ou duas linhas —, não montar a semana do zero. */
+function entrarEdicaoMov(){
+  const linhas = movDaSemana().itens.map(linhaMov);
+  M = {linhas, origem: assinaturaMov(linhas)};
+  erroMov = null;
+  render();
+}
+
+function sairEdicaoMov(){ M = null; erroMov = null; render(); }
+
+function editorMov(){
+  const contas = D.contas;
+  const optConta = sel => contas.map(c =>
+    `<option value="${esc(c.chave)}" ${c.chave===sel?'selected':''}>${esc(c.conta)}</option>`).join('');
+  /* Resgate/aplicação: os investimentos da conta. Transferência: as OUTRAS contas. Um
+     investimento gravado que saiu do cadastro continua na lista — sumir com ele trocaria
+     a decisão sem ninguém ter mexido. */
+  const optCp = l => {
+    if(l.tipo === 'transferencia'){
+      return `<option value="" ${!l.contraparte?'selected':''}>— conta de destino —</option>`
+        + contas.filter(c => c.chave !== l.chave).map(c =>
+          `<option value="${esc(c.chave)}" ${c.chave===l.contraparte?'selected':''}>${esc(c.conta)}</option>`).join('');
+    }
+    const conta = contas.find(c => c.chave === l.chave) || {};
+    const invs = (conta.investimentos || []).map(i => i.nome);
+    if(l.contraparte && !invs.includes(l.contraparte)) invs.unshift(l.contraparte);
+    return `<option value="" ${!l.contraparte?'selected':''}>— sem investimento —</option>`
+      + invs.map(n => `<option value="${esc(n)}" ${n===l.contraparte?'selected':''}>${esc(n)}</option>`).join('');
+  };
+  const n = M.linhas.length;
+  return `
+      ${erroMov ? `<div class="erro-box"><b>Não foi possível gravar.</b> ${esc(erroMov)}</div>` : ''}
+      <div class="barra-edicao">
+        ${svg(ICO_LAPIS,15)}
+        <div class="txt">
+          <b>Editando as movimentações da semana.</b> Nada foi gravado ainda —
+          <b>${n}</b> movimentaç${n===1?'ão':'ões'}${temMudancaMov() ? ', com alterações' : ', nenhuma alteração até agora'}.
+          O que for gravado aqui vai para os cards, o PDF e a mensagem do Slack.
+        </div>
+        <button class="btn-ghost" id="btMovAdd" type="button">+ Movimentação</button>
+        <button class="btn-ghost" id="btMovCancelar" type="button">Descartar</button>
+        <button class="btn-acao" id="btMovGravar" type="button" ${
+          (!temMudancaMov() || salvandoMov) ? 'disabled' : ''}>${
+          salvandoMov ? 'Gravando…' : 'Gravar movimentações'}</button>
+      </div>
+      <div class="tbl-wrap baixa">
+        <table class="data" id="tbMov">
+          <thead><tr>
+            <th style="min-width:130px">Tipo</th>
+            <th style="min-width:210px">Conta</th>
+            <th style="min-width:240px">Investimento / destino</th>
+            <th style="min-width:140px" class="num">Valor (R$)</th>
+            <th style="min-width:200px">Observação</th>
+            <th style="width:44px"></th>
+          </tr></thead>
+          <tbody>${n ? M.linhas.map(l => `
+            <tr data-uid="${esc(l.uid)}">
+              <td><select data-c="tipo">${SB_MOV.TIPOS.map(t =>
+                `<option value="${t}" ${t===l.tipo?'selected':''}>${SB_MOV.VERBO[t]}</option>`).join('')}</select></td>
+              <td><select data-c="chave">${optConta(l.chave)}</select></td>
+              <td><select data-c="contraparte">${optCp(l)}</select></td>
+              <td><input data-c="valor" class="num" type="number" step="0.01" min="0"
+                         value="${l.valor || ''}"></td>
+              <td><input data-c="obs" value="${esc(l.obs)}" placeholder="opcional"></td>
+              <td style="text-align:center">
+                <button class="btn-lixo" data-del="${esc(l.uid)}" type="button"
+                        title="Tirar esta movimentação">${svg(ICO_LIXO,12)}</button></td>
+            </tr>`).join('')
+            : `<tr><td colspan="6"><div class="empty">Nenhuma movimentação. Gravar assim
+                registra que nada será pedido ao banco nesta semana — use "+ Movimentação"
+                para incluir.</div></td></tr>`}</tbody>
+        </table>
+      </div>`;
+}
+
+async function gravarMov(){
+  const ruins = M.linhas.filter(l => !(l.valor > 0) || !l.chave
+    || (l.tipo === 'transferencia' && (!l.contraparte || l.contraparte === l.chave)));
+  if(ruins.length){
+    erroMov = `${ruins.length} movimentaç${ruins.length===1?'ão incompleta':'ões incompletas'}: `
+      + 'toda movimentação precisa de conta e valor, e a transferência, de uma conta de '
+      + 'destino diferente da de origem. Preencha ou remova antes de gravar.';
+    return render();
+  }
+  salvandoMov = true; erroMov = null; render();
+  try{
+    await window.SB_FONTE.salvarMovimentacoes(M.linhas.map(l => ({
+      tipo: l.tipo, chave: l.chave, contraparte: l.contraparte,
+      valor: l.valor, obs: (l.obs || '').trim(),
+    })));
+    await carregarEstado();
+    M = null;
+  }catch(e){
+    erroMov = e.message;
+  }finally{
+    salvandoMov = false;
+    render();
+  }
+}
+
+/* Apaga a decisão da semana (não grava "as sugestões de hoje" como decisão): a partir
+   daí os cards voltam a seguir a regra, inclusive quando um "Atualizar agora" mudar a
+   sugestão. Gravar a sugestão como decisão a congelaria. */
+async function voltarSugestoes(){
+  if(!confirm('Apagar as movimentações decididas desta semana e voltar às sugestões da regra?')) return;
+  erroMov = null;
+  try{
+    await window.SB_FONTE.salvarMovimentacoes(null);
+    await carregarEstado();
+  }catch(e){
+    erroMov = e.message;
+  }
+  render();
+}
+
+function ligarMov(){
+  const liga = (id, fn) => { const b = document.getElementById(id); if(b) b.onclick = fn; };
+  liga('btMovEditar', entrarEdicaoMov);
+  liga('btMovRegra', voltarSugestoes);
+  liga('btMovGravar', gravarMov);
+  liga('btMovCancelar', () => {
+    if(!temMudancaMov() || confirm('Descartar as alterações nas movimentações? Nada foi gravado.'))
+      sairEdicaoMov();
+  });
+  liga('btMovAdd', () => {
+    const chave = F.conta || (D.contas[0] && D.contas[0].chave) || '';
+    M.linhas.push(linhaMov({tipo: 'resgate', chave, contraparte: parDe(chave), valor: 0}));
+    render();
+    const v = document.querySelectorAll('#tbMov tbody tr:last-child input[data-c="valor"]');
+    if(v.length) v[0].focus();
+  });
+
+  const tb = document.querySelector('#tbMov tbody');
+  if(!M || !tb) return;
+  // 'change' e não 'input', como no editor de provisões: re-renderizar a cada tecla
+  // tiraria o foco do campo
+  tb.addEventListener('change', ev => {
+    const el = ev.target.closest('[data-c]');
+    if(!el) return;
+    const l = M.linhas.find(x => x.uid === el.closest('tr').dataset.uid);
+    if(!l) return;
+    const campo = el.dataset.c;
+    l[campo] = campo === 'valor' ? Math.abs(Number(el.value) || 0) : el.value;
+    /* Trocar o tipo ou a conta invalida a contraparte: o investimento de uma conta não é
+       da outra, e o destino de uma transferência não é investimento. Volta ao par da
+       conta, que é o que a regra usaria. */
+    if(campo === 'tipo' || campo === 'chave')
+      l.contraparte = l.tipo === 'transferencia' ? '' : parDe(l.chave);
+    render();
+  });
+  tb.addEventListener('click', ev => {
+    const b = ev.target.closest('[data-del]');
+    if(!b) return;
+    M.linhas = M.linhas.filter(x => x.uid !== b.dataset.del);
+    render();
+  });
+}
+
 /* ---------- títulos a pagar e a receber, na mesma tabela ---------- */
 function corpoTitulos(tit, rec){
   if(E) return corpoEdicao();
@@ -1302,19 +1574,17 @@ function ligar(){
     aoConcluir: () => window.SB_PAINEL.recarregar(),
   });
 
-  /* Botão do Trello (09/10/2026, mesmo padrão do Tarituba): só existe dentro do hub,
-     que fornece SB_FONTE.ligarCard. O mês vai como FUNÇÃO porque é lido na hora do
-     clique e só escolhe a lista MENSAL do Trello a procurar — a semana do card vem
-     sempre da janela publicada (D.janela[0]), nunca deste mês (ver
-     shared_saldo_bancario/entrypoints.py, _criar_card). */
-  const btnCard = document.getElementById('btCardTrello');
-  if (btnCard && window.SB_FONTE && window.SB_FONTE.ligarCard) {
-    window.SB_FONTE.ligarCard(btnCard, document.getElementById('cardStatus'), () => {
+  /* Botão do Slack: só existe dentro do hub, que fornece SB_FONTE.ligarSlack. O mês vai
+     só porque o Azure exige mês em toda ação; a mensagem é sempre da janela publicada. */
+  const btnSlack = document.getElementById('btSlack');
+  if (btnSlack && window.SB_FONTE && window.SB_FONTE.ligarSlack) {
+    window.SB_FONTE.ligarSlack(btnSlack, document.getElementById('slackStatus'), () => {
       const inicio = D && D.janela && D.janela[0];
       return inicio ? (new Date(inicio + 'T00:00:00')).getMonth() + 1
                     : (new Date()).getMonth() + 1;
     });
   }
+  ligarMov();
   liga('btEditar',     entrarEdicao);
   liga('btAddSaida',   () => adicionar('saida'));
   liga('btAddEntrada', () => adicionar('entrada'));
@@ -1400,6 +1670,7 @@ async function carregarEstado(){
                                 d.hoje ? new Date(d.hoje) : new Date(),
                                 d.provisoes, d.ajustes);
   D = SB_DADOS.paraSbData(estadoAtual);
+  DEC = d.movimentacoes || null;
   return estadoAtual;
 }
 
@@ -1465,7 +1736,11 @@ function decidirTela(){
    seria justamente o segundo caminho que o desenho evita. */
 function exportarPdf(baixar){
   const contas = escopo();
+  const mov = movDaSemana();
   const meta = {
+    movs: movNoEscopo(mov.itens),
+    movEditado: mov.editado,
+    nomeConta: nomeConta,
     janela: D.janela ? `${fmt.iso(D.janela[0])} a ${fmt.iso(D.janela[1])}` : null,
     janelaArquivo: D.janela ? D.janela[0] : null,
     dataSaldo: D.data_saldo ? fmt.iso(D.data_saldo) : null,
