@@ -126,8 +126,7 @@ inadimplência: `.gitignore`, bucket privado, `hub_can('vendas')`.
 
 ## Kanban Planejamento, Controle e Concierge
 
-O board que vivia no Trello ("Kanban Planejamento, Controle e Concierge"), com o
-arquivado junto. Não usa snapshot nem `app_state`: lê e grava as tabelas `kanban_*` e
+O board de mesmo nome que vivia no Trello, com o arquivado junto. Não usa snapshot nem `app_state`: lê e grava as tabelas `kanban_*` e
 os anexos no bucket privado `kanban` (seção 8 do `sql/hub_schema.sql`), tudo atrás de
 `hub_can('kanban')`. Autor de card, comentário e anexo, e o histórico, são carimbados
 pelo banco a partir do login.
