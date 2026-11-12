@@ -14,6 +14,7 @@ Uso: python assets/kanban/test_painel.py   (da raiz do repo do hub)
 import copy
 import json
 import pathlib
+import types
 import unittest
 import urllib.parse
 
@@ -196,7 +197,7 @@ class Fake:
         return alvo
 
 
-def _pagina(cls):
+def _pagina(cls, hash_=""):
     from playwright.sync_api import sync_playwright
 
     if not hasattr(cls, "_pw"):
@@ -227,7 +228,8 @@ def _pagina(cls):
         if caminho.startswith("/storage/v1/object/"):
             if metodo == "GET":
                 return route.fulfill(status=200, content_type="image/png", body=PNG_1PX)
-            cls.fake.escritas.append((metodo, "storage", caminho, request.post_data))
+            # corpo binário (o arquivo): post_data tentaria decodificar como texto
+            cls.fake.escritas.append((metodo, "storage", caminho, len(request.post_data_buffer or b"")))
             return responder({"Key": caminho})
         if caminho == "/rest/v1/rpc/kanban_entrar":
             return responder(M_EU)
@@ -263,7 +265,7 @@ def _pagina(cls):
 
     pg.route("**/*.supabase.co/**", rota)
     pg.add_init_script(f"window.HUB = {{email:'{EU}'}}; window.__xss = 0;")
-    pg.goto((AQUI / "index.html").as_uri())
+    pg.goto((AQUI / "index.html").as_uri() + hash_)
     pg.wait_for_selector(".kcol", timeout=8000)
     pg.wait_for_timeout(300)
     return pg
@@ -479,7 +481,9 @@ class TestKanban(unittest.TestCase):
         self.assertIn("moveu", pg.inner_text(".gaveta"))
         pg.click("#btFecharGav")
 
-    def test_22_arquivar_todos_os_cards_da_lista(self):
+    def test_90_arquivar_todos_os_cards_da_lista(self):
+        # por último: arquiva a lista onde o card dos outros testes foi parar
+        self._fechar()
         pg = self.pg
         pg.once("dialog", lambda d: d.accept())
         pg.click(f'.kcol[data-lista="{L_WIP}"] [data-acao="menu-lista"]')
@@ -501,10 +505,13 @@ class TestKanban(unittest.TestCase):
         pg = self.pg
         self._abrir()
         pg.click("#novoComent")
-        pg.keyboard.type("oi @ful")
+        pg.keyboard.type("oi @")
         pg.wait_for_selector(".mencoes")
+        self.assertIn("todos os membros do card", pg.inner_text(".mencoes"), "@card avisa todos os membros")
+        self.assertNotIn("Grupo Luxor", pg.inner_text(".mencoes"), "quem não tem login não recebe aviso")
+        pg.keyboard.type("ful")
+        pg.wait_for_timeout(100)
         self.assertIn("Fulano de Tal", pg.inner_text(".mencoes"))
-        self.assertIn("card", pg.inner_text(".mencoes"), "@card avisa todos os membros")
         pg.keyboard.press("Enter")
         self.assertEqual(pg.input_value("#novoComent"), "oi @fulano123 ",
                          "insere o @usuario, que é o que o banco procura para avisar")
@@ -550,6 +557,8 @@ class TestKanban(unittest.TestCase):
         self.assertEqual(pg.locator('[data-item="i1"]').count(), 1)
         pg.click('[data-a="ocultar-feitos"]')
         self.assertEqual(pg.locator('[data-item="i1"]').count(), 0, "item marcado some")
+        pg.click('[data-a="ocultar-feitos"]')              # "Mostrar marcados"
+        self.assertEqual(pg.locator('[data-item="i1"]').count(), 1)
         pg.hover('[data-item="i2"]')
         pg.click('[data-item="i2"] [data-a="converter-item"]')
         pg.wait_for_timeout(700)
@@ -563,14 +572,13 @@ class TestKanban(unittest.TestCase):
         self.assertTrue(url.endswith("/#/kanban?card=abc-123"))
 
     def test_36_link_abre_o_card(self):
-        pg = self._b.new_page()
-        pg.route("**/*.supabase.co/**", lambda route, req: self.pg.context  # noqa: E731
-                 and route.continue_())
+        # página à parte, com o próprio banco de mentira, para não mexer na desta suíte
+        outra = types.SimpleNamespace(_pw=self._pw, _b=self._b)
+        pg = _pagina(outra, "#card=c-fech")
+        pg.wait_for_selector("#ovl", timeout=5000)
+        self.assertIn("Fechamento Resultado", pg.input_value("#titulo"))
+        self.assertEqual(outra.erros, [])
         pg.close()
-        # a rota de mentira é da página principal: abre uma nova com o mesmo roteamento
-        pg2 = _pagina_com_hash(self, "#card=c-fech")
-        self.assertIn("Fechamento Resultado", pg2.inner_text("#ovl"))
-        pg2.close()
 
     def test_99_sem_erro_de_console(self):
         self.assertEqual(self.erros, [], f"erros no navegador: {self.erros}")
