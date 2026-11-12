@@ -118,12 +118,13 @@ function buildNav(){
 }
 function router(){
   clearCharts();
-  const id=(location.hash.replace(/^#\/?/,'')||'');
+  // `#/kanban?card=<id>`: o que vem depois do `?` é da aba (link direto de um card)
+  const [id, qs]=(location.hash.replace(/^#\/?/,'')||'').split('?');
   const r=byId(id);
   document.getElementById('pageTitle').textContent=r.title;
   document.getElementById('pageSub').textContent=r.sub;
   document.querySelectorAll('#nav a').forEach(a=>a.classList.toggle('active',a.getAttribute('href')==='#/'+id));
-  const c=document.getElementById('content'); c.className='content'; c.innerHTML=''; r.render(c); window.scrollTo(0,0);
+  const c=document.getElementById('content'); c.className='content'; c.innerHTML=''; r.render(c, new URLSearchParams(qs||'')); window.scrollTo(0,0);
 }
 
 /* ---- helpers UI ---- */
@@ -942,9 +943,12 @@ function renderTarituba(el){
    O board que vivia no Trello. Lê e grava as tabelas kanban_* e o bucket `kanban`
    (sql/hub_schema.sql, seção 8) com a sessão do hub — por isso iframe com src local,
    e não srcdoc com HTML do bucket. */
-function renderKanban(el){
+function renderKanban(el, params){
   el.classList.add('flush');
-  el.innerHTML=`<iframe class="embed" src="assets/kanban/index.html" title="Kanban Planejamento, Controle e Concierge"></iframe>`;
+  // link direto de um card (#/kanban?card=<uuid>): vai para o iframe, que abre o card
+  const card=params && params.get('card');
+  const alvo=card && /^[0-9a-f-]{36}$/i.test(card) ? '#card='+card : '';
+  el.innerHTML=`<iframe class="embed" src="assets/kanban/index.html${alvo}" title="Kanban Planejamento, Controle e Concierge"></iframe>`;
 }
 
 /* ---- sidebar: desktop colapsa pra ícone, mobile vira drawer ----

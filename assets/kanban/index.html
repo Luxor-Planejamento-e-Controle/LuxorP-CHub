@@ -1716,6 +1716,9 @@ async function iniciar() {
         <div class="nova-lista"><input id="inNovaLista" placeholder="+ Adicionar lista" aria-label="Nome da nova lista"></div>`;
     }
     KB_FONTE.assinar(aoMudar);
+    // link direto (Copiar link, aviso do Slack): o hub passa o card no endereço do iframe
+    const alvo = /(?:^|[#&])card=([0-9a-f-]{36})/i.exec(location.hash);
+    if (alvo) abrirCard(alvo[1]);
   } catch (e) {
     S.erro = e.message; renderBoard();
   }
