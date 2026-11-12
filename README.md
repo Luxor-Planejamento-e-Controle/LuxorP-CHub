@@ -126,10 +126,22 @@ inadimplência: `.gitignore`, bucket privado, `hub_can('vendas')`.
 
 ## Kanban Planejamento, Controle e Concierge
 
-O board de mesmo nome que vivia no Trello, com o arquivado junto. Não usa snapshot nem `app_state`: lê e grava as tabelas `kanban_*` e
-os anexos no bucket privado `kanban` (seção 8 do `sql/hub_schema.sql`), tudo atrás de
-`hub_can('kanban')`. Autor de card, comentário e anexo, e o histórico, são carimbados
-pelo banco a partir do login.
+O board de mesmo nome que vivia no Trello, com o arquivado junto. Não usa snapshot nem
+`app_state`: lê e grava as tabelas `kanban_*` e os anexos no bucket privado `kanban`
+(seção 8 do `sql/hub_schema.sql`), tudo atrás de `hub_can('kanban')`. Autor de card,
+comentário e anexo, e o histórico, são carimbados pelo banco a partir do login.
+
+Link de um card: `#/kanban?card=<id>` (botão "Copiar link" ou botão direito no card).
+
+Avisos no Slack, por mensagem direta: os gatilhos do banco enfileiram em
+`kanban_notificacoes` (menção, `@card`, inclusão em card, comentário em card que a pessoa
+é membro ou segue, item atribuído, prazo) e quem entrega é o `pc_kanban` do repo
+`luxor-planejamento-functions`, em dia útil. Precisa de `KANBAN_SLACK_BOT_TOKEN` nas App
+Settings do Function App.
+
+Os cards do fechamento mensal são criados pelo `pc_trello` (repo
+`LuxorMonthlyP-CRoutines`, `Trello_automations`): com `"destino": "hub"` no
+`cards_mensais.json` eles nascem aqui, pela função `kanban_copiar_card`.
 
 Trazer o Trello (rodar o `hub_schema.sql` antes):
 
