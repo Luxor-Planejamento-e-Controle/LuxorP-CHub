@@ -1608,12 +1608,15 @@ function desenharArquivados() {
     corpo += `<input class="busca" id="inBuscaArq" type="search" placeholder="Buscar nos arquivados" value="${esc(g.busca)}" style="width:100%;margin-bottom:10px">`;
     if (!g.itens) corpo += '<div class="sync">Carregando…</div>';
     else {
-      const vis = g.itens.filter(c => !busca || KB.normal(c.nome).includes(busca));
+      // título na hora; o resto (descrição, comentários, checklists) vem da busca do banco
+      const onde = new Map((g.achados && g.achados.q === g.busca.trim() ? g.achados.itens : []).map(x => [x.card_id, x.onde]));
+      const vis = g.itens.filter(c => !busca || KB.normal(c.nome).includes(busca) || onde.has(c.id))
+        .map(c => Object.assign({}, c, { onde: busca && !KB.normal(c.nome).includes(busca) ? onde.get(c.id) : null }));
       corpo += `<div class="sync" style="margin-bottom:8px">${vis.length} de ${g.itens.length}</div>`
         + vis.slice(0, 300).map(c => {
           const l = IX.lista.get(c.lista_id);
           return `<div class="arq"><div class="info"><div class="nome" data-abrir="${esc(c.id)}">${esc(c.nome)}</div>
-            <div class="sub">${esc(l ? l.nome : '?')}${l && l.arquivada ? ' (lista arquivada)' : ''}${c.arquivado_em ? ' · arquivado em ' + esc(KB.dataCurta(c.arquivado_em)) : ''}</div></div>
+            <div class="sub">${esc(l ? l.nome : '?')}${l && l.arquivada ? ' (lista arquivada)' : ''}${c.arquivado_em ? ' · arquivado em ' + esc(KB.dataCurta(c.arquivado_em)) : ''}${c.onde ? ' · achado no ' + esc(c.onde) : ''}</div></div>
             <div class="acoes"><button class="btn btn-mini" data-abrir="${esc(c.id)}" type="button">Abrir</button></div></div>`;
         }).join('')
         + (vis.length > 300 ? '<div class="sync">Mostrando os 300 mais recentes. Use a busca para achar os outros.</div>' : '');
@@ -1624,8 +1627,22 @@ function desenharArquivados() {
   desenharGaveta('Arquivados', corpo);
   if (foco) { const i = $('#inBuscaArq'); i.focus(); i.setSelectionRange(pos, pos); }
 }
+let tBuscaArq = null;
 $('#gaveta').addEventListener('input', ev => {
-  if (ev.target.id === 'inBuscaArq' && gaveta) { gaveta.busca = ev.target.value; desenharArquivados(); }
+  if (ev.target.id !== 'inBuscaArq' || !gaveta) return;
+  gaveta.busca = ev.target.value;
+  desenharArquivados();
+  clearTimeout(tBuscaArq);
+  const q = gaveta.busca.trim();
+  if (q.length < 3) return;
+  tBuscaArq = setTimeout(async () => {
+    try {
+      const r = await KB_FONTE.buscar(q, 300);
+      if (!gaveta || gaveta.tipo !== 'arq' || gaveta.busca.trim() !== q) return;
+      gaveta.achados = { q, itens: r };
+      desenharArquivados();
+    } catch (e) { console.warn('[kanban] busca:', e.message); }
+  }, 350);
 });
 $('#gaveta').addEventListener('click', async ev => {
   const ab = ev.target.closest('[data-aba]');
