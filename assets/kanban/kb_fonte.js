@@ -53,11 +53,14 @@ window.KB_FONTE = (function () {
   /* O board aberto: listas, etiquetas, membros e os cards NÃO arquivados, já com o
    * que o resumo do card precisa (etiquetas, membros, itens de checklist, contagem de
    * comentários e anexos). O arquivado vem só quando alguém abre "Arquivados". */
+  /* Cards e anexos têm DUAS ligações (o anexo é do card; a capa do card é um anexo):
+   * sem dizer qual chave usar, o PostgREST recusa o embed por ambiguidade. */
   var CAMPOS_CARD = 'id,lista_id,nome,descricao,pos,arquivado,arquivado_em,prazo,prazo_concluido,modelo,'
-    + 'criado_por,criado_em,atualizado_em,trello_url,'
-    + 'kanban_card_etiquetas(etiqueta_id),kanban_card_membros(membro_id),'
+    + 'criado_por,criado_em,atualizado_em,trello_url,capa_anexo_id,'
+    + 'kanban_card_etiquetas(etiqueta_id),kanban_card_membros(membro_id),kanban_seguidores(membro_id),'
     + 'kanban_checklists(kanban_checkitens(concluido)),'
-    + 'kanban_comentarios(count),kanban_anexos(count)';
+    + 'kanban_comentarios(count),kanban_anexos!kanban_anexos_card_id_fkey(count),'
+    + 'capa:kanban_anexos!kanban_cards_capa_anexo_id_fkey(caminho,nome)';
 
   function resumo(c) {
     var itens = [];
@@ -69,9 +72,12 @@ window.KB_FONTE = (function () {
       criado_em: c.criado_em, atualizado_em: c.atualizado_em, trello_url: c.trello_url,
       etiquetas: (c.kanban_card_etiquetas || []).map(function (x) { return x.etiqueta_id; }),
       membros: (c.kanban_card_membros || []).map(function (x) { return x.membro_id; }),
+      seguidores: (c.kanban_seguidores || []).map(function (x) { return x.membro_id; }),
       itens: KB_DADOS.progresso(itens),
       comentarios: ((c.kanban_comentarios || [])[0] || {}).count || 0,
-      anexos: ((c.kanban_anexos || [])[0] || {}).count || 0
+      anexos: ((c.kanban_anexos || [])[0] || {}).count || 0,
+      capa_anexo_id: c.capa_anexo_id || null,
+      capa: c.capa && c.capa.caminho ? c.capa.caminho : null
     };
   }
 
@@ -224,20 +230,53 @@ window.KB_FONTE = (function () {
 
   /* Anexo: primeiro o arquivo, depois a linha. Se a linha falhar, o arquivo sai de
    * novo — sobraria um arquivo sem card, que ninguém acharia para apagar. */
-  async function anexar(cardId, arquivo, pos) {
+  /* Devolve o caminho no bucket: a imagem colada num comentário entra no texto como
+   * `![nome](anexo:<caminho>)`, como o Trello fazia com o print colado. */
+  async function anexar(cardId, arquivo, pos, nome) {
     var sb = cliente();
+    nome = nome || arquivo.name || 'arquivo';
     var caminho = 'cards/' + cardId + '/' + Date.now().toString(36) + '-'
-      + Math.random().toString(36).slice(2, 8) + '/' + KB_DADOS.nomeSeguro(arquivo.name);
+      + Math.random().toString(36).slice(2, 8) + '/' + KB_DADOS.nomeSeguro(nome);
     ok(await sb.storage.from(BUCKET).upload(caminho, arquivo,
-      { contentType: arquivo.type || 'application/octet-stream', upsert: false }), 'enviar ' + arquivo.name);
+      { contentType: arquivo.type || 'application/octet-stream', upsert: false }), 'enviar ' + nome);
     var r = await sb.from('kanban_anexos').insert({
-      card_id: cardId, nome: arquivo.name, caminho: caminho,
+      card_id: cardId, nome: nome, caminho: caminho,
       mime: arquivo.type || null, bytes: arquivo.size, pos: pos
     });
     if (r.error) {
       await sb.storage.from(BUCKET).remove([caminho]);
-      throw new Error('anexar ' + arquivo.name + ': ' + r.error.message);
+      throw new Error('anexar ' + nome + ': ' + r.error.message);
     }
+    return caminho;
+  }
+
+  async function definirCapa(cardId, anexoId) {
+    ok(await cliente().from('kanban_cards').update({ capa_anexo_id: anexoId }).eq('id', cardId), 'capa');
+  }
+
+  async function seguir(cardId, membroId, ligar) {
+    var t = cliente().from('kanban_seguidores');
+    ok(await (ligar ? t.insert({ card_id: cardId, membro_id: membroId })
+                    : t.delete().eq('card_id', cardId).eq('membro_id', membroId)), 'seguir');
+  }
+
+  /* "Arquivar todos os cards desta lista" do Trello — o time usou 116 vezes no Done. */
+  async function arquivarLista(listaId) {
+    ok(await cliente().from('kanban_cards').update({ arquivado: true })
+      .eq('lista_id', listaId).eq('arquivado', false), 'arquivar cards da lista');
+  }
+
+  /* "Converter em card": o item vira card na mesma lista, logo abaixo do card de onde
+   * saiu, e some do checklist. */
+  async function converterItem(item, listaId, pos) {
+    var id = await criarCard(listaId, item.nome, pos);
+    ok(await cliente().from('kanban_checkitens').delete().eq('id', item.id), 'converter item');
+    return id;
+  }
+
+  /* Busca em título, descrição, comentários e checklists (função do banco). */
+  async function buscar(texto, limite) {
+    return ok(await cliente().rpc('kanban_buscar', { p_texto: texto, p_limite: limite || 80 }), 'buscar') || [];
   }
 
   async function anexarLink(cardId, url, nome, pos) {
@@ -277,7 +316,8 @@ window.KB_FONTE = (function () {
     var sb = cliente();
     var canal = sb.channel('kanban');
     ['kanban_listas', 'kanban_etiquetas', 'kanban_cards', 'kanban_card_etiquetas', 'kanban_card_membros',
-     'kanban_checklists', 'kanban_checkitens', 'kanban_comentarios', 'kanban_anexos'].forEach(function (t) {
+     'kanban_checklists', 'kanban_checkitens', 'kanban_comentarios', 'kanban_anexos',
+     'kanban_seguidores'].forEach(function (t) {
       canal.on('postgres_changes', { event: '*', schema: 'public', table: t },
                function (p) { aoMudar(t, p); });
     });
@@ -297,7 +337,8 @@ window.KB_FONTE = (function () {
     criarItem: criarItem, atualizarItem: atualizarItem, excluirItem: excluirItem,
     comentar: comentar, editarComentario: editarComentario, excluirComentario: excluirComentario,
     anexar: anexar, anexarLink: anexarLink, excluirAnexo: excluirAnexo, renomearAnexo: renomearAnexo,
-    urlArquivo: urlArquivo,
+    urlArquivo: urlArquivo, definirCapa: definirCapa, seguir: seguir, arquivarLista: arquivarLista,
+    converterItem: converterItem, buscar: buscar,
     criarLista: criarLista, atualizarLista: atualizarLista,
     assinar: assinar
   };
