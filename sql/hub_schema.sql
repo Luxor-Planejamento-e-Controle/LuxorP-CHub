@@ -437,6 +437,42 @@ create table if not exists kanban_anexos (
 );
 create index if not exists kanban_anexos_card on kanban_anexos (card_id);
 
+-- Capa do card: uma imagem anexada a ele (o Trello deixava, e o time trocou capa 20
+-- vezes). A coluna entra depois de kanban_anexos existir.
+alter table kanban_cards add column if not exists capa_anexo_id uuid
+  references kanban_anexos(id) on delete set null;
+
+-- "Seguir" o card, como no Trello: quem segue é avisado dos comentários e do prazo
+-- mesmo sem ser membro. Da importação vêm os cards que o dono do token seguia.
+create table if not exists kanban_seguidores (
+  card_id    uuid not null references kanban_cards(id) on delete cascade,
+  membro_id  uuid not null references kanban_membros(id) on delete cascade,
+  primary key (card_id, membro_id)
+);
+create index if not exists kanban_seguidores_mbr on kanban_seguidores (membro_id);
+
+-- Fila de avisos. Os gatilhos enfileiram; quem entrega é o Function App
+-- (luxor-planejamento-functions, pasta pc_kanban), por mensagem direta no Slack, em
+-- dia útil. Só a service_role lê e grava: a tela não precisa ver a fila de ninguém.
+--   tipo: mencao | comentario | membro | item | prazo_vence | prazo_venceu
+--   chave: só os avisos de prazo têm — um por card, prazo e pessoa, mesmo com o
+--          job de prazo rodando todo dia.
+create table if not exists kanban_notificacoes (
+  id          uuid primary key default gen_random_uuid(),
+  para_email  text not null,
+  tipo        text not null,
+  card_id     uuid references kanban_cards(id) on delete cascade,
+  autor_nome  text,
+  texto       text,
+  chave       text unique,
+  criado_em   timestamptz not null default now(),
+  enviada_em  timestamptz,
+  tentativas  integer not null default 0,
+  erro        text
+);
+create index if not exists kanban_notificacoes_pendentes on kanban_notificacoes (criado_em)
+  where enviada_em is null;
+
 -- Histórico. `tipo` + `dados` (o que precisa para escrever a frase: listas de
 -- origem e destino, nome do item, do anexo...). Do Trello vêm todos os eventos
 -- menos os comentários, que já estão em kanban_comentarios. card_id nulo =
@@ -477,7 +513,11 @@ begin
   end if;
   select id into v from kanban_membros where email = e;
   if v is null then
-    insert into kanban_membros (nome, email) values (public.kanban_autor_nome(), e)
+    -- `usuario` é o que vai depois do @ numa menção. Quem veio do Trello mantém o de
+    -- lá (as menções antigas apontam para ele); quem chega agora usa o e-mail.
+    insert into kanban_membros (nome, email, usuario)
+    values (public.kanban_autor_nome(), e,
+            regexp_replace(split_part(e, '@', 1), '[^a-z0-9_]', '_', 'g'))
     on conflict (email) do update set email = excluded.email
     returning id into v;
   end if;
@@ -499,6 +539,20 @@ begin
   values (p_card, p_tipo, coalesce(p_dados, '{}'::jsonb), public.kanban_autor_nome(), public.hub_email());
 end $$;
 
+-- Enfileira um aviso para cada e-mail da lista, menos para quem fez a ação (ninguém é
+-- avisado do que ele mesmo fez). Sem e-mail no JWT — importação, automação mensal —
+-- não avisa ninguém.
+create or replace function public.kanban_avisar(p_emails text[], p_tipo text, p_card uuid, p_texto text)
+returns void language plpgsql security definer set search_path = public as $$
+declare eu text := public.hub_email();
+begin
+  if eu is null then return; end if;
+  insert into kanban_notificacoes (para_email, tipo, card_id, autor_nome, texto)
+  select distinct e, p_tipo, p_card, public.kanban_autor_nome(), left(p_texto, 400)
+    from unnest(p_emails) as e
+   where e is not null and e <> eu;
+end $$;
+
 create or replace function public.kanban_copiando() returns boolean
 language sql stable as $$ select coalesce(current_setting('kanban.copia', true), '') <> '' $$;
 
@@ -511,6 +565,10 @@ create or replace function public.kanban_cards_antes() returns trigger
 language plpgsql security definer set search_path = public as $$
 declare e text := public.hub_email();
 begin
+  if new.capa_anexo_id is not null and not exists (
+       select 1 from kanban_anexos where id = new.capa_anexo_id and card_id = new.id) then
+    raise exception 'a capa tem de ser um anexo deste card';
+  end if;
   if e is null then
     -- importação: valores vêm do Trello como estão
     if new.arquivado and new.arquivado_em is null then new.arquivado_em := now(); end if;
@@ -607,6 +665,8 @@ begin
   if tg_op = 'INSERT' then
     perform public.kanban_log(new.card_id, 'membro_entrou', jsonb_build_object(
       'membro', (select nome from kanban_membros where id = new.membro_id)));
+    perform public.kanban_avisar(array(select email from kanban_membros where id = new.membro_id),
+                                 'membro', new.card_id, null);
   else
     perform public.kanban_log(old.card_id, 'membro_saiu', jsonb_build_object(
       'membro', (select nome from kanban_membros where id = old.membro_id)));
@@ -660,6 +720,11 @@ begin
       (select card_id from kanban_checklists where id = new.checklist_id),
       case when new.concluido then 'item_concluido' else 'item_reaberto' end,
       jsonb_build_object('item', new.nome));
+  end if;
+  if new.membro_id is not null and new.membro_id is distinct from old.membro_id then
+    perform public.kanban_avisar(array(select email from kanban_membros where id = new.membro_id),
+                                 'item', (select card_id from kanban_checklists where id = new.checklist_id),
+                                 new.nome);
   end if;
   return null;
 end $$;
@@ -724,6 +789,92 @@ drop trigger if exists kanban_comentarios_antes on kanban_comentarios;
 create trigger kanban_comentarios_antes before insert or update on kanban_comentarios
   for each row execute function public.kanban_comentarios_antes();
 
+-- Comentário novo: avisa quem foi mencionado (@usuario; @card = todos os membros do
+-- card, como no Trello — 410 comentários do board usaram) e, à parte, os demais
+-- membros e seguidores do card. Quem foi mencionado recebe só o aviso de menção.
+create or replace function public.kanban_comentarios_avisos() returns trigger
+language plpgsql security definer set search_path = public as $$
+declare
+  mencionados  text[];
+  participantes text[];
+begin
+  if public.hub_email() is null then return null; end if;
+  select coalesce(array_agg(distinct mb.email), '{}') into mencionados
+    from regexp_matches(new.texto, '@([A-Za-z0-9_]+)', 'g') as m(x)
+    join kanban_membros mb
+      on lower(mb.usuario) = lower(m.x[1])
+      or (lower(m.x[1]) = 'card'
+          and mb.id in (select membro_id from kanban_card_membros where card_id = new.card_id))
+   where mb.email is not null;
+  select coalesce(array_agg(distinct mb.email), '{}') into participantes
+    from kanban_membros mb
+   where mb.email is not null
+     and not (mb.email = any (mencionados))
+     and (mb.id in (select membro_id from kanban_card_membros where card_id = new.card_id)
+          or mb.id in (select membro_id from kanban_seguidores where card_id = new.card_id));
+  perform public.kanban_avisar(mencionados, 'mencao', new.card_id, new.texto);
+  perform public.kanban_avisar(participantes, 'comentario', new.card_id, new.texto);
+  return null;
+end $$;
+
+drop trigger if exists kanban_comentarios_avisos on kanban_comentarios;
+create trigger kanban_comentarios_avisos after insert on kanban_comentarios
+  for each row execute function public.kanban_comentarios_avisos();
+
+-- Prazo: o job das 08:00 (dia útil) chama esta função. Enfileira para membros e
+-- seguidores dos cards abertos cujo prazo vence nas próximas 24h ("vence") ou venceu
+-- nos últimos 3 dias ("venceu" — cobre o fim de semana). A chave impede repetir o
+-- mesmo aviso nos dias seguintes; prazo mudado é aviso novo.
+create or replace function public.kanban_avisos_de_prazo() returns integer
+language plpgsql security definer set search_path = public as $$
+declare n integer;
+begin
+  insert into kanban_notificacoes (para_email, tipo, card_id, texto, chave)
+  select distinct on (mb.email, c.id)
+         mb.email,
+         case when c.prazo <= now() then 'prazo_venceu' else 'prazo_vence' end,
+         c.id,
+         to_char(c.prazo at time zone 'America/Sao_Paulo', 'DD/MM HH24:MI'),
+         'prazo:' || c.id || ':' || extract(epoch from c.prazo)::bigint || ':' || mb.email
+           || case when c.prazo <= now() then ':venceu' else ':vence' end
+    from kanban_cards c
+    join kanban_listas l on l.id = c.lista_id and not l.arquivada
+    join kanban_membros mb on mb.email is not null
+     and (mb.id in (select membro_id from kanban_card_membros where card_id = c.id)
+          or mb.id in (select membro_id from kanban_seguidores where card_id = c.id))
+   where not c.arquivado and not c.prazo_concluido and c.prazo is not null
+     and c.prazo <= now() + interval '24 hours'
+     and c.prazo >  now() - interval '3 days'
+  on conflict (chave) do nothing;
+  get diagnostics n = row_count;
+  return n;
+end $$;
+
+-- Busca em tudo (título, descrição, comentários e itens de checklist), abertos e
+-- arquivados. SECURITY INVOKER: a RLS de cada tabela vale para quem busca.
+create or replace function public.kanban_buscar(p_texto text, p_limite integer default 80)
+returns table (card_id uuid, nome text, lista_id uuid, arquivado boolean,
+               arquivado_em timestamptz, onde text)
+language sql stable security invoker set search_path = public as $$
+  with t as (
+    select '%' || replace(replace(replace(btrim(p_texto), '\', '\\'), '%', '\%'), '_', '\_') || '%' as p
+  )
+  select c.id, c.nome, c.lista_id, c.arquivado, c.arquivado_em,
+         case when c.nome ilike t.p then 'título'
+              when c.descricao ilike t.p then 'descrição'
+              when exists (select 1 from kanban_comentarios m where m.card_id = c.id and m.texto ilike t.p)
+                then 'comentário'
+              else 'checklist' end
+    from kanban_cards c, t
+   where length(btrim(p_texto)) >= 2
+     and (c.nome ilike t.p or c.descricao ilike t.p
+          or exists (select 1 from kanban_comentarios m where m.card_id = c.id and m.texto ilike t.p)
+          or exists (select 1 from kanban_checklists k join kanban_checkitens i on i.checklist_id = k.id
+                      where k.card_id = c.id and i.nome ilike t.p))
+   order by c.arquivado, coalesce(c.arquivado_em, c.atualizado_em) desc
+   limit least(greatest(p_limite, 1), 300)
+$$;
+
 -- ---- copiar card ----
 -- Como o "Copiar" do Trello com checklists, etiquetas e membros (o mesmo
 -- keepFromSource do pc_trello, que duplica os cards do fechamento todo mês).
@@ -782,8 +933,13 @@ end $$;
 
 revoke execute on function public.kanban_entrar() from public, anon;
 revoke execute on function public.kanban_copiar_card(uuid, text, uuid, double precision, boolean, boolean, boolean) from public, anon;
+revoke execute on function public.kanban_buscar(text, integer) from public, anon;
+revoke execute on function public.kanban_avisos_de_prazo() from public, anon, authenticated;
+revoke execute on function public.kanban_avisar(text[], text, uuid, text) from public, anon, authenticated;
 grant  execute on function public.kanban_entrar() to authenticated;
 grant  execute on function public.kanban_copiar_card(uuid, text, uuid, double precision, boolean, boolean, boolean) to authenticated, service_role;
+grant  execute on function public.kanban_buscar(text, integer) to authenticated;
+grant  execute on function public.kanban_avisos_de_prazo() to service_role;
 
 -- ---- RLS ----
 -- `(select hub_can(...))` e não `hub_can(...)` direto: assim o Postgres avalia
@@ -800,6 +956,14 @@ alter table kanban_checkitens      enable row level security;
 alter table kanban_comentarios     enable row level security;
 alter table kanban_anexos          enable row level security;
 alter table kanban_atividade       enable row level security;
+alter table kanban_seguidores      enable row level security;
+-- fila de avisos: RLS ligada e NENHUMA policy = só a service_role (o Function App)
+alter table kanban_notificacoes    enable row level security;
+
+drop policy if exists kanban_seguidores_rw on kanban_seguidores;
+create policy kanban_seguidores_rw on kanban_seguidores
+  for all to authenticated
+  using ( (select public.hub_can('kanban')) ) with check ( (select public.hub_can('kanban')) );
 
 -- membros: todos leem; nome corrigido só pelo admin; linha nova só pela
 -- kanban_entrar() ou pela importação
@@ -879,20 +1043,21 @@ create policy kanban_atividade_select on kanban_atividade
 -- sendo a barreira de verdade. anon não recebe nada.
 grant select, insert, update, delete on
   kanban_listas, kanban_etiquetas, kanban_cards, kanban_card_etiquetas, kanban_card_membros,
-  kanban_checklists, kanban_checkitens, kanban_comentarios, kanban_anexos
+  kanban_checklists, kanban_checkitens, kanban_comentarios, kanban_anexos, kanban_seguidores
   to authenticated;
 grant select, update on kanban_membros to authenticated;
 grant select on kanban_atividade to authenticated;
 grant all on
   kanban_membros, kanban_listas, kanban_etiquetas, kanban_cards, kanban_card_etiquetas,
   kanban_card_membros, kanban_checklists, kanban_checkitens, kanban_comentarios, kanban_anexos,
-  kanban_atividade
+  kanban_atividade, kanban_seguidores, kanban_notificacoes
   to service_role;
 revoke all on
   kanban_membros, kanban_listas, kanban_etiquetas, kanban_cards, kanban_card_etiquetas,
   kanban_card_membros, kanban_checklists, kanban_checkitens, kanban_comentarios, kanban_anexos,
-  kanban_atividade
+  kanban_atividade, kanban_seguidores, kanban_notificacoes
   from anon;
+revoke all on kanban_notificacoes from authenticated;
 grant execute on function public.hub_email(), public.hub_is_admin(), public.hub_can(text)
   to authenticated;
 
@@ -925,7 +1090,7 @@ declare t text;
 begin
   foreach t in array array['kanban_listas','kanban_etiquetas','kanban_cards','kanban_card_etiquetas',
                            'kanban_card_membros','kanban_checklists','kanban_checkitens',
-                           'kanban_comentarios','kanban_anexos'] loop
+                           'kanban_comentarios','kanban_anexos','kanban_seguidores'] loop
     if not exists (
       select 1 from pg_publication_tables
       where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = t

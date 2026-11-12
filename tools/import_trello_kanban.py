@@ -160,6 +160,8 @@ class Trello:
             antes = pagina[-1]["id"]
         return {
             "exportado_em": dt.datetime.now(dt.timezone.utc).isoformat(),
+            # dono do token: o `subscribed` dos cards ("seguindo") é DELE
+            "eu": self.get("members/me", fields="fullName,username"),
             "board": board,
             "lists": self.get(f"boards/{b}/lists", filter="all", fields="all"),
             "cards": self.get(f"boards/{b}/cards/all", fields="all", attachments="true",
@@ -339,7 +341,9 @@ def casar_membros(exp, usuarios, mapa_manual):
     return pessoas
 
 
-def montar(exp, pessoas, caminhos):
+def montar(exp, pessoas, caminhos, eu=None):
+    """Linhas de cada tabela. `eu` = id do dono do token no Trello: quem segue os cards
+    marcados `subscribed` (a API só diz isso de quem pergunta)."""
     nome_de = {tid: p["nome"] for tid, p in pessoas.items()}
     email_de = {tid: p["email"] for tid, p in pessoas.items()}
     listas = {l["id"]: l for l in exp["lists"]}
@@ -390,6 +394,11 @@ def montar(exp, pessoas, caminhos):
         for m in c.get("idMembers") or []:
             t["kanban_card_membros"].append({"card_id": uid("card", c["id"]),
                                              "membro_id": uid("membro", m)})
+        if eu and c.get("subscribed"):
+            t["kanban_seguidores"].append({"card_id": uid("card", c["id"]), "membro_id": uid("membro", eu)})
+        capa = c.get("idAttachmentCover")
+        if capa and capa in caminhos:
+            t["_capas"].append({"id": uid("card", c["id"]), "capa_anexo_id": uid("anexo", capa)})
         for a in c.get("attachments") or []:
             caminho = caminhos.get(a["id"]) if a.get("isUpload") else None
             if a.get("isUpload") and not caminho:
@@ -632,7 +641,10 @@ def main():
         print(f"  {'(citado) ' if orfao else ''}não veio: {nome} [{st}]")
 
     # 4) montagem + conferência
-    t = montar(exp, pessoas, caminhos)
+    eu = (exp.get("eu") or tr.get("members/me", fields="fullName,username"))["id"]
+    if eu not in pessoas:
+        sys.exit("O dono do token não aparece no board: os 'seguindo' não teriam a quem pertencer.")
+    t = montar(exp, pessoas, caminhos, eu)
     n_cards = len(exp["cards"])
     n_arq = sum(c["closed"] for c in exp["cards"])
     n_itens = sum(len(cl["checkItems"]) for cl in exp["checklists"])
@@ -643,7 +655,7 @@ def main():
           f"{n_cards} cards ({n_arq} arquivados), {len(exp['checklists'])} checklists / {n_itens} itens, "
           f"{n_coment} comentários, {sum(len(c.get('attachments') or []) for c in exp['cards'])} anexos, "
           f"{len(exp['actions'])} ações")
-    print("Hub:    " + ", ".join(f"{k.replace('kanban_', '')}={len(v)}" for k, v in t.items()))
+    print("Hub:    " + ", ".join(f"{k.replace('kanban_', '').strip('_')}={len(v)}" for k, v in t.items()))
     print(f"links de anexo do Trello que continuam no texto (anexo não veio): {links_restantes}")
     assert len(t["kanban_cards"]) == n_cards and len(t["kanban_checkitens"]) == n_itens \
         and len(t["kanban_comentarios"]) == n_coment, "contagem não bate com o export"
@@ -700,7 +712,9 @@ def main():
             sb.apagar("kanban_membros", "id", [avulsa["id"]])
     # quem tem a aba e não estava no Trello entra também, para poder ser incluído em card
     ja_membros = {p["email"] for p in pessoas.values() if p["email"]} | set(por_email)
-    novos = [{"nome": (u.get("nome") or u["email"].split("@")[0]).strip(), "email": u["email"]}
+    # `usuario` é o @ das menções: o mesmo que kanban_entrar() dá a quem chega depois
+    novos = [{"nome": (u.get("nome") or u["email"].split("@")[0]).strip(), "email": u["email"],
+              "usuario": re.sub(r"[^a-z0-9_]", "_", u["email"].split("@")[0].lower())}
              for u in usuarios
              if u["ativo"] and (u["role"] == "admin" or u["email"] in acesso) and u["email"] not in ja_membros]
     if novos:
@@ -712,10 +726,14 @@ def main():
         sb.upsert(tab, t[tab])
         print(f"  {tab}: {len(t[tab])}")
     cards_trello = [c["id"] for c in t["kanban_cards"]]
-    for tab in ("kanban_card_etiquetas", "kanban_card_membros"):
+    for tab in ("kanban_card_etiquetas", "kanban_card_membros", "kanban_seguidores"):
         sb.apagar(tab, "card_id", cards_trello)
         sb.inserir(tab, t[tab])
         print(f"  {tab}: {len(t[tab])}")
+    # capa depois dos anexos: ela aponta para um anexo, que tem de existir antes
+    for c in t["_capas"]:
+        sb.patch("kanban_cards", f"id=eq.{c['id']}", {"capa_anexo_id": c["capa_anexo_id"]})
+    print(f"  capas: {len(t['_capas'])}")
 
     # 9) o que saiu do Trello entre uma rodada e outra sai do hub (só linha importada)
     for tab in ("kanban_atividade", "kanban_anexos", "kanban_comentarios", "kanban_checkitens",
