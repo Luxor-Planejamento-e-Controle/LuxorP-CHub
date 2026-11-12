@@ -1,0 +1,1494 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kanban · Luxor P&amp;C</title>
+<link rel="stylesheet" href="../fonts.css">
+<style>
+/* ============================================================
+   Mesmos tokens do Saldo Bancário e do Controle de Pagamentos,
+   declarados aqui para o painel abrir sozinho por file://.
+   ============================================================ */
+:root{
+  --bg:#0D2126; --bg-2:#113036;
+  --surface:#143840; --surface-2:#1B4650; --surface-3:#22525D;
+  --ink:#EAF4F4; --ink-2:#A7C3C5; --ink-3:#6E8C90;
+  --orange:#FFA400; --orange-deep:#E08E00; --orange-soft:rgba(255,164,0,.14);
+  --teal:#1D6E79; --teal-light:#2E97A6;
+  --pos:#46B678; --neg:#E5674E; --warn:#F2C14E;
+  --pos-soft:rgba(70,182,120,.16); --neg-soft:rgba(229,103,78,.16); --warn-soft:rgba(242,193,78,.16);
+  --line:rgba(255,255,255,.13); --line-strong:rgba(255,255,255,.24);
+  --r:14px; --r-sm:9px; --ctl-h:34px;
+  --gutter:20px; --col-w:276px;
+  --shadow-card:0 1px 3px rgba(0,0,0,.35);
+  --font-sans:"Fakt Pro",system-ui,-apple-system,"Segoe UI",Arial,sans-serif;
+  --font-serif:"Fakt Slab Pro","Fakt Pro",Georgia,serif;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%}
+body{font-family:var(--font-sans);background:var(--bg);color:var(--ink);font-size:14px;line-height:1.45;
+  -webkit-font-smoothing:antialiased;display:flex;flex-direction:column;overflow:hidden}
+::-webkit-scrollbar{width:10px;height:10px}
+::-webkit-scrollbar-thumb{background:var(--surface-2);border-radius:8px}
+::-webkit-scrollbar-track{background:transparent}
+button{font:inherit}
+input,textarea,select{font:inherit;color:var(--ink)}
+a{color:var(--teal-light)}
+
+/* ---- barra de cima ---- */
+.topbar{border-bottom:1px solid var(--line);background:var(--bg-2);flex:0 0 auto;z-index:6}
+.topbar-inner{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:9px var(--gutter)}
+.topbar .spacer{flex:1}
+.busca{height:var(--ctl-h);width:240px;max-width:100%;background:var(--surface);border:1px solid var(--line);
+  border-radius:var(--r-sm);padding:0 12px;outline:none}
+.busca:focus{border-color:var(--orange)}
+.btn{background:transparent;border:1px solid var(--line);color:var(--ink-2);height:var(--ctl-h);
+  padding:0 12px;border-radius:var(--r-sm);font-size:13px;cursor:pointer;display:inline-flex;align-items:center;gap:6px;
+  white-space:nowrap}
+.btn:hover{border-color:var(--orange);color:var(--orange)}
+.btn.on{background:var(--orange-soft);border-color:rgba(255,164,0,.55);color:var(--orange)}
+.btn:disabled{opacity:.5;cursor:default}
+.btn-acao{background:var(--orange);border:1px solid var(--orange);color:#201700;height:var(--ctl-h);
+  padding:0 14px;border-radius:var(--r-sm);font-size:13px;font-weight:600;cursor:pointer;
+  display:inline-flex;align-items:center;gap:7px;white-space:nowrap}
+.btn-acao:hover{background:var(--orange-deep);border-color:var(--orange-deep)}
+.btn-acao:disabled{opacity:.5;cursor:default}
+.btn-perigo{background:transparent;border:1px solid rgba(229,103,78,.55);color:var(--neg);height:var(--ctl-h);
+  padding:0 12px;border-radius:var(--r-sm);font-size:13px;cursor:pointer}
+.btn-perigo:hover{background:var(--neg-soft)}
+.btn-mini{height:28px;padding:0 10px;font-size:12px}
+.sync{color:var(--ink-3);font-size:12px;white-space:nowrap}
+.sync.erro{color:var(--neg)}
+
+/* ---- board ---- */
+.board{flex:1;display:flex;align-items:flex-start;gap:12px;overflow-x:auto;overflow-y:hidden;
+  padding:16px var(--gutter) 12px}
+.kcol{flex:0 0 var(--col-w);max-height:100%;display:flex;flex-direction:column;background:var(--bg-2);
+  border:1px solid var(--line);border-radius:var(--r)}
+.kcol-head{display:flex;align-items:center;gap:8px;padding:10px 10px 6px 14px}
+.kcol-head h2{font-family:var(--font-serif);font-size:14px;font-weight:600;margin:0;flex:1;
+  overflow-wrap:anywhere;cursor:text}
+.kcol-head .n{color:var(--ink-3);font-size:12px;font-variant-numeric:tabular-nums}
+.kcol-head input{flex:1;height:30px;background:var(--surface);border:1px solid var(--orange);border-radius:7px;
+  padding:0 8px;outline:none;font-weight:600}
+.ico-btn{background:transparent;border:0;color:var(--ink-3);width:28px;height:28px;border-radius:7px;cursor:pointer;
+  display:inline-grid;place-items:center;flex:0 0 auto}
+.ico-btn:hover{background:var(--surface);color:var(--ink)}
+.kcol-cards{flex:1;overflow-y:auto;padding:4px 8px;min-height:12px;display:flex;flex-direction:column;gap:8px}
+.kcol-foot{padding:6px 8px 10px}
+.add-card{width:100%;text-align:left;background:transparent;border:0;color:var(--ink-3);padding:7px 8px;
+  border-radius:8px;cursor:pointer;font-size:13px}
+.add-card:hover{background:var(--surface);color:var(--ink)}
+.composer textarea{width:100%;min-height:62px;resize:vertical;background:var(--surface);border:1px solid var(--orange);
+  border-radius:9px;padding:8px 10px;outline:none}
+.composer .row{display:flex;gap:8px;margin-top:6px;align-items:center}
+.nova-lista{flex:0 0 var(--col-w);background:rgba(255,255,255,.04);border:1px dashed var(--line-strong);
+  border-radius:var(--r);padding:10px}
+.nova-lista input{width:100%;height:var(--ctl-h);background:var(--surface);border:1px solid var(--line);
+  border-radius:8px;padding:0 10px;outline:none}
+.nova-lista input:focus{border-color:var(--orange)}
+
+/* ---- card na coluna ---- */
+.kcard{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:8px 10px 7px;
+  box-shadow:var(--shadow-card);cursor:pointer;-webkit-user-select:none;user-select:none}
+.kcard:hover{border-color:var(--line-strong);background:var(--surface-2)}
+.kcard:focus-visible{outline:2px solid var(--orange);outline-offset:1px}
+.kcard.arrastando{opacity:.35}
+.kcard .etqs{display:flex;flex-wrap:wrap;gap:4px;margin-bottom:5px}
+.kcard .ttl{font-size:13.5px;overflow-wrap:anywhere}
+.kcard .badges{display:flex;flex-wrap:wrap;align-items:center;gap:4px 9px;margin-top:6px;color:var(--ink-3);font-size:11.5px}
+.kcard .badges:empty{display:none}
+.bdg{display:inline-flex;align-items:center;gap:4px;font-variant-numeric:tabular-nums}
+.bdg.ok{color:#201700;background:var(--pos);padding:0 5px;border-radius:4px}
+.bdg.modelo{color:var(--ink-2);border:1px solid var(--line-strong);padding:0 5px;border-radius:4px}
+.prazo{display:inline-flex;align-items:center;gap:4px;padding:0 5px;border-radius:4px}
+.prazo.vencido{background:var(--neg);color:#fff}
+.prazo.proximo{background:var(--warn);color:#201700}
+.prazo.concluido{background:var(--pos);color:#201700}
+.mbrs{display:flex;gap:2px;margin-left:auto}
+.av{width:24px;height:24px;border-radius:50%;display:inline-grid;place-items:center;font-size:10px;font-weight:600;
+  color:#fff;flex:0 0 auto;letter-spacing:.02em}
+.av.g{width:30px;height:30px;font-size:11.5px}
+.placeholder{border:2px dashed var(--orange);border-radius:10px;background:var(--orange-soft);flex:0 0 auto}
+
+.etq{display:inline-flex;align-items:center;max-width:100%;height:18px;padding:0 7px;border-radius:4px;
+  font-size:11px;font-weight:600;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.etq.vazia{width:40px;padding:0}
+.etq.g{height:26px;font-size:12.5px;padding:0 10px}
+
+/* ---- estados ---- */
+.empty{display:grid;place-items:center;text-align:center;padding:60px 20px;color:var(--ink-3);flex:1}
+.empty .big{font-size:36px;margin-bottom:8px;opacity:.5}
+.erro-box{margin:8px 0;padding:10px 13px;border-radius:var(--r-sm);font-size:12.5px;
+  background:var(--neg-soft);border:1px solid rgba(229,103,78,.45);color:var(--ink)}
+.toast{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);z-index:60;background:var(--surface-3);
+  border:1px solid var(--line-strong);border-radius:10px;padding:9px 14px;font-size:13px;box-shadow:0 6px 24px rgba(0,0,0,.45);
+  max-width:calc(100vw - 32px)}
+.toast.erro{border-color:rgba(229,103,78,.7);background:#3a2422}
+
+/* ---- janela do card ---- */
+.overlay{position:fixed;inset:0;background:rgba(3,12,14,.72);z-index:30;display:flex;justify-content:center;
+  align-items:flex-start;overflow-y:auto;padding:40px 16px}
+.dlg{position:relative;width:min(900px,100%);background:var(--bg-2);border:1px solid var(--line-strong);
+  border-radius:var(--r);box-shadow:0 18px 60px rgba(0,0,0,.55);padding:20px 22px 24px}
+.dlg .fechar{position:absolute;top:10px;right:10px}
+.dlg-head{padding-right:34px}
+.banner-arq{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:-20px -22px 14px;padding:10px 22px;
+  background:var(--warn-soft);border-bottom:1px solid rgba(242,193,78,.4);border-radius:var(--r) var(--r) 0 0;font-size:13px}
+.titulo{width:100%;background:transparent;border:1px solid transparent;border-radius:8px;resize:none;overflow:hidden;
+  font-family:var(--font-serif);font-size:19px;font-weight:600;padding:4px 6px;margin-left:-6px;outline:none;line-height:1.3}
+.titulo:focus{background:var(--surface);border-color:var(--orange)}
+.dlg-sub{color:var(--ink-3);font-size:12.5px;display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;margin-top:2px}
+.dlg-sub select{background:var(--surface);border:1px solid var(--line);border-radius:7px;height:28px;padding:0 8px;font-size:12.5px}
+.dlg-body{display:grid;grid-template-columns:1fr 178px;gap:22px;margin-top:16px}
+.dlg-side{display:flex;flex-direction:column;gap:6px}
+.dlg-side h4{margin:8px 0 2px;font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3);font-weight:600}
+.dlg-side .btn{justify-content:flex-start;width:100%}
+.meta{display:flex;flex-wrap:wrap;gap:16px 26px;margin-bottom:6px}
+.meta h4,.sec h3{margin:0 0 6px;font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3);font-weight:600}
+.meta .linha{display:flex;flex-wrap:wrap;gap:5px;align-items:center}
+.mais{width:30px;height:30px;border-radius:7px;border:1px dashed var(--line-strong);background:transparent;color:var(--ink-2);
+  cursor:pointer;font-size:16px;line-height:1}
+.mais:hover{border-color:var(--orange);color:var(--orange)}
+.sec{margin-top:20px}
+.sec-head{display:flex;align-items:center;gap:10px;margin-bottom:8px}
+.sec-head h3{margin:0;font-family:var(--font-serif);font-size:14.5px;letter-spacing:0;text-transform:none;color:var(--ink);flex:1;
+  display:flex;align-items:center;gap:8px}
+.md{font-size:13.5px;overflow-wrap:anywhere}
+.md p{margin:0 0 8px}
+.md p:last-child{margin-bottom:0}
+.md h3,.md h4,.md h5,.md h6{font-family:var(--font-serif);margin:10px 0 6px;font-size:14px}
+.md h3{font-size:15.5px}
+.md ul,.md ol{margin:0 0 8px;padding-left:22px}
+.md blockquote{margin:0 0 8px;padding:2px 0 2px 12px;border-left:3px solid var(--line-strong);color:var(--ink-2)}
+.md code{background:var(--surface);padding:1px 5px;border-radius:4px;font-size:12.5px}
+.md hr{border:0;border-top:1px solid var(--line);margin:10px 0}
+.md img{max-width:100%;max-height:360px;border-radius:8px;border:1px solid var(--line);display:block;margin:4px 0}
+.kb-mencao{color:var(--orange);font-weight:600}
+.kb-img{display:inline-block;color:var(--ink-3);font-size:12px;border:1px dashed var(--line);border-radius:6px;padding:2px 8px}
+.desc-vazia{background:var(--surface);border-radius:9px;padding:12px;color:var(--ink-3);cursor:pointer;font-size:13px}
+.desc-vazia:hover{background:var(--surface-2)}
+.editor textarea{width:100%;min-height:140px;resize:vertical;background:var(--surface);border:1px solid var(--orange);
+  border-radius:9px;padding:9px 11px;outline:none;line-height:1.5}
+.editor .row{display:flex;gap:8px;margin-top:8px}
+.ckl{margin-top:16px}
+.ckl-head{display:flex;align-items:center;gap:8px}
+.ckl-head .nome{flex:1;font-weight:600;cursor:text;overflow-wrap:anywhere}
+.ckl-head input{flex:1;height:30px;background:var(--surface);border:1px solid var(--orange);border-radius:7px;padding:0 8px;outline:none}
+.ckl-bar{display:flex;align-items:center;gap:8px;margin:6px 0 4px;font-size:11px;color:var(--ink-3)}
+.ckl-bar .trilho{flex:1;height:6px;border-radius:4px;background:var(--surface-2);overflow:hidden}
+.ckl-bar .trilho i{display:block;height:100%;background:var(--teal-light)}
+.ckl-bar.cheio .trilho i{background:var(--pos)}
+.item{display:flex;align-items:flex-start;gap:9px;padding:4px 6px;border-radius:7px}
+.item:hover{background:var(--surface)}
+.item input[type=checkbox]{margin-top:3px;width:15px;height:15px;accent-color:var(--orange);flex:0 0 auto}
+.item .txt{flex:1;font-size:13.5px;overflow-wrap:anywhere;cursor:text}
+.item.feito .txt{text-decoration:line-through;color:var(--ink-3)}
+.item .acoes{display:flex;gap:2px;opacity:0}
+.item:hover .acoes,.item:focus-within .acoes{opacity:1}
+.item textarea,.add-item textarea{width:100%;min-height:36px;resize:vertical;background:var(--surface);border:1px solid var(--orange);
+  border-radius:7px;padding:6px 8px;outline:none}
+.add-item{margin:4px 0 0 30px}
+.anexo{display:flex;gap:12px;align-items:center;padding:6px;border-radius:9px}
+.anexo:hover{background:var(--surface)}
+.anexo .thumb{width:84px;height:58px;border-radius:7px;background:var(--surface-2);display:grid;place-items:center;
+  color:var(--ink-2);font-size:11px;font-weight:600;text-transform:uppercase;flex:0 0 auto;overflow:hidden;cursor:pointer}
+.anexo .thumb img{width:100%;height:100%;object-fit:cover}
+.anexo .info{flex:1;min-width:0}
+.anexo .nome{font-weight:600;font-size:13px;overflow-wrap:anywhere;cursor:pointer}
+.anexo .nome:hover{color:var(--orange)}
+.anexo .sub{color:var(--ink-3);font-size:11.5px}
+.anexo .acoes{display:flex;gap:10px;font-size:12px;margin-top:2px}
+.lnk{background:transparent;border:0;padding:0;color:var(--ink-2);cursor:pointer;text-decoration:underline;font-size:12px}
+.lnk:hover{color:var(--orange)}
+.lnk.perigo:hover{color:var(--neg)}
+.novo-coment{display:flex;gap:10px;align-items:flex-start;margin-bottom:12px}
+.novo-coment .caixa{flex:1}
+.novo-coment textarea{width:100%;min-height:40px;resize:vertical;background:var(--surface);border:1px solid var(--line);
+  border-radius:9px;padding:8px 10px;outline:none}
+.novo-coment textarea:focus{border-color:var(--orange);min-height:80px}
+.evento{display:flex;gap:10px;align-items:flex-start;padding:7px 0}
+.evento .corpo{flex:1;min-width:0}
+.evento .quem{font-size:13px}
+.evento .quem b{font-weight:600}
+.evento .quando{color:var(--ink-3);font-size:11.5px}
+.evento .bolha{background:var(--surface);border:1px solid var(--line);border-radius:9px;padding:8px 11px;margin-top:4px}
+.evento.ativ .quem{color:var(--ink-2)}
+.evento .acoes{display:flex;gap:10px;margin-top:3px}
+
+/* ---- popover ---- */
+.pop{position:fixed;z-index:50;width:304px;max-width:calc(100vw - 16px);background:var(--surface);border:1px solid var(--line-strong);
+  border-radius:12px;box-shadow:0 12px 40px rgba(0,0,0,.55);padding:12px}
+.pop h5{margin:0 0 10px;text-align:center;font-size:13px;color:var(--ink-2);font-weight:600}
+.pop .fechar-pop{position:absolute;top:6px;right:6px}
+.pop label.lbl{display:block;font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3);margin:10px 0 4px}
+.pop input[type=text],.pop input[type=url],.pop input[type=datetime-local],.pop select,.pop textarea{width:100%;
+  background:var(--bg-2);border:1px solid var(--line);border-radius:8px;padding:6px 9px;outline:none;min-height:var(--ctl-h)}
+.pop input:focus,.pop select:focus,.pop textarea:focus{border-color:var(--orange)}
+.pop .rows{display:flex;flex-direction:column;gap:3px;max-height:320px;overflow-y:auto}
+.pop .opt{display:flex;align-items:center;gap:9px;padding:5px 6px;border-radius:8px;cursor:pointer}
+.pop .opt:hover{background:var(--surface-2)}
+.pop .opt .nm{flex:1;overflow-wrap:anywhere;font-size:13px}
+.pop .opt .sub{color:var(--ink-3);font-size:11px}
+.pop .ok{color:var(--orange);font-weight:700}
+.pop .fim{display:flex;gap:8px;margin-top:12px;align-items:center;flex-wrap:wrap}
+.pop .chk{display:flex;align-items:center;gap:8px;font-size:13px;margin:6px 0}
+.pop .chk input{accent-color:var(--orange);width:15px;height:15px}
+.cores{display:grid;grid-template-columns:repeat(5,1fr);gap:6px}
+.cores button{height:30px;border-radius:6px;border:2px solid transparent;cursor:pointer}
+.cores button.on{border-color:#fff}
+
+/* ---- gaveta (arquivados, atividade) ---- */
+.gaveta{position:fixed;top:0;right:0;bottom:0;width:min(420px,100vw);z-index:40;background:var(--bg-2);
+  border-left:1px solid var(--line-strong);box-shadow:-12px 0 40px rgba(0,0,0,.45);display:flex;flex-direction:column}
+.gaveta-head{display:flex;align-items:center;gap:10px;padding:14px 16px;border-bottom:1px solid var(--line)}
+.gaveta-head h3{margin:0;flex:1;font-family:var(--font-serif);font-size:15px}
+.gaveta-corpo{flex:1;overflow-y:auto;padding:12px 16px 24px}
+.gaveta .abas{display:flex;gap:6px;margin-bottom:10px}
+.arq{display:flex;gap:10px;align-items:flex-start;padding:9px 10px;border:1px solid var(--line);border-radius:10px;
+  background:var(--surface);margin-bottom:8px}
+.arq .info{flex:1;min-width:0}
+.arq .nome{font-size:13px;overflow-wrap:anywhere;cursor:pointer}
+.arq .nome:hover{color:var(--orange)}
+.arq .sub{color:var(--ink-3);font-size:11.5px;margin-top:2px}
+.arq .acoes{display:flex;flex-direction:column;gap:5px}
+
+@media (max-width:760px){
+  :root{--gutter:12px;--col-w:84vw}
+  .dlg-body{grid-template-columns:1fr}
+  .dlg-side{order:-1;flex-direction:row;flex-wrap:wrap}
+  .dlg-side h4{width:100%}
+  .dlg-side .btn{width:auto}
+  .overlay{padding:0}
+  .dlg{border-radius:0;min-height:100%}
+  .busca{width:100%}
+}
+</style>
+</head>
+<body>
+
+<header class="topbar"><div class="topbar-inner" id="barra"></div></header>
+<main class="board" id="board"><div class="empty"><div>Carregando o board…</div></div></main>
+<div id="modal"></div>
+<div id="gaveta"></div>
+<div id="pop"></div>
+<div id="toast"></div>
+
+<script src="../vendor/supabase.min.js"></script>
+<script src="config.js"></script>
+<script src="kb_dados.js"></script>
+<script src="kb_fonte.js"></script>
+<script>
+'use strict';
+const KB = KB_DADOS;
+const esc = KB.esc;
+const $ = (s, el) => (el || document).querySelector(s);
+const $$ = (s, el) => Array.from((el || document).querySelectorAll(s));
+
+/* ---------- ícones (traço, 24x24) ---------- */
+const ICO = {
+  x: 'M18 6L6 18M6 6l12 12',
+  mais: 'M12 5v14M5 12h14',
+  menu: 'M5 12h.01M12 12h.01M19 12h.01',
+  desc: 'M4 6h16M4 12h16M4 18h10',
+  coment: 'M21 12a8 8 0 01-11.6 7.1L4 20l1-4.6A8 8 0 1121 12z',
+  clipe: 'M21 11.5l-8.6 8.6a5 5 0 01-7.1-7.1l8.6-8.6a3.4 3.4 0 014.8 4.8l-8.6 8.6a1.7 1.7 0 01-2.4-2.4l7.9-7.9',
+  check: 'M9 11l3 3L22 4M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11',
+  relogio: 'M12 7v5l3 2M12 21a9 9 0 100-18 9 9 0 000 18z',
+  etiqueta: 'M20.6 13.4l-7.2 7.2a2 2 0 01-2.8 0L3 13V3h10l7.6 7.6a2 2 0 010 2.8zM7.5 7.5h.01',
+  pessoa: 'M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2M12 11a4 4 0 100-8 4 4 0 000 8z',
+  mover: 'M5 12h14M13 6l6 6-6 6',
+  copiar: 'M8 8h12v12H8zM4 16V4h12',
+  arquivo: 'M3 7h18M5 7v13h14V7M9 11h6M4 3h16v4H4z',
+  restaurar: 'M3 12a9 9 0 109-9 9.7 9.7 0 00-6.7 2.7L3 8M3 3v5h5',
+  lixo: 'M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14',
+  lapis: 'M11 4h2M4 20h16M7 17l9.5-9.5a2.1 2.1 0 00-3-3L4 14v3h3z',
+  atividade: 'M22 12h-4l-3 9L9 3l-3 9H2',
+  filtro: 'M3 5h18l-7 8v6l-4 2v-8z',
+  esq: 'M15 18l-6-6 6-6', dir: 'M9 18l6-6-6-6',
+  link: 'M10 13a5 5 0 007 0l3-3a5 5 0 00-7-7l-1 1M14 11a5 5 0 00-7 0l-3 3a5 5 0 007 7l1-1'
+};
+const svg = (k, s) => `<svg width="${s||14}" height="${s||14}" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+  stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${ICO[k]}"/></svg>`;
+
+/* ---------- estado ---------- */
+const S = {
+  listas: [], etiquetas: [], membros: [], cards: [],
+  eu: { email: null, membroId: null },
+  filtro: { texto: '', membros: [], etiquetas: [], semMembro: false, prazo: '' },
+  aberto: null,          // { card, checklists, comentarios, anexos, atividade }
+  detalhes: false,       // mostrar histórico junto dos comentários
+  erro: null, carregou: false,
+};
+const IX = { lista: new Map(), etq: new Map(), mbr: new Map(), usuarios: {} };
+
+function indexar() {
+  IX.lista = new Map(S.listas.map(l => [l.id, l]));
+  IX.etq = new Map(S.etiquetas.map(e => [e.id, e]));
+  IX.mbr = new Map(S.membros.map(m => [m.id, m]));
+  IX.usuarios = {};
+  S.membros.forEach(m => { if (m.usuario) IX.usuarios[m.usuario.toLowerCase()] = m.nome; });
+}
+const listasAbertas = () => S.listas.filter(l => !l.arquivada).sort((a, b) => a.pos - b.pos);
+const cardsDaLista = id => S.cards.filter(c => c.lista_id === id && !c.arquivado).sort(KB.porPos);
+const md = t => KB.markdown(t, { usuarios: IX.usuarios });
+
+/* filtro guardado por pessoa, neste navegador */
+const CHAVE_FILTRO = 'kanban.filtro';
+try {
+  const f = JSON.parse(localStorage.getItem(CHAVE_FILTRO) || 'null');
+  if (f && typeof f === 'object') Object.assign(S.filtro, f);
+  S.detalhes = localStorage.getItem('kanban.detalhes') === '1';
+} catch (e) { /* sem storage: segue com o padrão */ }
+function guardarFiltro() {
+  try { localStorage.setItem(CHAVE_FILTRO, JSON.stringify(S.filtro)); } catch (e) {}
+}
+
+/* ---------- avatar e etiqueta ---------- */
+const CORES_AV = ['#1D6E79', '#346E79', '#B86E00', '#2E97A6', '#5B4E8C', '#8A4B5E', '#3F6E3A', '#7A5C1E'];
+function corAvatar(nome) {
+  let h = 0; for (const ch of String(nome || '')) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  return CORES_AV[h % CORES_AV.length];
+}
+function avatar(m, grande) {
+  if (!m) return '';
+  return `<span class="av${grande ? ' g' : ''}" style="background:${corAvatar(m.nome)}" title="${esc(m.nome)}">${esc(KB.iniciais(m.nome))}</span>`;
+}
+function avatarNome(nome, grande) {
+  return `<span class="av${grande ? ' g' : ''}" style="background:${corAvatar(nome)}" title="${esc(nome || '')}">${esc(KB.iniciais(nome))}</span>`;
+}
+function chipEtq(e, grande) {
+  if (!e) return '';
+  return `<span class="etq${grande ? ' g' : ''}${e.nome ? '' : ' vazia'}" style="background:${KB.corEtiqueta(e.cor)};color:${KB.textoEtiqueta(e.cor)}"
+    title="${esc(e.nome || 'sem nome')}">${esc(e.nome)}</span>`;
+}
+function chipPrazo(c, longo) {
+  const st = KB.prazoEstado(c.prazo, c.prazo_concluido);
+  if (!st) return '';
+  const quando = longo ? KB.dataHora(c.prazo) : KB.dataCurta(c.prazo);
+  return `<span class="prazo ${st}" title="Prazo ${esc(KB.dataHora(c.prazo))}">${svg('relogio', 12)} ${esc(quando)}</span>`;
+}
+
+/* ---------- avisos ---------- */
+let tToast = null;
+function toast(msg, erro) {
+  const el = $('#toast');
+  el.innerHTML = `<div class="toast${erro ? ' erro' : ''}" role="status">${esc(msg)}</div>`;
+  clearTimeout(tToast);
+  tToast = setTimeout(() => { el.innerHTML = ''; }, erro ? 7000 : 2600);
+}
+async function tentar(fn, depois) {
+  try { const r = await fn(); if (depois !== false) await recarregar(); return r; }
+  catch (e) { console.error(e); toast(e.message || String(e), true); await recarregar(); return undefined; }
+}
+
+/* ============================================================
+   BARRA
+   ============================================================ */
+function renderBarra() {
+  const f = S.filtro, ativo = KB.filtroAtivo(f);
+  const nMbr = (f.membros || []).length + (f.semMembro ? 1 : 0), nEtq = (f.etiquetas || []).length;
+  const meu = S.eu.membroId && f.membros.length === 1 && f.membros[0] === S.eu.membroId && !f.semMembro;
+  $('#barra').innerHTML = `
+    <input class="busca" id="fTexto" type="search" placeholder="Buscar cards" value="${esc(f.texto)}" aria-label="Buscar cards">
+    ${S.eu.membroId ? `<button class="btn${meu ? ' on' : ''}" id="fMeus" type="button">${svg('pessoa', 13)} Meus cards</button>` : ''}
+    <button class="btn${nMbr ? ' on' : ''}" id="fMembros" type="button">${svg('pessoa', 13)} Membros${nMbr ? ' · ' + nMbr : ''}</button>
+    <button class="btn${nEtq ? ' on' : ''}" id="fEtiquetas" type="button">${svg('etiqueta', 13)} Etiquetas${nEtq ? ' · ' + nEtq : ''}</button>
+    <button class="btn${f.prazo ? ' on' : ''}" id="fPrazo" type="button">${svg('relogio', 13)} ${f.prazo === 'vencido' ? 'Vencidos' : f.prazo === 'semana' ? 'Vence em 7 dias' : 'Prazo'}</button>
+    ${ativo ? `<button class="btn" id="fLimpar" type="button">${svg('x', 12)} Limpar filtros</button>` : ''}
+    <span class="spacer"></span>
+    <span class="sync" id="sync"></span>
+    <button class="btn" id="btAtividade" type="button">${svg('atividade', 13)} Atividade</button>
+    <button class="btn" id="btArquivados" type="button">${svg('arquivo', 13)} Arquivados</button>`;
+}
+
+$('#barra').addEventListener('input', ev => {
+  if (ev.target.id !== 'fTexto') return;
+  S.filtro.texto = ev.target.value;
+  guardarFiltro();
+  renderBoard();
+  // a barra não é redesenhada a cada tecla (perderia o foco); só o "Limpar filtros"
+  const tem = !!$('#fLimpar');
+  if (tem !== KB.filtroAtivo(S.filtro)) { const pos = ev.target.selectionStart; renderBarra(); const i = $('#fTexto'); i.focus(); i.setSelectionRange(pos, pos); }
+});
+$('#barra').addEventListener('click', ev => {
+  const b = ev.target.closest('button');
+  if (!b) return;
+  if (b.id === 'fMeus') {
+    const meu = S.filtro.membros.length === 1 && S.filtro.membros[0] === S.eu.membroId && !S.filtro.semMembro;
+    S.filtro.membros = meu ? [] : [S.eu.membroId]; S.filtro.semMembro = false;
+    guardarFiltro(); renderBarra(); renderBoard();
+  } else if (b.id === 'fMembros') popFiltroMembros(b);
+  else if (b.id === 'fEtiquetas') popFiltroEtiquetas(b);
+  else if (b.id === 'fPrazo') popFiltroPrazo(b);
+  else if (b.id === 'fLimpar') {
+    S.filtro = { texto: '', membros: [], etiquetas: [], semMembro: false, prazo: '' };
+    guardarFiltro(); renderBarra(); renderBoard();
+  } else if (b.id === 'btArquivados') abrirArquivados();
+  else if (b.id === 'btAtividade') abrirAtividade();
+});
+
+function popFiltroMembros(anc) {
+  const f = S.filtro;
+  abrirPop(anc, 'Filtrar por membro', () => `
+    <div class="rows">
+      <div class="opt" data-sem="1"><span class="av" style="background:var(--surface-3)">–</span><span class="nm">Sem membro</span>${f.semMembro ? '<span class="ok">✓</span>' : ''}</div>
+      ${S.membros.map(m => `<div class="opt" data-id="${esc(m.id)}">${avatar(m)}<span class="nm">${esc(m.nome)}${m.email ? '' : ' <span class="sub">· sem login</span>'}</span>${f.membros.includes(m.id) ? '<span class="ok">✓</span>' : ''}</div>`).join('')}
+    </div>`, (el, redesenhar) => {
+    el.addEventListener('click', ev => {
+      const o = ev.target.closest('.opt'); if (!o) return;
+      if (o.dataset.sem) f.semMembro = !f.semMembro;
+      else f.membros = f.membros.includes(o.dataset.id) ? f.membros.filter(x => x !== o.dataset.id) : f.membros.concat(o.dataset.id);
+      guardarFiltro(); renderBarra(); renderBoard(); redesenhar();
+    });
+  });
+}
+function popFiltroEtiquetas(anc) {
+  const f = S.filtro;
+  abrirPop(anc, 'Filtrar por etiqueta', () => `
+    <div class="rows">${S.etiquetas.map(e => `<div class="opt" data-id="${esc(e.id)}">${chipEtq(e)}<span class="nm"></span>${f.etiquetas.includes(e.id) ? '<span class="ok">✓</span>' : ''}</div>`).join('')
+      || '<div class="sub">Nenhuma etiqueta.</div>'}</div>`, (el, redesenhar) => {
+    el.addEventListener('click', ev => {
+      const o = ev.target.closest('.opt'); if (!o) return;
+      f.etiquetas = f.etiquetas.includes(o.dataset.id) ? f.etiquetas.filter(x => x !== o.dataset.id) : f.etiquetas.concat(o.dataset.id);
+      guardarFiltro(); renderBarra(); renderBoard(); redesenhar();
+    });
+  });
+}
+function popFiltroPrazo(anc) {
+  const op = [['', 'Qualquer'], ['vencido', 'Vencidos'], ['semana', 'Vence em até 7 dias']];
+  abrirPop(anc, 'Filtrar por prazo', () => `<div class="rows">${op.map(([v, t]) =>
+    `<div class="opt" data-v="${v}"><span class="nm">${t}</span>${S.filtro.prazo === v ? '<span class="ok">✓</span>' : ''}</div>`).join('')}</div>`,
+    el => el.addEventListener('click', ev => {
+      const o = ev.target.closest('.opt'); if (!o) return;
+      S.filtro.prazo = o.dataset.v; guardarFiltro(); fecharPop(); renderBarra(); renderBoard();
+    }));
+}
+
+/* ============================================================
+   BOARD
+   ============================================================ */
+let compondo = null;      // lista com o "adicionar card" aberto
+let renomeandoLista = null;
+
+function faceCard(c) {
+  const etqs = c.etiquetas.map(id => IX.etq.get(id)).filter(Boolean);
+  const mbrs = c.membros.map(id => IX.mbr.get(id)).filter(Boolean);
+  const it = c.itens || { feitos: 0, total: 0 };
+  const bad = [
+    c.modelo ? '<span class="bdg modelo">Modelo</span>' : '',
+    chipPrazo(c),
+    c.descricao ? `<span class="bdg" title="Tem descrição">${svg('desc', 12)}</span>` : '',
+    c.comentarios ? `<span class="bdg" title="Comentários">${svg('coment', 12)} ${c.comentarios}</span>` : '',
+    c.anexos ? `<span class="bdg" title="Anexos">${svg('clipe', 12)} ${c.anexos}</span>` : '',
+    it.total ? `<span class="bdg${it.feitos === it.total ? ' ok' : ''}" title="Checklist">${svg('check', 12)} ${it.feitos}/${it.total}</span>` : '',
+    mbrs.length ? `<span class="mbrs">${mbrs.map(m => avatar(m)).join('')}</span>` : ''
+  ].join('');
+  return `<div class="kcard" draggable="true" tabindex="0" data-id="${esc(c.id)}">
+    ${etqs.length ? `<div class="etqs">${etqs.map(e => chipEtq(e)).join('')}</div>` : ''}
+    <div class="ttl">${esc(c.nome)}</div>
+    <div class="badges">${bad}</div>
+  </div>`;
+}
+
+function coluna(l) {
+  const todos = cardsDaLista(l.id);
+  const vis = todos.filter(c => KB.passa(c, S.filtro));
+  const filtrando = KB.filtroAtivo(S.filtro);
+  return `<section class="kcol" data-lista="${esc(l.id)}" aria-label="${esc(l.nome)}">
+    <div class="kcol-head">
+      ${renomeandoLista === l.id
+        ? `<input id="inLista" value="${esc(l.nome)}" aria-label="Nome da lista">`
+        : `<h2 data-acao="renomear-lista" title="Clique para renomear">${esc(l.nome)}</h2>`}
+      <span class="n">${filtrando ? vis.length + '/' : ''}${todos.length}</span>
+      <button class="ico-btn" data-acao="menu-lista" type="button" aria-label="Ações da lista">${svg('menu', 16)}</button>
+    </div>
+    <div class="kcol-cards" data-lista="${esc(l.id)}">${vis.map(faceCard).join('')}</div>
+    <div class="kcol-foot">${compondo === l.id ? `
+      <div class="composer">
+        <textarea id="inCard" placeholder="Título do card" aria-label="Título do novo card"></textarea>
+        <div class="row"><button class="btn-acao btn-mini" data-acao="salvar-card" type="button">Adicionar card</button>
+          <button class="ico-btn" data-acao="cancelar-card" type="button" aria-label="Cancelar">${svg('x', 16)}</button></div>
+      </div>` : `<button class="add-card" data-acao="novo-card" type="button">+ Adicionar card</button>`}</div>
+  </section>`;
+}
+
+function renderBoard() {
+  const board = $('#board');
+  if (S.erro) {
+    board.innerHTML = `<div class="empty"><div><div class="big">!</div><div class="erro-box">${esc(S.erro)}</div>
+      <button class="btn" id="btTentar" type="button">Tentar de novo</button></div></div>`;
+    $('#btTentar').onclick = () => { S.erro = null; iniciar(); };
+    return;
+  }
+  if (!S.carregou) return;
+  // preserva rolagem (do board e de cada coluna) e o rascunho do card novo
+  const rol = { x: board.scrollLeft, col: {} };
+  $$('.kcol-cards', board).forEach(el => { rol.col[el.dataset.lista] = el.scrollTop; });
+  const rascunho = $('#inCard') ? $('#inCard').value : '';
+  const listas = listasAbertas();
+  board.innerHTML = listas.map(coluna).join('') + `
+    <div class="nova-lista"><input id="inNovaLista" placeholder="+ Adicionar outra lista" aria-label="Nome da nova lista"></div>`;
+  board.scrollLeft = rol.x;
+  $$('.kcol-cards', board).forEach(el => { if (rol.col[el.dataset.lista]) el.scrollTop = rol.col[el.dataset.lista]; });
+  const ic = $('#inCard');
+  if (ic) { ic.value = rascunho; ic.focus(); }
+  const il = $('#inLista');
+  if (il) { il.focus(); il.select(); }
+}
+
+/* cliques no board (delegação: o board é redesenhado o tempo todo) */
+let soltouAgora = false;
+$('#board').addEventListener('click', ev => {
+  const alvo = ev.target.closest('[data-acao]');
+  const col = ev.target.closest('.kcol');
+  const lista = col && col.dataset.lista;
+  if (alvo) {
+    const a = alvo.dataset.acao;
+    if (a === 'novo-card') { compondo = lista; renderBoard(); }
+    else if (a === 'cancelar-card') { compondo = null; renderBoard(); }
+    else if (a === 'salvar-card') salvarCardNovo(lista);
+    else if (a === 'renomear-lista') { renomeandoLista = lista; renderBoard(); }
+    else if (a === 'menu-lista') menuLista(alvo, lista);
+    return;
+  }
+  const card = ev.target.closest('.kcard');
+  if (card && !soltouAgora) abrirCard(card.dataset.id);
+});
+$('#board').addEventListener('keydown', ev => {
+  if (ev.target.id === 'inCard') {
+    if (ev.key === 'Enter' && !ev.shiftKey) { ev.preventDefault(); salvarCardNovo(ev.target.closest('.kcol').dataset.lista); }
+    if (ev.key === 'Escape') { compondo = null; renderBoard(); }
+  } else if (ev.target.id === 'inLista') {
+    if (ev.key === 'Enter') ev.target.blur();
+    if (ev.key === 'Escape') { renomeandoLista = null; renderBoard(); }
+  } else if (ev.target.id === 'inNovaLista' && ev.key === 'Enter') {
+    const nome = ev.target.value.trim();
+    if (!nome) return;
+    const ult = listasAbertas().slice(-1)[0];
+    const todas = S.listas.reduce((m, l) => Math.max(m, l.pos), 0);
+    tentar(() => KB_FONTE.criarLista(nome, Math.max(todas, ult ? ult.pos : 0) + KB.PASSO));
+  } else if (ev.target.classList.contains('kcard') && (ev.key === 'Enter' || ev.key === ' ')) {
+    ev.preventDefault(); abrirCard(ev.target.dataset.id);
+  }
+});
+$('#board').addEventListener('focusout', ev => {
+  if (ev.target.id !== 'inLista' || !renomeandoLista) return;
+  const id = renomeandoLista, nome = ev.target.value.trim();
+  renomeandoLista = null;
+  const l = IX.lista.get(id);
+  if (!nome || !l || nome === l.nome) { renderBoard(); return; }
+  l.nome = nome; renderBoard();
+  tentar(() => KB_FONTE.atualizarLista(id, { nome }));
+});
+
+async function salvarCardNovo(listaId) {
+  const ic = $('#inCard');
+  const nome = ic ? ic.value.trim() : '';
+  if (!nome) { if (ic) ic.focus(); return; }
+  ic.value = '';
+  const ult = cardsDaLista(listaId).slice(-1)[0];
+  await tentar(() => KB_FONTE.criarCard(listaId, nome, ult ? ult.pos + KB.PASSO : KB.PASSO));
+}
+
+function menuLista(anc, listaId) {
+  const ls = listasAbertas(), i = ls.findIndex(l => l.id === listaId), l = ls[i];
+  abrirPop(anc, l.nome, () => `<div class="rows">
+      <div class="opt" data-a="renomear"><span class="nm">Renomear</span></div>
+      ${i > 0 ? '<div class="opt" data-a="esq"><span class="nm">Mover para a esquerda</span></div>' : ''}
+      ${i < ls.length - 1 ? '<div class="opt" data-a="dir"><span class="nm">Mover para a direita</span></div>' : ''}
+      <div class="opt" data-a="arquivar"><span class="nm">Arquivar esta lista</span></div>
+    </div>`, el => el.addEventListener('click', ev => {
+    const o = ev.target.closest('.opt'); if (!o) return;
+    fecharPop();
+    const a = o.dataset.a;
+    if (a === 'renomear') { renomeandoLista = listaId; renderBoard(); }
+    else if (a === 'esq' || a === 'dir') {
+      // troca de lugar com a vizinha: duas gravações, e a ordem fica certa mesmo
+      // quando as duas tinham a mesma posição
+      const v = ls[a === 'esq' ? i - 1 : i + 1];
+      const pl = l.pos, pv = v.pos;
+      const [pa, pb] = pl === pv ? (a === 'esq' ? [pv - 1, pv] : [pv + 1, pv]) : [pv, pl];
+      tentar(async () => {
+        await KB_FONTE.atualizarLista(l.id, { pos: pa });
+        await KB_FONTE.atualizarLista(v.id, { pos: pb });
+      });
+    } else if (a === 'arquivar') {
+      const n = cardsDaLista(listaId).length;
+      if (!confirm(`Arquivar a lista "${l.nome}"${n ? ` com ${n} card${n === 1 ? '' : 's'}` : ''}? Ela continua em Arquivados e pode ser restaurada.`)) return;
+      tentar(() => KB_FONTE.atualizarLista(listaId, { arquivada: true }));
+    }
+  }));
+}
+
+/* ---------- arrastar e soltar ----------
+   Só o card arrastado é gravado: ganha a posição entre os vizinhos de onde caiu
+   (KB.posEntre). Se não couber número entre eles, a lista toda é renumerada. */
+let arrastado = null;
+const ph = document.createElement('div');
+ph.className = 'placeholder';
+
+$('#board').addEventListener('dragstart', ev => {
+  const c = ev.target.closest && ev.target.closest('.kcard');
+  if (!c) return;
+  arrastado = c.dataset.id;
+  ph.style.height = c.offsetHeight + 'px';
+  ev.dataTransfer.effectAllowed = 'move';
+  try { ev.dataTransfer.setData('text/plain', arrastado); } catch (e) {}
+  requestAnimationFrame(() => c.classList.add('arrastando'));
+});
+$('#board').addEventListener('dragend', () => {
+  $$('.kcard.arrastando').forEach(c => c.classList.remove('arrastando'));
+  if (ph.parentNode) ph.parentNode.removeChild(ph);
+  arrastado = null;
+});
+$('#board').addEventListener('dragover', ev => {
+  if (!arrastado) return;
+  const area = ev.target.closest('.kcol-cards') || (ev.target.closest('.kcol') && $('.kcol-cards', ev.target.closest('.kcol')));
+  if (!area) return;
+  ev.preventDefault();
+  const irmaos = $$('.kcard:not(.arrastando)', area);
+  const depois = irmaos.find(el => { const r = el.getBoundingClientRect(); return ev.clientY < r.top + r.height / 2; });
+  if (depois) area.insertBefore(ph, depois); else area.appendChild(ph);
+});
+$('#board').addEventListener('drop', ev => {
+  if (!arrastado || !ph.parentNode) return;
+  ev.preventDefault();
+  const area = ph.parentNode;
+  // vizinhos de onde caiu, sem contar o próprio card arrastado
+  const fila = Array.from(area.children).filter(e => e === ph
+    || (e.classList.contains('kcard') && e.dataset.id !== arrastado));
+  const i = fila.indexOf(ph);
+  const prev = fila[i - 1], prox = fila[i + 1];
+  const id = arrastado;
+  soltouAgora = true; setTimeout(() => { soltouAgora = false; }, 50);
+  moverCard(id, area.dataset.lista, prev ? prev.dataset.id : null, prox ? prox.dataset.id : null);
+});
+
+async function moverCard(id, listaId, antesId, depoisId) {
+  const card = S.cards.find(c => c.id === id);
+  if (!card) return;
+  const antes = antesId ? S.cards.find(c => c.id === antesId) : null;
+  const depois = depoisId ? S.cards.find(c => c.id === depoisId) : null;
+  if (card.lista_id === listaId) {
+    // caiu entre os mesmos vizinhos de antes: nada muda
+    const ordem = cardsDaLista(listaId), k = ordem.indexOf(card);
+    if ((ordem[k - 1] || null) === antes && (ordem[k + 1] || null) === depois) { renderBoard(); return; }
+  }
+  let pos = KB.posEntre(antes ? antes.pos : null, depois ? depois.pos : null);
+  const mudouLista = card.lista_id !== listaId;
+  card.lista_id = listaId;
+  if (pos === null) {
+    // sem espaço entre os vizinhos: renumera a lista inteira na ordem nova
+    const ordem = cardsDaLista(listaId).filter(c => c.id !== id);
+    const k = depois ? ordem.indexOf(depois) : ordem.length;
+    ordem.splice(k < 0 ? ordem.length : k, 0, card);
+    card.pos = (antes ? antes.pos : 0) + 1e-9;          // provisório, só para a tela
+    renderBoard();
+    await tentar(async () => {
+      if (mudouLista) await KB_FONTE.atualizarCard(id, { lista_id: listaId });
+      await KB_FONTE.renumerarLista(ordem);
+    });
+    return;
+  }
+  card.pos = pos;
+  renderBoard();
+  await tentar(() => KB_FONTE.atualizarCard(id, mudouLista ? { lista_id: listaId, pos } : { pos }));
+}
+
+/* ============================================================
+   POPOVER
+   ============================================================ */
+let popAtual = null;
+function abrirPop(anc, titulo, html, ligar) {
+  fecharPop();
+  const el = $('#pop');
+  const desenhar = () => {
+    el.innerHTML = `<div class="pop" role="dialog" aria-label="${esc(titulo)}">
+      <button class="ico-btn fechar-pop" type="button" aria-label="Fechar">${svg('x', 14)}</button>
+      <h5>${esc(titulo)}</h5><div class="pop-corpo">${html()}</div></div>`;
+    const p = $('.pop', el);
+    const r = anc.getBoundingClientRect();
+    const w = p.offsetWidth, h = p.offsetHeight;
+    let x = Math.min(r.left, window.innerWidth - w - 8), y = r.bottom + 6;
+    if (y + h > window.innerHeight - 8) y = Math.max(8, r.top - h - 6);
+    p.style.left = Math.max(8, x) + 'px'; p.style.top = y + 'px';
+    $('.fechar-pop', p).onclick = fecharPop;
+    if (ligar) ligar($('.pop-corpo', p), desenhar);
+  };
+  popAtual = { anc };
+  desenhar();
+  const primeiro = $('#pop input:not([type=checkbox]), #pop textarea, #pop select');
+  if (primeiro) primeiro.focus();
+}
+function fecharPop() { $('#pop').innerHTML = ''; popAtual = null; }
+document.addEventListener('mousedown', ev => {
+  if (popAtual && !ev.target.closest('#pop') && !popAtual.anc.contains(ev.target)) fecharPop();
+});
+document.addEventListener('keydown', ev => {
+  if (ev.key !== 'Escape') return;
+  if (popAtual) { fecharPop(); return; }
+  if ($('#gaveta').innerHTML) { fecharGaveta(); return; }
+  const ativo = document.activeElement;
+  if (S.aberto && !(ativo && ativo.closest && ativo.closest('.editor, .add-item, .item, .ckl-head, .novo-coment'))) fecharCard();
+});
+
+/* ============================================================
+   CARD ABERTO
+   ============================================================ */
+let editandoDesc = false, editandoComentario = null, editandoItem = null, renomeandoCkl = null, addItemEm = null;
+let pendente = false;     // chegou mudança de outra pessoa enquanto havia edição aberta
+
+function emEdicao() {
+  return editandoDesc || editandoComentario || editandoItem || renomeandoCkl || addItemEm
+    || (document.activeElement && ['titulo', 'novoComent'].includes(document.activeElement.id)
+        && document.activeElement.value !== (document.activeElement.dataset.orig || ''));
+}
+
+async function abrirCard(id) {
+  try {
+    const d = await KB_FONTE.carregarCard(id);
+    if (!d) { toast('Este card não existe mais.', true); await recarregar(); return; }
+    editandoDesc = false; editandoComentario = editandoItem = renomeandoCkl = addItemEm = null;
+    S.aberto = d;
+    renderCard();
+    const t = $('#titulo'); if (t) autoAltura(t);
+  } catch (e) { toast(e.message, true); }
+}
+async function recarregarCard() {
+  if (!S.aberto) return;
+  const d = await KB_FONTE.carregarCard(S.aberto.card.id);
+  if (!d) { fecharCard(); toast('O card foi excluído.'); return; }
+  S.aberto = d;
+  renderCard();
+}
+function fecharCard() { S.aberto = null; $('#modal').innerHTML = ''; fecharPop(); }
+
+function autoAltura(t) { t.style.height = 'auto'; t.style.height = t.scrollHeight + 'px'; }
+
+function renderCard() {
+  const A = S.aberto; if (!A) return;
+  const c = A.card;
+  const lista = IX.lista.get(c.lista_id);
+  const daListaArq = lista && lista.arquivada;
+  const etqs = c.etiquetas.map(id => IX.etq.get(id)).filter(Boolean);
+  const mbrs = c.membros.map(id => IX.mbr.get(id)).filter(Boolean);
+  const rolagem = $('.overlay') ? $('.overlay').scrollTop : 0;
+  const rascunho = $('#novoComent') ? $('#novoComent').value : '';
+
+  $('#modal').innerHTML = `<div class="overlay" id="ovl"><div class="dlg" role="dialog" aria-modal="true" aria-labelledby="titulo">
+    <button class="ico-btn fechar" id="btFechar" type="button" aria-label="Fechar">${svg('x', 18)}</button>
+    ${c.arquivado || daListaArq ? `<div class="banner-arq">${svg('arquivo', 15)}
+      <span style="flex:1">${c.arquivado ? 'Este card está arquivado.' : 'A lista deste card está arquivada.'}</span>
+      ${c.arquivado ? `<button class="btn btn-mini" data-a="restaurar" type="button">${svg('restaurar', 12)} Restaurar</button>
+      <button class="btn-perigo btn-mini" data-a="excluir" type="button">${svg('lixo', 12)} Excluir</button>` : ''}</div>` : ''}
+    <div class="dlg-head">
+      <textarea class="titulo" id="titulo" rows="1" aria-label="Título do card" data-orig="${esc(c.nome)}">${esc(c.nome)}</textarea>
+      <div class="dlg-sub">
+        <span>na lista</span>
+        <select id="mLista" aria-label="Lista">${S.listas.filter(l => !l.arquivada || l.id === c.lista_id).sort((a, b) => a.pos - b.pos)
+          .map(l => `<option value="${esc(l.id)}"${l.id === c.lista_id ? ' selected' : ''}>${esc(l.nome)}${l.arquivada ? ' (arquivada)' : ''}</option>`).join('')}</select>
+        ${c.modelo ? '<span class="bdg modelo">Modelo</span>' : ''}
+        <span>· criado${c.criado_por ? ' por ' + esc(c.criado_por) : ''} em ${esc(KB.dataHora(c.criado_em))}</span>
+      </div>
+    </div>
+    <div class="dlg-body">
+      <div class="dlg-main">
+        <div class="meta">
+          <div><h4>Membros</h4><div class="linha">${mbrs.map(m => avatar(m, true)).join('')}
+            <button class="mais" data-a="membros" type="button" aria-label="Membros">+</button></div></div>
+          <div><h4>Etiquetas</h4><div class="linha">${etqs.map(e => chipEtq(e, true)).join('')}
+            <button class="mais" data-a="etiquetas" type="button" aria-label="Etiquetas">+</button></div></div>
+          ${c.prazo ? `<div><h4>Prazo</h4><div class="linha">
+            <label class="chk" style="margin:0;display:flex;gap:6px;align-items:center;font-size:13px">
+              <input type="checkbox" id="mPrazoOk" ${c.prazo_concluido ? 'checked' : ''} style="accent-color:var(--orange)"> ${chipPrazo(c, true)}</label>
+            <button class="lnk" data-a="prazo" type="button">alterar</button></div></div>` : ''}
+        </div>
+
+        <div class="sec"><div class="sec-head"><h3>${svg('desc', 16)} Descrição</h3>
+          ${c.descricao && !editandoDesc ? '<button class="btn btn-mini" data-a="editar-desc" type="button">Editar</button>' : ''}</div>
+          ${editandoDesc ? `<div class="editor"><textarea id="inDesc" aria-label="Descrição">${esc(c.descricao)}</textarea>
+            <div class="row"><button class="btn-acao btn-mini" data-a="salvar-desc" type="button">Salvar</button>
+            <button class="btn btn-mini" data-a="cancelar-desc" type="button">Cancelar</button></div></div>`
+          : c.descricao ? `<div class="md" id="mdDesc">${md(c.descricao)}</div>`
+          : `<div class="desc-vazia" data-a="editar-desc" role="button" tabindex="0">Adicione uma descrição mais detalhada…</div>`}
+        </div>
+
+        ${A.checklists.map(renderChecklist).join('')}
+
+        ${A.anexos.length ? `<div class="sec"><div class="sec-head"><h3>${svg('clipe', 16)} Anexos</h3>
+          <button class="btn btn-mini" data-a="anexo" type="button">Adicionar</button></div>
+          ${A.anexos.map(renderAnexo).join('')}</div>` : ''}
+
+        <div class="sec"><div class="sec-head"><h3>${svg('coment', 16)} Comentários e atividade</h3>
+          <button class="btn btn-mini" data-a="detalhes" type="button">${S.detalhes ? 'Ocultar detalhes' : 'Mostrar detalhes'}</button></div>
+          <div class="novo-coment">${avatar(IX.mbr.get(S.eu.membroId) || { nome: S.eu.email || '?' })}
+            <div class="caixa"><textarea id="novoComent" placeholder="Escreva um comentário…" aria-label="Novo comentário"></textarea>
+            <div class="row" style="margin-top:6px"><button class="btn-acao btn-mini" data-a="comentar" type="button">Salvar</button></div></div></div>
+          ${linhaDoTempo(A)}
+        </div>
+      </div>
+
+      <aside class="dlg-side">
+        <h4>Adicionar ao card</h4>
+        <button class="btn" data-a="membros" type="button">${svg('pessoa')} Membros</button>
+        <button class="btn" data-a="etiquetas" type="button">${svg('etiqueta')} Etiquetas</button>
+        <button class="btn" data-a="checklist" type="button">${svg('check')} Checklist</button>
+        <button class="btn" data-a="prazo" type="button">${svg('relogio')} Prazo</button>
+        <button class="btn" data-a="anexo" type="button">${svg('clipe')} Anexo</button>
+        <h4>Ações</h4>
+        <button class="btn" data-a="mover" type="button">${svg('mover')} Mover</button>
+        <button class="btn" data-a="copiar" type="button">${svg('copiar')} Copiar</button>
+        ${c.arquivado
+          ? `<button class="btn" data-a="restaurar" type="button">${svg('restaurar')} Restaurar</button>
+             <button class="btn-perigo" data-a="excluir" type="button">${svg('lixo')} Excluir</button>`
+          : `<button class="btn" data-a="arquivar" type="button">${svg('arquivo')} Arquivar</button>`}
+      </aside>
+    </div>
+  </div></div>`;
+
+  const ovl = $('#ovl');
+  ovl.scrollTop = rolagem;
+  if (rascunho) $('#novoComent').value = rascunho;
+  hidratar(ovl);
+  autoAltura($('#titulo'));
+  const foco = $('#inDesc') || $('.item textarea') || $('.add-item textarea') || $('.ckl-head input') || $('.evento textarea');
+  if (foco) { foco.focus(); if (foco.setSelectionRange) foco.setSelectionRange(foco.value.length, foco.value.length); }
+}
+
+function renderChecklist(cl) {
+  const p = KB.progresso(cl.itens);
+  const pct = p.total ? Math.round(100 * p.feitos / p.total) : 0;
+  return `<div class="sec ckl" data-ckl="${esc(cl.id)}">
+    <div class="ckl-head">${svg('check', 16)}
+      ${renomeandoCkl === cl.id ? `<input id="inCkl" value="${esc(cl.nome)}" aria-label="Nome do checklist">`
+        : `<span class="nome" data-a="renomear-ckl">${esc(cl.nome)}</span>`}
+      <button class="btn btn-mini" data-a="excluir-ckl" type="button">Excluir</button></div>
+    <div class="ckl-bar${p.total && p.feitos === p.total ? ' cheio' : ''}"><span>${pct}%</span><span class="trilho"><i style="width:${pct}%"></i></span></div>
+    ${cl.itens.map(it => editandoItem === it.id ? `
+      <div class="item"><input type="checkbox" disabled ${it.concluido ? 'checked' : ''}>
+        <div style="flex:1"><textarea id="inItem" aria-label="Item">${esc(it.nome)}</textarea>
+        <div class="row" style="display:flex;gap:8px;margin-top:6px">
+          <button class="btn-acao btn-mini" data-a="salvar-item" data-item="${esc(it.id)}" type="button">Salvar</button>
+          <button class="btn btn-mini" data-a="cancelar-item" type="button">Cancelar</button></div></div></div>`
+      : `<div class="item${it.concluido ? ' feito' : ''}" data-item="${esc(it.id)}">
+        <input type="checkbox" data-a="marcar" ${it.concluido ? 'checked' : ''} aria-label="Concluído">
+        <span class="txt md" data-a="editar-item">${md(it.nome).replace(/^<p>|<\/p>$/g, '')}</span>
+        ${it.membro_id && IX.mbr.get(it.membro_id) ? avatar(IX.mbr.get(it.membro_id)) : ''}
+        <span class="acoes">
+          <button class="ico-btn" data-a="membro-item" type="button" aria-label="Atribuir">${svg('pessoa', 13)}</button>
+          <button class="ico-btn" data-a="excluir-item" type="button" aria-label="Excluir item">${svg('lixo', 13)}</button></span>
+      </div>`).join('')}
+    ${addItemEm === cl.id ? `<div class="add-item"><textarea id="inNovoItem" placeholder="Adicionar um item" aria-label="Novo item"></textarea>
+      <div class="row" style="display:flex;gap:8px;margin-top:6px"><button class="btn-acao btn-mini" data-a="salvar-novo-item" type="button">Adicionar</button>
+      <button class="btn btn-mini" data-a="cancelar-novo-item" type="button">Fechar</button></div></div>`
+      : `<div class="add-item"><button class="btn btn-mini" data-a="novo-item" type="button">Adicionar um item</button></div>`}
+  </div>`;
+}
+
+function extensao(nome) { const m = /\.([A-Za-z0-9]{1,5})$/.exec(nome || ''); return m ? m[1] : 'arq'; }
+function renderAnexo(a) {
+  const img = a.caminho && KB.ehImagem(a.mime, a.nome);
+  return `<div class="anexo" data-anexo-id="${esc(a.id)}">
+    <div class="thumb" data-a="abrir-anexo">${img ? `<span class="kb-thumb" data-anexo="${esc(a.caminho)}"></span>` : esc(a.url ? 'link' : extensao(a.nome))}</div>
+    <div class="info"><div class="nome" data-a="abrir-anexo">${esc(a.nome)}</div>
+      <div class="sub">${esc(KB.dataHora(a.criado_em))}${a.autor_nome ? ' · ' + esc(a.autor_nome) : ''}${a.bytes ? ' · ' + esc(KB.tamanho(a.bytes)) : ''}</div>
+      <div class="acoes">${a.caminho ? '<button class="lnk" data-a="baixar-anexo" type="button">Baixar</button>' : ''}
+        <button class="lnk" data-a="renomear-anexo" type="button">Renomear</button>
+        <button class="lnk perigo" data-a="excluir-anexo" type="button">Excluir</button></div></div>
+  </div>`;
+}
+
+function linhaDoTempo(A) {
+  const itens = A.comentarios.map(x => ({ t: 'c', d: x.criado_em, x }));
+  if (S.detalhes) A.atividade.forEach(x => itens.push({ t: 'a', d: x.criado_em, x }));
+  itens.sort((a, b) => String(b.d).localeCompare(String(a.d)));
+  if (!itens.length) return '';
+  return itens.map(i => {
+    const x = i.x;
+    if (i.t === 'a') return `<div class="evento ativ">${avatarNome(x.autor_nome)}<div class="corpo">
+      <div class="quem"><b>${esc(x.autor_nome || '?')}</b> ${KB.frase(x)}</div>
+      <div class="quando">${esc(KB.dataHora(x.criado_em))}</div></div></div>`;
+    const meu = x.autor_email && x.autor_email === S.eu.email;
+    return `<div class="evento" data-coment="${esc(x.id)}">${avatarNome(x.autor_nome)}<div class="corpo">
+      <div class="quem"><b>${esc(x.autor_nome || '?')}</b> <span class="quando">${esc(KB.dataHora(x.criado_em))}${x.editado_em ? ' (editado)' : ''}</span></div>
+      ${editandoComentario === x.id ? `<div class="editor"><textarea id="inComent" aria-label="Comentário">${esc(x.texto)}</textarea>
+        <div class="row"><button class="btn-acao btn-mini" data-a="salvar-coment" type="button">Salvar</button>
+        <button class="btn btn-mini" data-a="cancelar-coment" type="button">Cancelar</button></div></div>`
+      : `<div class="bolha md">${md(x.texto)}</div>
+        ${meu ? `<div class="acoes"><button class="lnk" data-a="editar-coment" type="button">Editar</button>
+          <button class="lnk perigo" data-a="excluir-coment" type="button">Excluir</button></div>` : ''}`}
+    </div></div>`;
+  }).join('');
+}
+
+/* Imagens coladas e links para anexo: o bucket é privado, então o endereço é
+   assinado na hora (vale 5 minutos) e guardado enquanto vale. */
+const URLS = new Map();
+async function urlDe(caminho) {
+  const c = URLS.get(caminho);
+  if (c && c.ate > Date.now()) return c.url;
+  const url = await KB_FONTE.urlArquivo(caminho);
+  URLS.set(caminho, { url, ate: Date.now() + 240e3 });
+  return url;
+}
+function hidratar(raiz) {
+  $$('.kb-img[data-anexo]', raiz).forEach(async el => {
+    try {
+      const url = await urlDe(el.dataset.anexo);
+      const a = document.createElement('a');
+      a.href = url; a.target = '_blank'; a.rel = 'noopener';
+      const img = document.createElement('img');
+      img.src = url; img.alt = el.title || ''; img.loading = 'lazy';
+      a.appendChild(img);
+      el.replaceWith(a);
+    } catch (e) { el.textContent = el.title || 'imagem'; }
+  });
+  $$('.kb-thumb[data-anexo]', raiz).forEach(async el => {
+    try {
+      const img = document.createElement('img');
+      img.src = await urlDe(el.dataset.anexo); img.alt = ''; img.loading = 'lazy';
+      el.replaceWith(img);
+    } catch (e) { el.textContent = 'img'; }
+  });
+}
+// janela aberta já no clique (senão o bloqueador de pop-up barra), endereço preenchido depois
+async function abrirArquivo(caminho, nomeParaBaixar) {
+  const w = nomeParaBaixar ? null : window.open('', '_blank');
+  try {
+    const url = nomeParaBaixar ? await KB_FONTE.urlArquivo(caminho, nomeParaBaixar) : await urlDe(caminho);
+    if (w) { w.opener = null; w.location = url; }
+    else { const a = document.createElement('a'); a.href = url; a.download = nomeParaBaixar; document.body.appendChild(a); a.click(); a.remove(); }
+  } catch (e) { if (w) w.close(); toast(e.message, true); }
+}
+
+/* ---------- cliques na janela do card ---------- */
+$('#modal').addEventListener('click', async ev => {
+  if (ev.target.id === 'ovl') { if (!emEdicao()) fecharCard(); return; }
+  if (ev.target.closest('#btFechar')) { fecharCard(); return; }
+  const lk = ev.target.closest('.kb-anexo-link');
+  if (lk) { ev.preventDefault(); abrirArquivo(lk.dataset.anexo); return; }
+  const el = ev.target.closest('[data-a]');
+  if (!el || !S.aberto) return;
+  const A = S.aberto, c = A.card, a = el.dataset.a;
+  const itemEl = el.closest('[data-item]'), cklEl = el.closest('[data-ckl]');
+  const itemId = el.dataset.item || (itemEl && itemEl.dataset.item), cklId = cklEl && cklEl.dataset.ckl;
+  const anexo = el.closest('[data-anexo-id]') && A.anexos.find(x => x.id === el.closest('[data-anexo-id]').dataset.anexoId);
+  const coment = el.closest('[data-coment]') && A.comentarios.find(x => x.id === el.closest('[data-coment]').dataset.coment);
+
+  switch (a) {
+    case 'membros': return popMembros(el);
+    case 'etiquetas': return popEtiquetas(el);
+    case 'prazo': return popPrazo(el);
+    case 'checklist': return popChecklist(el);
+    case 'anexo': return popAnexo(el);
+    case 'mover': return popMover(el);
+    case 'copiar': return popCopiar(el);
+    case 'arquivar': return mudarCard({ arquivado: true }, 'Card arquivado.');
+    case 'restaurar': return restaurarCard(c);
+    case 'excluir':
+      if (!confirm(`Excluir de vez o card "${c.nome}"? Comentários, checklists e anexos vão junto. Não dá para desfazer.`)) return;
+      await tentar(() => KB_FONTE.excluirCard(c.id));
+      fecharCard(); toast('Card excluído.');
+      return;
+    case 'editar-desc': editandoDesc = true; return renderCard();
+    case 'cancelar-desc': editandoDesc = false; renderCard(); return depoisDeEditar();
+    case 'salvar-desc': {
+      const v = $('#inDesc').value;
+      editandoDesc = false;
+      return mudarCard({ descricao: v });
+    }
+    case 'detalhes':
+      S.detalhes = !S.detalhes;
+      try { localStorage.setItem('kanban.detalhes', S.detalhes ? '1' : '0'); } catch (e) {}
+      return renderCard();
+    case 'comentar': {
+      const t = $('#novoComent'), v = t.value.trim();
+      if (!v) { t.focus(); return; }
+      t.value = '';
+      await tentar(() => KB_FONTE.comentar(c.id, v), false);
+      return recarregarTudo();
+    }
+    case 'editar-coment': editandoComentario = coment.id; return renderCard();
+    case 'cancelar-coment': editandoComentario = null; renderCard(); return depoisDeEditar();
+    case 'salvar-coment': {
+      const v = $('#inComent').value.trim();
+      if (!v) return;
+      editandoComentario = null;
+      await tentar(() => KB_FONTE.editarComentario(coment.id, v), false);
+      return recarregarTudo();
+    }
+    case 'excluir-coment':
+      if (!confirm('Excluir este comentário?')) return;
+      await tentar(() => KB_FONTE.excluirComentario(coment.id), false);
+      return recarregarTudo();
+    case 'marcar': {
+      const it = A.checklists.flatMap(x => x.itens).find(x => x.id === itemId);
+      it.concluido = el.checked;
+      await tentar(() => KB_FONTE.atualizarItem(itemId, { concluido: el.checked }), false);
+      return recarregarTudo();
+    }
+    case 'editar-item': editandoItem = itemId; return renderCard();
+    case 'cancelar-item': editandoItem = null; renderCard(); return depoisDeEditar();
+    case 'salvar-item': {
+      const v = $('#inItem').value.trim();
+      editandoItem = null;
+      if (!v) return renderCard();
+      await tentar(() => KB_FONTE.atualizarItem(el.dataset.item, { nome: v }), false);
+      return recarregarTudo();
+    }
+    case 'excluir-item':
+      await tentar(() => KB_FONTE.excluirItem(itemId), false);
+      return recarregarTudo();
+    case 'membro-item': return popMembroItem(el, itemId);
+    case 'novo-item': addItemEm = cklId; return renderCard();
+    case 'cancelar-novo-item': addItemEm = null; renderCard(); return depoisDeEditar();
+    case 'salvar-novo-item': return salvarNovoItem();
+    case 'renomear-ckl': renomeandoCkl = cklId; return renderCard();
+    case 'excluir-ckl': {
+      const cl = A.checklists.find(x => x.id === cklId);
+      if (!confirm(`Excluir o checklist "${cl.nome}"${cl.itens.length ? ` e seus ${cl.itens.length} itens` : ''}?`)) return;
+      await tentar(() => KB_FONTE.excluirChecklist(cklId), false);
+      return recarregarTudo();
+    }
+    case 'abrir-anexo': return anexo.caminho ? abrirArquivo(anexo.caminho) : window.open(anexo.url, '_blank', 'noopener');
+    case 'baixar-anexo': return abrirArquivo(anexo.caminho, anexo.nome);
+    case 'renomear-anexo': {
+      const nome = prompt('Nome do anexo', anexo.nome);
+      if (!nome || !nome.trim() || nome.trim() === anexo.nome) return;
+      await tentar(() => KB_FONTE.renomearAnexo(anexo.id, nome.trim()), false);
+      return recarregarTudo();
+    }
+    case 'excluir-anexo':
+      if (!confirm(`Excluir o anexo "${anexo.nome}"? Não dá para desfazer.`)) return;
+      await tentar(() => KB_FONTE.excluirAnexo(anexo), false);
+      return recarregarTudo();
+  }
+});
+
+$('#modal').addEventListener('change', ev => {
+  if (!S.aberto) return;
+  if (ev.target.id === 'mLista') {
+    const destino = ev.target.value;
+    const ult = cardsDaLista(destino).filter(x => x.id !== S.aberto.card.id).slice(-1)[0];
+    return mudarCard({ lista_id: destino, pos: ult ? ult.pos + KB.PASSO : KB.PASSO });
+  }
+  if (ev.target.id === 'mPrazoOk') return mudarCard({ prazo_concluido: ev.target.checked });
+});
+$('#modal').addEventListener('input', ev => { if (ev.target.id === 'titulo') autoAltura(ev.target); });
+$('#modal').addEventListener('keydown', ev => {
+  const id = ev.target.id;
+  if (id === 'titulo' && ev.key === 'Enter') { ev.preventDefault(); ev.target.blur(); }
+  if (id === 'titulo' && ev.key === 'Escape') { ev.stopPropagation(); ev.target.value = ev.target.dataset.orig; ev.target.blur(); }
+  if (id === 'novoComent' && ev.key === 'Escape') { ev.stopPropagation(); ev.target.blur(); }
+  if (id === 'inNovoItem' && ev.key === 'Enter' && !ev.shiftKey) { ev.preventDefault(); salvarNovoItem(); }
+  if (id === 'inItem' && ev.key === 'Enter' && !ev.shiftKey) { ev.preventDefault(); $('[data-a="salvar-item"]').click(); }
+  if (id === 'inCkl' && ev.key === 'Enter') { ev.preventDefault(); ev.target.blur(); }
+  if (['inNovoItem', 'inItem', 'inCkl', 'inDesc', 'inComent'].includes(id) && ev.key === 'Escape') {
+    ev.stopPropagation();
+    addItemEm = editandoItem = renomeandoCkl = editandoComentario = null; editandoDesc = false;
+    renderCard(); depoisDeEditar();
+  }
+  if (id === 'novoComent' && ev.key === 'Enter' && (ev.ctrlKey || ev.metaKey)) { ev.preventDefault(); $('[data-a="comentar"]').click(); }
+});
+$('#modal').addEventListener('focusout', ev => {
+  if (!S.aberto) return;
+  if (ev.target.id === 'titulo') {
+    const v = ev.target.value.replace(/\s*\n\s*/g, ' ').trim();
+    if (!v) { ev.target.value = S.aberto.card.nome; return; }
+    if (v !== S.aberto.card.nome) mudarCard({ nome: v });
+  }
+  if (ev.target.id === 'inCkl' && renomeandoCkl) {
+    const id = renomeandoCkl, v = ev.target.value.trim();
+    renomeandoCkl = null;
+    const cl = S.aberto.checklists.find(x => x.id === id);
+    if (v && cl && v !== cl.nome) tentar(() => KB_FONTE.renomearChecklist(id, v), false).then(recarregarTudo);
+    else { renderCard(); depoisDeEditar(); }
+  }
+});
+
+async function salvarNovoItem() {
+  const t = $('#inNovoItem'), v = t ? t.value.trim() : '';
+  if (!v) { if (t) t.focus(); return; }
+  const cl = S.aberto.checklists.find(x => x.id === addItemEm);
+  const ult = cl.itens.slice(-1)[0];
+  t.value = '';
+  await tentar(() => KB_FONTE.criarItem(cl.id, v, ult ? ult.pos + KB.PASSO : KB.PASSO), false);
+  await recarregarTudo();                      // addItemEm continua: dá para emendar o próximo
+}
+
+async function mudarCard(campos, msg) {
+  const c = S.aberto.card;
+  Object.assign(c, campos);
+  const r = await tentar(() => KB_FONTE.atualizarCard(c.id, campos), false);
+  if (msg && r !== undefined) toast(msg);
+  await recarregarTudo();
+}
+async function restaurarCard(c) {
+  const lista = IX.lista.get(c.lista_id);
+  if (lista && lista.arquivada) {
+    // a lista dele está arquivada: no Trello o card voltaria para um lugar invisível
+    toast('A lista deste card está arquivada: escolha para onde ele volta em "Mover".', true);
+    return;
+  }
+  return mudarCard({ arquivado: false }, 'Card restaurado.');
+}
+async function recarregarTudo() {
+  await recarregar();
+  if (S.aberto) await recarregarCard();
+}
+function depoisDeEditar() { if (pendente) { pendente = false; recarregarTudo(); } }
+
+/* ---------- popovers do card ---------- */
+function popMembros(anc) {
+  abrirPop(anc, 'Membros', () => {
+    const c = S.aberto.card;
+    const comLogin = S.membros.filter(m => m.email || c.membros.includes(m.id));
+    return `<div class="rows">${comLogin.map(m => `<div class="opt" data-id="${esc(m.id)}">${avatar(m)}<span class="nm">${esc(m.nome)}${m.email ? '' : ' <span class="sub">· sem login</span>'}</span>${c.membros.includes(m.id) ? '<span class="ok">✓</span>' : ''}</div>`).join('')}</div>`;
+  }, (el, redesenhar) => el.addEventListener('click', async ev => {
+    const o = ev.target.closest('.opt'); if (!o) return;
+    const c = S.aberto.card, liga = !c.membros.includes(o.dataset.id);
+    c.membros = liga ? c.membros.concat(o.dataset.id) : c.membros.filter(x => x !== o.dataset.id);
+    redesenhar();
+    await tentar(() => KB_FONTE.alternarMembro(c.id, o.dataset.id, liga), false);
+    await recarregarTudo();
+  }));
+}
+function popMembroItem(anc, itemId) {
+  const it = S.aberto.checklists.flatMap(x => x.itens).find(x => x.id === itemId);
+  abrirPop(anc, 'Atribuir item', () => `<div class="rows">
+      <div class="opt" data-id=""><span class="nm">Ninguém</span>${it.membro_id ? '' : '<span class="ok">✓</span>'}</div>
+      ${S.membros.filter(m => m.email || m.id === it.membro_id).map(m => `<div class="opt" data-id="${esc(m.id)}">${avatar(m)}<span class="nm">${esc(m.nome)}</span>${it.membro_id === m.id ? '<span class="ok">✓</span>' : ''}</div>`).join('')}</div>`,
+    el => el.addEventListener('click', async ev => {
+      const o = ev.target.closest('.opt'); if (!o) return;
+      fecharPop();
+      await tentar(() => KB_FONTE.atualizarItem(itemId, { membro_id: o.dataset.id || null }), false);
+      await recarregarTudo();
+    }));
+}
+let editandoEtq = null;   // null = lista; {} = nova; {id,...} = editar
+function popEtiquetas(anc) {
+  editandoEtq = null;
+  abrirPop(anc, 'Etiquetas', () => {
+    if (editandoEtq) {
+      const e = editandoEtq;
+      return `<label class="lbl" for="inEtqNome">Nome</label><input type="text" id="inEtqNome" value="${esc(e.nome || '')}">
+        <label class="lbl">Cor</label><div class="cores">${KB.CORES.map(k => `<button type="button" data-cor="${k}" class="${(e.cor || 'green') === k ? 'on' : ''}" style="background:${KB.corEtiqueta(k)}" aria-label="${k}"></button>`).join('')}</div>
+        <div class="fim"><button class="btn-acao btn-mini" data-e="salvar" type="button">${e.id ? 'Salvar' : 'Criar'}</button>
+          <button class="btn btn-mini" data-e="voltar" type="button">Voltar</button>
+          ${e.id ? '<span class="spacer" style="flex:1"></span><button class="btn-perigo btn-mini" data-e="excluir" type="button">Excluir</button>' : ''}</div>`;
+    }
+    const c = S.aberto.card;
+    return `<div class="rows">${S.etiquetas.map(e => `<div class="opt" data-id="${esc(e.id)}"><span style="flex:1;display:flex">${chipEtq(e, true)}</span>
+        ${c.etiquetas.includes(e.id) ? '<span class="ok">✓</span>' : ''}
+        <button class="ico-btn" data-editar="${esc(e.id)}" type="button" aria-label="Editar etiqueta">${svg('lapis', 13)}</button></div>`).join('')}</div>
+      <div class="fim"><button class="btn btn-mini" data-e="nova" type="button">Criar uma etiqueta</button></div>`;
+  }, (el, redesenhar) => el.addEventListener('click', async ev => {
+    const cor = ev.target.closest('[data-cor]');
+    if (cor) { editandoEtq.nome = $('#inEtqNome').value; editandoEtq.cor = cor.dataset.cor; return redesenhar(); }
+    const ed = ev.target.closest('[data-editar]');
+    if (ed) { editandoEtq = Object.assign({}, IX.etq.get(ed.dataset.editar)); return redesenhar(); }
+    const b = ev.target.closest('[data-e]');
+    if (b) {
+      if (b.dataset.e === 'nova') { editandoEtq = { nome: '', cor: 'green' }; return redesenhar(); }
+      if (b.dataset.e === 'voltar') { editandoEtq = null; return redesenhar(); }
+      if (b.dataset.e === 'salvar') {
+        const e = editandoEtq;
+        await tentar(() => KB_FONTE.salvarEtiqueta(e.id, $('#inEtqNome').value.trim(), e.cor || 'green'), false);
+        editandoEtq = null; await recarregarTudo(); return redesenhar();
+      }
+      if (b.dataset.e === 'excluir') {
+        const n = S.cards.filter(x => x.etiquetas.includes(editandoEtq.id)).length;
+        if (!confirm(`Excluir a etiqueta "${editandoEtq.nome}"? Ela sai de todos os cards${n ? ` (${n} no board aberto)` : ''}, inclusive os arquivados.`)) return;
+        await tentar(() => KB_FONTE.excluirEtiqueta(editandoEtq.id), false);
+        editandoEtq = null; await recarregarTudo(); return redesenhar();
+      }
+      return;
+    }
+    const o = ev.target.closest('.opt'); if (!o) return;
+    const c = S.aberto.card, liga = !c.etiquetas.includes(o.dataset.id);
+    c.etiquetas = liga ? c.etiquetas.concat(o.dataset.id) : c.etiquetas.filter(x => x !== o.dataset.id);
+    redesenhar();
+    await tentar(() => KB_FONTE.alternarEtiqueta(c.id, o.dataset.id, liga), false);
+    await recarregarTudo();
+  }));
+}
+function paraLocal(iso) {
+  if (!iso) return '';
+  const d = new Date(iso), z = n => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${z(d.getMonth() + 1)}-${z(d.getDate())}T${z(d.getHours())}:${z(d.getMinutes())}`;
+}
+function popPrazo(anc) {
+  const c = S.aberto.card;
+  abrirPop(anc, 'Prazo', () => `<label class="lbl" for="inPrazo">Data e hora</label>
+      <input type="datetime-local" id="inPrazo" value="${esc(paraLocal(c.prazo))}">
+      <label class="chk"><input type="checkbox" id="inPrazoOk" ${c.prazo_concluido ? 'checked' : ''}> Concluído</label>
+      <div class="fim"><button class="btn-acao btn-mini" data-p="salvar" type="button">Salvar</button>
+      ${c.prazo ? '<button class="btn btn-mini" data-p="remover" type="button">Remover</button>' : ''}</div>`,
+    el => el.addEventListener('click', ev => {
+      const b = ev.target.closest('[data-p]'); if (!b) return;
+      if (b.dataset.p === 'remover') { fecharPop(); return mudarCard({ prazo: null, prazo_concluido: false }); }
+      const v = $('#inPrazo').value;
+      if (!v) { $('#inPrazo').focus(); return; }
+      fecharPop();
+      mudarCard({ prazo: new Date(v).toISOString(), prazo_concluido: $('#inPrazoOk').checked });
+    }));
+}
+function popChecklist(anc) {
+  abrirPop(anc, 'Adicionar checklist', () => `<label class="lbl" for="inNovoCkl">Título</label>
+      <input type="text" id="inNovoCkl" value="Checklist">
+      <div class="fim"><button class="btn-acao btn-mini" data-k="criar" type="button">Adicionar</button></div>`,
+    el => {
+      const criar = async () => {
+        const v = $('#inNovoCkl').value.trim() || 'Checklist';
+        const ult = S.aberto.checklists.slice(-1)[0];
+        fecharPop();
+        await tentar(() => KB_FONTE.criarChecklist(S.aberto.card.id, v, ult ? ult.pos + KB.PASSO : KB.PASSO), false);
+        await recarregarTudo();
+        const novo = S.aberto && S.aberto.checklists.slice(-1)[0];
+        if (novo) { addItemEm = novo.id; renderCard(); }
+      };
+      el.addEventListener('click', ev => { if (ev.target.closest('[data-k]')) criar(); });
+      el.addEventListener('keydown', ev => { if (ev.key === 'Enter') { ev.preventDefault(); criar(); } });
+      const i = $('#inNovoCkl'); i.select();
+    });
+}
+function popAnexo(anc) {
+  abrirPop(anc, 'Anexar', () => `<label class="lbl" for="inArq">Arquivo do computador</label>
+      <input type="file" id="inArq" multiple style="width:100%">
+      <label class="lbl" for="inLink">Ou um link</label>
+      <input type="url" id="inLink" placeholder="https://…">
+      <input type="text" id="inLinkNome" placeholder="Nome do link (opcional)" style="margin-top:6px">
+      <div class="fim"><button class="btn-acao btn-mini" data-n="ok" type="button">Anexar</button><span class="sync" id="anexando"></span></div>`,
+    el => el.addEventListener('click', async ev => {
+      if (!ev.target.closest('[data-n]')) return;
+      const arqs = Array.from($('#inArq').files || []);
+      const url = $('#inLink').value.trim();
+      if (!arqs.length && !url) return;
+      if (url && !/^https?:\/\//i.test(url)) { toast('O link precisa começar com http:// ou https://', true); return; }
+      const c = S.aberto.card;
+      let pos = (S.aberto.anexos.slice(-1)[0] || { pos: 0 }).pos;
+      const st = $('#anexando');
+      ev.target.closest('[data-n]').disabled = true;
+      for (let i = 0; i < arqs.length; i++) {
+        if (st) st.textContent = `enviando ${i + 1}/${arqs.length}…`;
+        pos += KB.PASSO;
+        const p = pos;
+        await tentar(() => KB_FONTE.anexar(c.id, arqs[i], p), false);
+      }
+      if (url) { pos += KB.PASSO; const p = pos; await tentar(() => KB_FONTE.anexarLink(c.id, url, $('#inLinkNome').value.trim(), p), false); }
+      fecharPop();
+      await recarregarTudo();
+    }));
+}
+function opcoesListas(sel) {
+  return listasAbertas().map(l => `<option value="${esc(l.id)}"${l.id === sel ? ' selected' : ''}>${esc(l.nome)}</option>`).join('');
+}
+function popMover(anc) {
+  const c = S.aberto.card;
+  const atual = listasAbertas().some(l => l.id === c.lista_id) ? c.lista_id : (listasAbertas().slice(-1)[0] || {}).id;
+  abrirPop(anc, 'Mover card', () => `<label class="lbl" for="inMvLista">Lista</label>
+      <select id="inMvLista">${opcoesListas(atual)}</select>
+      <label class="lbl" for="inMvPos">Posição</label>
+      <select id="inMvPos"><option value="topo">No topo</option><option value="fim" selected>No fim</option></select>
+      <div class="fim"><button class="btn-acao btn-mini" data-m="ok" type="button">Mover</button></div>`,
+    el => el.addEventListener('click', ev => {
+      if (!ev.target.closest('[data-m]')) return;
+      const destino = $('#inMvLista').value, topo = $('#inMvPos').value === 'topo';
+      const outros = cardsDaLista(destino).filter(x => x.id !== c.id);
+      const pos = topo ? (outros[0] ? outros[0].pos / 2 : KB.PASSO) : (outros.length ? outros[outros.length - 1].pos + KB.PASSO : KB.PASSO);
+      fecharPop();
+      const lista = IX.lista.get(c.lista_id);
+      const campos = { lista_id: destino, pos };
+      if (c.arquivado || (lista && lista.arquivada)) campos.arquivado = false;   // mover = trazer de volta
+      mudarCard(campos, 'Card movido.');
+    }));
+}
+function popCopiar(anc) {
+  const c = S.aberto.card;
+  const atual = listasAbertas().some(l => l.id === c.lista_id) ? c.lista_id : (listasAbertas()[0] || {}).id;
+  abrirPop(anc, 'Copiar card', () => `<label class="lbl" for="inCpNome">Título</label>
+      <textarea id="inCpNome" rows="2">${esc(c.nome)}</textarea>
+      <label class="lbl">Manter</label>
+      <label class="chk"><input type="checkbox" id="cpCkl" checked> Checklists</label>
+      <label class="chk"><input type="checkbox" id="cpEtq" checked> Etiquetas</label>
+      <label class="chk"><input type="checkbox" id="cpMbr" checked> Membros</label>
+      <label class="lbl" for="inCpLista">Copiar para</label>
+      <select id="inCpLista">${opcoesListas(atual)}</select>
+      <label class="lbl" for="inCpPos">Posição</label>
+      <select id="inCpPos"><option value="topo" selected>No topo</option><option value="fim">No fim</option></select>
+      <div class="fim"><button class="btn-acao btn-mini" data-c="ok" type="button">Criar cópia</button></div>`,
+    el => el.addEventListener('click', async ev => {
+      if (!ev.target.closest('[data-c]')) return;
+      const nome = $('#inCpNome').value.trim() || c.nome;
+      const destino = $('#inCpLista').value, topo = $('#inCpPos').value === 'topo';
+      const outros = cardsDaLista(destino);
+      const pos = topo ? (outros[0] ? outros[0].pos / 2 : KB.PASSO) : (outros.length ? outros[outros.length - 1].pos + KB.PASSO : KB.PASSO);
+      const manter = { checklists: $('#cpCkl').checked, etiquetas: $('#cpEtq').checked, membros: $('#cpMbr').checked };
+      fecharPop();
+      const novo = await tentar(() => KB_FONTE.copiarCard(c.id, nome, destino, pos, manter));
+      if (novo) { toast('Cópia criada.'); abrirCard(novo); }
+    }));
+}
+
+/* ============================================================
+   GAVETA: arquivados e atividade do board
+   ============================================================ */
+let gaveta = null;     // { tipo:'arq'|'atv', ... }
+function fecharGaveta() { gaveta = null; $('#gaveta').innerHTML = ''; }
+function desenharGaveta(titulo, corpo) {
+  $('#gaveta').innerHTML = `<aside class="gaveta" role="dialog" aria-label="${esc(titulo)}">
+    <div class="gaveta-head"><h3>${esc(titulo)}</h3><button class="ico-btn" id="btFecharGav" type="button" aria-label="Fechar">${svg('x', 16)}</button></div>
+    <div class="gaveta-corpo">${corpo}</div></aside>`;
+  $('#btFecharGav').onclick = fecharGaveta;
+}
+
+async function abrirArquivados() {
+  gaveta = { tipo: 'arq', aba: 'cards', busca: '', itens: null };
+  desenharArquivados();
+  await atualizarArquivados();
+}
+// relê mantendo aba e busca: restaurar ou arquivar um card muda a lista da gaveta
+async function atualizarArquivados() {
+  if (!gaveta || gaveta.tipo !== 'arq') return;
+  try {
+    gaveta.itens = await KB_FONTE.arquivados(S.listas.filter(l => l.arquivada).map(l => l.id));
+    desenharArquivados();
+  } catch (e) { toast(e.message, true); }
+}
+function desenharArquivados() {
+  if (!gaveta || gaveta.tipo !== 'arq') return;
+  const g = gaveta;
+  const busca = KB.normal(g.busca);
+  let corpo = `<div class="abas"><button class="btn btn-mini${g.aba === 'cards' ? ' on' : ''}" data-aba="cards" type="button">Cards</button>
+    <button class="btn btn-mini${g.aba === 'listas' ? ' on' : ''}" data-aba="listas" type="button">Listas</button></div>`;
+  if (g.aba === 'listas') {
+    const ls = S.listas.filter(l => l.arquivada);
+    corpo += ls.length ? ls.map(l => `<div class="arq"><div class="info"><div class="nome">${esc(l.nome)}</div>
+        <div class="sub">${(g.itens || []).filter(c => c.lista_id === l.id).length} cards</div></div>
+        <div class="acoes"><button class="btn btn-mini" data-rl="${esc(l.id)}" type="button">Restaurar</button></div></div>`).join('')
+      : '<div class="empty" style="padding:30px 0">Nenhuma lista arquivada.</div>';
+  } else {
+    corpo += `<input class="busca" id="inBuscaArq" type="search" placeholder="Buscar nos arquivados" value="${esc(g.busca)}" style="width:100%;margin-bottom:10px">`;
+    if (!g.itens) corpo += '<div class="sync">Carregando…</div>';
+    else {
+      const vis = g.itens.filter(c => !busca || KB.normal(c.nome).includes(busca));
+      corpo += `<div class="sync" style="margin-bottom:8px">${vis.length} de ${g.itens.length}</div>`
+        + vis.slice(0, 300).map(c => {
+          const l = IX.lista.get(c.lista_id);
+          return `<div class="arq"><div class="info"><div class="nome" data-abrir="${esc(c.id)}">${esc(c.nome)}</div>
+            <div class="sub">${esc(l ? l.nome : '?')}${l && l.arquivada ? ' (lista arquivada)' : ''}${c.arquivado_em ? ' · arquivado em ' + esc(KB.dataCurta(c.arquivado_em)) : ''}</div></div>
+            <div class="acoes"><button class="btn btn-mini" data-abrir="${esc(c.id)}" type="button">Abrir</button></div></div>`;
+        }).join('')
+        + (vis.length > 300 ? '<div class="sync">Mostrando os 300 mais recentes. Use a busca para achar os outros.</div>' : '');
+    }
+  }
+  const foco = document.activeElement && document.activeElement.id === 'inBuscaArq';
+  const pos = foco ? document.activeElement.selectionStart : null;
+  desenharGaveta('Arquivados', corpo);
+  if (foco) { const i = $('#inBuscaArq'); i.focus(); i.setSelectionRange(pos, pos); }
+}
+$('#gaveta').addEventListener('input', ev => {
+  if (ev.target.id === 'inBuscaArq' && gaveta) { gaveta.busca = ev.target.value; desenharArquivados(); }
+});
+$('#gaveta').addEventListener('click', async ev => {
+  const ab = ev.target.closest('[data-aba]');
+  if (ab) { gaveta.aba = ab.dataset.aba; return desenharArquivados(); }
+  const o = ev.target.closest('[data-abrir]');
+  if (o) return abrirCard(o.dataset.abrir);
+  const rl = ev.target.closest('[data-rl]');
+  if (rl) return tentar(() => KB_FONTE.atualizarLista(rl.dataset.rl, { arquivada: false }));
+  const mais = ev.target.closest('#btMaisAtv');
+  if (mais) return carregarAtividade();
+});
+
+async function abrirAtividade() {
+  gaveta = { tipo: 'atv', itens: [], fim: false, carregando: false };
+  desenharAtividade();
+  await carregarAtividade();
+}
+async function carregarAtividade() {
+  const g = gaveta;
+  if (!g || g.tipo !== 'atv' || g.carregando || g.fim) return;
+  g.carregando = true; desenharAtividade();
+  try {
+    const antes = g.itens.length ? g.itens[g.itens.length - 1].criado_em : null;
+    const lote = await KB_FONTE.atividadeBoard(antes, 60);
+    g.itens = g.itens.concat(lote);
+    g.fim = lote.length < 60;
+  } catch (e) { toast(e.message, true); g.fim = true; }
+  g.carregando = false;
+  desenharAtividade();
+}
+function desenharAtividade() {
+  const g = gaveta;
+  if (!g || g.tipo !== 'atv') return;
+  const corpo = g.itens.map(x => `<div class="evento ativ">${avatarNome(x.autor_nome)}<div class="corpo">
+      <div class="quem"><b>${esc(x.autor_nome || '?')}</b> ${KB.frase(x, true)}</div>
+      <div class="quando">${esc(KB.dataHora(x.criado_em))}${x.card_id ? ` · <button class="lnk" data-abrir="${esc(x.card_id)}" type="button">abrir card</button>` : ''}</div></div></div>`).join('')
+    + (g.carregando ? '<div class="sync">Carregando…</div>'
+      : g.fim ? '' : '<button class="btn btn-mini" id="btMaisAtv" type="button" style="margin-top:8px">Carregar mais</button>');
+  const rol = $('.gaveta-corpo') ? $('.gaveta-corpo').scrollTop : 0;
+  desenharGaveta('Atividade', corpo || '<div class="sync">Carregando…</div>');
+  $('.gaveta-corpo').scrollTop = rol;
+}
+
+/* ============================================================
+   CARGA E TEMPO REAL
+   ============================================================ */
+async function recarregar() {
+  try {
+    const b = await KB_FONTE.carregarBoard();
+    Object.assign(S, b);
+    S.carregou = true; S.erro = null;
+    indexar();
+    renderBoard();
+    if (gaveta && gaveta.tipo === 'arq') atualizarArquivados();
+    const s = $('#sync'); if (s) { s.textContent = ''; s.classList.remove('erro'); }
+  } catch (e) {
+    if (!S.carregou) { S.erro = e.message; renderBoard(); }
+    else { const s = $('#sync'); if (s) { s.textContent = 'sem conexão — ' + e.message; s.classList.add('erro'); } }
+  }
+}
+
+/* Mudança de outra pessoa: espera a rajada passar e recarrega. Se houver edição aberta
+   no card, não pisa no que está sendo digitado — recarrega quando a edição terminar. */
+let tMudanca = null;
+function aoMudar() {
+  clearTimeout(tMudanca);
+  tMudanca = setTimeout(async () => {
+    if (arrastado) return aoMudar();
+    await recarregar();
+    if (S.aberto) { if (emEdicao()) pendente = true; else await recarregarCard(); }
+  }, 400);
+}
+
+async function iniciar() {
+  renderBarra();
+  try {
+    const s = await KB_FONTE.sessao();
+    S.eu.email = (s && s.email) || (window.HUB && window.HUB.email) || null;
+    try { S.eu.membroId = await KB_FONTE.entrar(); }
+    catch (e) {
+      if (/sem acesso/i.test(e.message)) { S.erro = 'Sem acesso ao Kanban.'; renderBoard(); return; }
+      console.warn('[kanban] entrar:', e.message);
+    }
+    renderBarra();
+    await recarregar();
+    if (!S.listas.length && !S.erro) {
+      $('#board').innerHTML = `<div class="empty"><div><div class="big">▦</div><div>O board ainda não tem listas.</div></div></div>
+        <div class="nova-lista"><input id="inNovaLista" placeholder="+ Adicionar lista" aria-label="Nome da nova lista"></div>`;
+    }
+    KB_FONTE.assinar(aoMudar);
+  } catch (e) {
+    S.erro = e.message; renderBoard();
+  }
+}
+
+// para o teste
+window.KB_TELA = { estado: () => S, recarregar, abrirCard, moverCard };
+iniciar();
+</script>
+</body>
+</html>

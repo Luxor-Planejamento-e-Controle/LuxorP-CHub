@@ -28,6 +28,8 @@ const HUB_DATASETS = {
   saldo_bancario: null, controle_pagamentos: null,
   // idem: relê o snapshot depois do "Atualizar agora" e o status do card do Trello
   tarituba: null,
+  // tabelas kanban_* (ver sql/hub_schema.sql, seção 8), lidas e gravadas pelo iframe
+  kanban: null,
 };
 
 /* Erro devolvido pelo GoTrue vem na URL (hash no fluxo implícito, query no PKCE)

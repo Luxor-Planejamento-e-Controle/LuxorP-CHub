@@ -67,7 +67,9 @@ const ICON = {
         + 'M14.6 9.6h-3.4a2 2 0 000 4h1.6a2 2 0 010 4H9.2',
   // Tarituba é um imóvel: prédio, e não `fluxo` — esse já é o Fluxo de Caixa do grupo,
   // e dois ícones iguais no menu é o problema que o comentário acima já resolveu uma vez.
-  imovel:'M4 21V5l8-3v19M12 21V9l8 3v9M2 21h20M7 8h2M7 12h2M7 16h2M15 14h2M15 18h2'
+  imovel:'M4 21V5l8-3v19M12 21V9l8 3v9M2 21h20M7 8h2M7 12h2M7 16h2M15 14h2M15 18h2',
+  // três colunas de cards de alturas diferentes: o board, e não o checklist de `proj`
+  kanban:'M4 4h4.5v16H4zM9.75 4h4.5v10h-4.5zM15.5 4H20v13h-4.5z'
 };
 const ROUTES = [
   {id:'', title:'Início', sub:'Hub de Planejamento & Controle', icon:'home', render:renderHome},
@@ -80,6 +82,7 @@ const ROUTES = [
   {id:'saldo_bancario', title:'Saldo Bancário', sub:'Projeção de caixa da semana — Grupo Luxor', icon:'moeda', render:renderSaldoBancario},
   {id:'controle_pagamentos', title:'Controle de Pagamentos', sub:'Fornecedores fixos do mês e o que já foi pago', icon:'pagamentos', render:renderControlePagamentos},
   {id:'tarituba', title:'Fluxo de Caixa — Tarituba', sub:'Orçado × realizado do imóvel, mês a mês', icon:'imovel', render:renderTarituba},
+  {id:'kanban', title:'Kanban Planejamento e Controle', sub:'Tarefas do time: a fazer, em andamento, bloqueadas e feitas', icon:'kanban', render:renderKanban},
 ];
 // Rotas que o usuário logado pode abrir (Início sempre). Fora da allowlist a
 // aba nem aparece — e o dado dela nem foi baixado (ver assets/auth.js).
@@ -95,6 +98,7 @@ function temDado(id, hub){
   if(id==='saldo_bancario') return true;          // lê o bucket e app_state por conta própria
   if(id==='controle_pagamentos') return true;     // idem
   if(id==='tarituba') return true;                // idem
+  if(id==='kanban') return true;                  // tabelas kanban_* direto do Postgres
   return true;                                    // Projetos lê direto do Postgres
 }
 function allowed(){
@@ -932,6 +936,15 @@ function renderControlePagamentos(el){
 function renderTarituba(el){
   el.classList.add('flush');
   el.innerHTML=`<iframe class="embed" src="assets/tarituba/index.html" title="Fluxo de Caixa — Tarituba"></iframe>`;
+}
+
+/* ---- Kanban Planejamento e Controle (mesmo padrão) ----
+   O board que vivia no Trello. Lê e grava as tabelas kanban_* e o bucket `kanban`
+   (sql/hub_schema.sql, seção 8) com a sessão do hub — por isso iframe com src local,
+   e não srcdoc com HTML do bucket. */
+function renderKanban(el){
+  el.classList.add('flush');
+  el.innerHTML=`<iframe class="embed" src="assets/kanban/index.html" title="Kanban Planejamento e Controle"></iframe>`;
 }
 
 /* ---- sidebar: desktop colapsa pra ícone, mobile vira drawer ----
