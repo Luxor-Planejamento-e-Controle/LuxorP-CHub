@@ -37,7 +37,7 @@ create table if not exists user_dashboard_access (
   email      text not null references allowed_users(email) on update cascade on delete cascade,
   dashboard  text not null check (dashboard in
                ('indicadores','dre','inadimplencia','vendas','projetos','fluxo','participacoes','plantel',
-                'saldo_bancario','controle_pagamentos','tarituba')),
+                'saldo_bancario','controle_pagamentos','tarituba','kanban')),
   granted_at timestamptz not null default now(),
   primary key (email, dashboard)
 );
@@ -54,7 +54,7 @@ alter table user_dashboard_access drop constraint if exists user_dashboard_acces
 alter table user_dashboard_access add constraint user_dashboard_access_dashboard_check
   check (dashboard in
           ('indicadores','dre','inadimplencia','vendas','projetos','fluxo','participacoes','plantel',
-           'saldo_bancario','controle_pagamentos','tarituba'));
+           'saldo_bancario','controle_pagamentos','tarituba','kanban'));
 
 -- ---------------------------------------------------------------------
 -- 3) Helpers. SECURITY DEFINER para as policies não recursarem na própria
@@ -160,6 +160,10 @@ create policy hub_data_read on storage.objects
 --    O que NÃO entra aqui: o snapshot que os ETLs publicam, que vive no bucket
 --    `hub-data` (seção 5), liberado por hub_can(split_part(name,'.',1)) — ou
 --    seja, o nome do arquivo no bucket TEM de ser o id do painel.
+--
+--    Nem o Kanban (seção 8): são milhares de cards, itens e comentários editados
+--    por várias pessoas ao mesmo tempo. Num documento só, cada card arrastado
+--    regravaria o board inteiro e a guarda de concorrência recusaria quase tudo.
 -- ---------------------------------------------------------------------
 create table if not exists app_state (
   id          text primary key,
@@ -287,3 +291,646 @@ create policy al_insert_self on access_log
 drop policy if exists al_admin_read on access_log;
 create policy al_admin_read on access_log
   for select to authenticated using ( public.hub_is_admin() );
+
+
+-- ---------------------------------------------------------------------
+-- 8) Kanban Planejamento e Controle — o board que vivia no Trello
+--    ("Kanban Planejamento, Controle e Concierge"), trazido para o hub em
+--    11/2026 por tools/import_trello_kanban.py, com o arquivado junto.
+--
+--    Tabelas próprias, e não um documento em app_state (ver seção 6).
+--
+--    Acesso: tudo passa por hub_can('kanban'). Quem vê a aba mexe no board,
+--    como no Trello, onde todo mundo era membro "normal". Exceções:
+--      - comentário: só o autor edita ou apaga (admin também);
+--      - histórico (kanban_atividade): só leitura. Quem escreve são os
+--        gatilhos abaixo, com o e-mail do JWT.
+--    Autor de card, comentário e anexo também sai do JWT, num gatilho, e não
+--    do que o navegador manda: a anon key é pública e a API aceitaria qualquer
+--    nome no corpo do insert.
+--
+--    `trello_id` = id do objeto no Trello. Só as linhas importadas têm, e é a
+--    chave do upsert da importação (rodar de novo não duplica). Linha criada
+--    no hub nasce com trello_id nulo, e o gatilho não deixa a tela mudá-lo.
+--
+--    A importação roda com a service_role, que não tem e-mail no JWT: os
+--    gatilhos reconhecem isso (hub_email() nulo) e não carimbam autor nem
+--    histórico por cima do que veio do Trello.
+-- ---------------------------------------------------------------------
+create table if not exists kanban_membros (
+  id         uuid primary key default gen_random_uuid(),
+  trello_id  text unique,
+  nome       text not null,
+  usuario    text,          -- @ no Trello: as menções antigas (@fulano123) se resolvem por aqui
+  email      text unique,   -- login do hub; nulo = só existe no histórico (sem conta no hub)
+  criado_em  timestamptz not null default now()
+);
+
+drop trigger if exists kanban_membros_lower on kanban_membros;
+create trigger kanban_membros_lower before insert or update on kanban_membros
+  for each row execute function public.lower_email();
+
+create table if not exists kanban_listas (
+  id         uuid primary key default gen_random_uuid(),
+  trello_id  text unique,
+  nome       text not null check (btrim(nome) <> ''),
+  pos        double precision not null default 65536,
+  arquivada  boolean not null default false,
+  criado_em  timestamptz not null default now()
+);
+
+-- No Trello as etiquetas são PESSOAS (Aline, Caroline, Mauricio...). Nome pode
+-- ficar vazio, como lá: aí vale só a cor.
+create table if not exists kanban_etiquetas (
+  id         uuid primary key default gen_random_uuid(),
+  trello_id  text unique,
+  nome       text not null default '',
+  cor        text,
+  criado_em  timestamptz not null default now()
+);
+
+-- `pos` segue o Trello: número real, menor = mais em cima, e o card arrastado
+-- recebe o ponto médio entre os vizinhos. Mover um card grava UMA linha.
+create table if not exists kanban_cards (
+  id                uuid primary key default gen_random_uuid(),
+  trello_id         text unique,
+  lista_id          uuid not null references kanban_listas(id) on delete restrict,
+  nome              text not null check (btrim(nome) <> ''),
+  descricao         text not null default '',
+  pos               double precision not null default 65536,
+  arquivado         boolean not null default false,
+  arquivado_em      timestamptz,
+  prazo             timestamptz,
+  prazo_concluido   boolean not null default false,
+  modelo            boolean not null default false,   -- "card modelo" do Trello
+  criado_por        text,
+  criado_por_email  text,
+  criado_em         timestamptz not null default now(),
+  atualizado_em     timestamptz not null default now(),
+  trello_url        text
+);
+create index if not exists kanban_cards_lista on kanban_cards (lista_id, arquivado, pos);
+
+create table if not exists kanban_card_etiquetas (
+  card_id      uuid not null references kanban_cards(id) on delete cascade,
+  etiqueta_id  uuid not null references kanban_etiquetas(id) on delete cascade,
+  primary key (card_id, etiqueta_id)
+);
+create index if not exists kanban_card_etiquetas_etq on kanban_card_etiquetas (etiqueta_id);
+
+create table if not exists kanban_card_membros (
+  card_id    uuid not null references kanban_cards(id) on delete cascade,
+  membro_id  uuid not null references kanban_membros(id) on delete cascade,
+  primary key (card_id, membro_id)
+);
+create index if not exists kanban_card_membros_mbr on kanban_card_membros (membro_id);
+
+create table if not exists kanban_checklists (
+  id         uuid primary key default gen_random_uuid(),
+  trello_id  text unique,
+  card_id    uuid not null references kanban_cards(id) on delete cascade,
+  nome       text not null default 'Checklist',
+  pos        double precision not null default 65536
+);
+create index if not exists kanban_checklists_card on kanban_checklists (card_id);
+
+create table if not exists kanban_checkitens (
+  id            uuid primary key default gen_random_uuid(),
+  trello_id     text unique,
+  checklist_id  uuid not null references kanban_checklists(id) on delete cascade,
+  nome          text not null,
+  pos           double precision not null default 65536,
+  concluido     boolean not null default false,
+  membro_id     uuid references kanban_membros(id) on delete set null,
+  prazo         timestamptz
+);
+create index if not exists kanban_checkitens_cl on kanban_checkitens (checklist_id);
+
+create table if not exists kanban_comentarios (
+  id           uuid primary key default gen_random_uuid(),
+  trello_id    text unique,
+  card_id      uuid not null references kanban_cards(id) on delete cascade,
+  autor_nome   text,
+  autor_email  text,
+  texto        text not null check (btrim(texto) <> ''),
+  criado_em    timestamptz not null default now(),
+  editado_em   timestamptz
+);
+create index if not exists kanban_comentarios_card on kanban_comentarios (card_id, criado_em desc);
+
+-- `caminho` = arquivo no bucket `kanban`; `url` = link (o Trello deixa anexar
+-- link, e o board tem dois). Um dos dois sempre existe.
+create table if not exists kanban_anexos (
+  id           uuid primary key default gen_random_uuid(),
+  trello_id    text unique,
+  card_id      uuid not null references kanban_cards(id) on delete cascade,
+  nome         text not null,
+  caminho      text,
+  url          text,
+  mime         text,
+  bytes        bigint,
+  autor_nome   text,
+  autor_email  text,
+  criado_em    timestamptz not null default now(),
+  pos          double precision not null default 65536,
+  check (caminho is not null or url is not null)
+);
+create index if not exists kanban_anexos_card on kanban_anexos (card_id);
+
+-- Histórico. `tipo` + `dados` (o que precisa para escrever a frase: listas de
+-- origem e destino, nome do item, do anexo...). Do Trello vêm todos os eventos
+-- menos os comentários, que já estão em kanban_comentarios. card_id nulo =
+-- evento do board (lista criada, card excluído).
+create table if not exists kanban_atividade (
+  id           uuid primary key default gen_random_uuid(),
+  trello_id    text unique,
+  card_id      uuid references kanban_cards(id) on delete cascade,
+  tipo         text not null,
+  dados        jsonb not null default '{}'::jsonb,
+  autor_nome   text,
+  autor_email  text,
+  criado_em    timestamptz not null default now()
+);
+create index if not exists kanban_atividade_card on kanban_atividade (card_id, criado_em desc);
+create index if not exists kanban_atividade_data on kanban_atividade (criado_em desc);
+
+-- ---- quem está mexendo ----
+create or replace function public.kanban_autor_nome() returns text
+language sql stable security definer set search_path = public as $$
+  select coalesce(
+    (select nome from kanban_membros where email = public.hub_email()),
+    nullif(btrim((select nome from allowed_users where email = public.hub_email())), ''),
+    split_part(public.hub_email(), '@', 1))
+$$;
+
+-- Garante a linha de membro de quem abriu o board (para poder ser incluído em
+-- card). A importação já cria a de todo mundo que estava no Trello; esta cobre
+-- quem ganhar a aba depois.
+create or replace function public.kanban_entrar() returns uuid
+language plpgsql security definer set search_path = public as $$
+declare
+  e text := public.hub_email();
+  v uuid;
+begin
+  if e is null or not public.hub_can('kanban') then
+    raise exception 'sem acesso ao kanban' using errcode = '42501';
+  end if;
+  select id into v from kanban_membros where email = e;
+  if v is null then
+    insert into kanban_membros (nome, email) values (public.kanban_autor_nome(), e)
+    on conflict (email) do update set email = excluded.email
+    returning id into v;
+  end if;
+  return v;
+end $$;
+
+-- ---- histórico gravado pelo banco ----
+-- `kanban.copia` fica ligado enquanto kanban_copiar_card() roda: a cópia vira UM
+-- evento ("copiou de ..."), e não um por etiqueta, membro e checklist copiados.
+create or replace function public.kanban_log(p_card uuid, p_tipo text, p_dados jsonb)
+returns void language plpgsql security definer set search_path = public as $$
+begin
+  if public.hub_email() is null then return; end if;   -- service_role: o histórico veio do Trello
+  -- card saindo junto (exclusão em cascata): o evento que vale é o "excluiu"
+  if p_card is not null and not exists (select 1 from kanban_cards where id = p_card) then
+    return;
+  end if;
+  insert into kanban_atividade (card_id, tipo, dados, autor_nome, autor_email)
+  values (p_card, p_tipo, coalesce(p_dados, '{}'::jsonb), public.kanban_autor_nome(), public.hub_email());
+end $$;
+
+create or replace function public.kanban_copiando() returns boolean
+language sql stable as $$ select coalesce(current_setting('kanban.copia', true), '') <> '' $$;
+
+create or replace function public.kanban_nome_lista(p uuid) returns text
+language sql stable security definer set search_path = public as $$
+  select nome from kanban_listas where id = p
+$$;
+
+create or replace function public.kanban_cards_antes() returns trigger
+language plpgsql security definer set search_path = public as $$
+declare e text := public.hub_email();
+begin
+  if e is null then
+    -- importação: valores vêm do Trello como estão
+    if new.arquivado and new.arquivado_em is null then new.arquivado_em := now(); end if;
+    return new;
+  end if;
+  if tg_op = 'INSERT' then
+    new.trello_id := null; new.trello_url := null;
+    new.criado_por_email := e; new.criado_por := public.kanban_autor_nome();
+    new.criado_em := now(); new.atualizado_em := now();
+    new.arquivado_em := case when new.arquivado then now() end;
+  else
+    new.trello_id := old.trello_id; new.trello_url := old.trello_url;
+    new.criado_por := old.criado_por; new.criado_por_email := old.criado_por_email;
+    new.criado_em := old.criado_em; new.atualizado_em := now();
+    if new.arquivado is distinct from old.arquivado then
+      new.arquivado_em := case when new.arquivado then now() end;
+    else
+      new.arquivado_em := old.arquivado_em;
+    end if;
+  end if;
+  return new;
+end $$;
+
+drop trigger if exists kanban_cards_antes on kanban_cards;
+create trigger kanban_cards_antes before insert or update on kanban_cards
+  for each row execute function public.kanban_cards_antes();
+
+create or replace function public.kanban_cards_depois() returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  if tg_op = 'INSERT' then
+    if public.kanban_copiando() then
+      perform public.kanban_log(new.id, 'copiou', jsonb_build_object(
+        'origem', current_setting('kanban.copia', true), 'lista', public.kanban_nome_lista(new.lista_id)));
+    else
+      perform public.kanban_log(new.id, 'criou', jsonb_build_object('lista', public.kanban_nome_lista(new.lista_id)));
+    end if;
+  elsif tg_op = 'UPDATE' then
+    if new.lista_id is distinct from old.lista_id then
+      perform public.kanban_log(new.id, 'moveu', jsonb_build_object(
+        'de', public.kanban_nome_lista(old.lista_id), 'para', public.kanban_nome_lista(new.lista_id)));
+    end if;
+    if new.arquivado is distinct from old.arquivado then
+      perform public.kanban_log(new.id, case when new.arquivado then 'arquivou' else 'restaurou' end, '{}');
+    end if;
+    if new.nome is distinct from old.nome then
+      perform public.kanban_log(new.id, 'renomeou', jsonb_build_object('de', old.nome, 'para', new.nome));
+    end if;
+    if new.descricao is distinct from old.descricao then
+      perform public.kanban_log(new.id, 'descricao', '{}');
+    end if;
+    if new.prazo is distinct from old.prazo then
+      perform public.kanban_log(new.id, 'prazo', jsonb_build_object('de', old.prazo, 'para', new.prazo));
+    end if;
+    if new.prazo_concluido is distinct from old.prazo_concluido then
+      perform public.kanban_log(new.id, 'prazo_concluido', jsonb_build_object('valor', new.prazo_concluido));
+    end if;
+  else
+    perform public.kanban_log(null, 'excluiu', jsonb_build_object(
+      'card', old.nome, 'lista', public.kanban_nome_lista(old.lista_id)));
+  end if;
+  return null;
+end $$;
+
+drop trigger if exists kanban_cards_depois on kanban_cards;
+create trigger kanban_cards_depois after insert or update or delete on kanban_cards
+  for each row execute function public.kanban_cards_depois();
+
+create or replace function public.kanban_listas_depois() returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  if tg_op = 'INSERT' then
+    perform public.kanban_log(null, 'lista_criou', jsonb_build_object('lista', new.nome));
+  else
+    if new.nome is distinct from old.nome then
+      perform public.kanban_log(null, 'lista_renomeou', jsonb_build_object('de', old.nome, 'para', new.nome));
+    end if;
+    if new.arquivada is distinct from old.arquivada then
+      perform public.kanban_log(null, case when new.arquivada then 'lista_arquivou' else 'lista_restaurou' end,
+                                jsonb_build_object('lista', new.nome));
+    end if;
+  end if;
+  return null;
+end $$;
+
+drop trigger if exists kanban_listas_depois on kanban_listas;
+create trigger kanban_listas_depois after insert or update on kanban_listas
+  for each row execute function public.kanban_listas_depois();
+
+create or replace function public.kanban_card_membros_depois() returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  if public.kanban_copiando() then return null; end if;
+  if tg_op = 'INSERT' then
+    perform public.kanban_log(new.card_id, 'membro_entrou', jsonb_build_object(
+      'membro', (select nome from kanban_membros where id = new.membro_id)));
+  else
+    perform public.kanban_log(old.card_id, 'membro_saiu', jsonb_build_object(
+      'membro', (select nome from kanban_membros where id = old.membro_id)));
+  end if;
+  return null;
+end $$;
+
+drop trigger if exists kanban_card_membros_depois on kanban_card_membros;
+create trigger kanban_card_membros_depois after insert or delete on kanban_card_membros
+  for each row execute function public.kanban_card_membros_depois();
+
+create or replace function public.kanban_card_etiquetas_depois() returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  if public.kanban_copiando() then return null; end if;
+  if tg_op = 'INSERT' then
+    perform public.kanban_log(new.card_id, 'etiqueta_pos', jsonb_build_object(
+      'etiqueta', (select nome from kanban_etiquetas where id = new.etiqueta_id)));
+  else
+    perform public.kanban_log(old.card_id, 'etiqueta_tirou', jsonb_build_object(
+      'etiqueta', (select nome from kanban_etiquetas where id = old.etiqueta_id)));
+  end if;
+  return null;
+end $$;
+
+drop trigger if exists kanban_card_etiquetas_depois on kanban_card_etiquetas;
+create trigger kanban_card_etiquetas_depois after insert or delete on kanban_card_etiquetas
+  for each row execute function public.kanban_card_etiquetas_depois();
+
+create or replace function public.kanban_checklists_depois() returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  if public.kanban_copiando() then return null; end if;
+  if tg_op = 'INSERT' then
+    perform public.kanban_log(new.card_id, 'checklist_criou', jsonb_build_object('checklist', new.nome));
+  else
+    perform public.kanban_log(old.card_id, 'checklist_excluiu', jsonb_build_object('checklist', old.nome));
+  end if;
+  return null;
+end $$;
+
+drop trigger if exists kanban_checklists_depois on kanban_checklists;
+create trigger kanban_checklists_depois after insert or delete on kanban_checklists
+  for each row execute function public.kanban_checklists_depois();
+
+create or replace function public.kanban_checkitens_depois() returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  if new.concluido is distinct from old.concluido then
+    perform public.kanban_log(
+      (select card_id from kanban_checklists where id = new.checklist_id),
+      case when new.concluido then 'item_concluido' else 'item_reaberto' end,
+      jsonb_build_object('item', new.nome));
+  end if;
+  return null;
+end $$;
+
+drop trigger if exists kanban_checkitens_depois on kanban_checkitens;
+create trigger kanban_checkitens_depois after update on kanban_checkitens
+  for each row execute function public.kanban_checkitens_depois();
+
+create or replace function public.kanban_anexos_antes() returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  if public.hub_email() is null then return new; end if;
+  if tg_op = 'INSERT' then
+    new.trello_id := null;
+    new.autor_email := public.hub_email(); new.autor_nome := public.kanban_autor_nome();
+    new.criado_em := now();
+  else
+    new.trello_id := old.trello_id; new.autor_email := old.autor_email;
+    new.autor_nome := old.autor_nome; new.criado_em := old.criado_em;
+    new.card_id := old.card_id; new.caminho := old.caminho;
+  end if;
+  return new;
+end $$;
+
+drop trigger if exists kanban_anexos_antes on kanban_anexos;
+create trigger kanban_anexos_antes before insert or update on kanban_anexos
+  for each row execute function public.kanban_anexos_antes();
+
+create or replace function public.kanban_anexos_depois() returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  if tg_op = 'INSERT' then
+    perform public.kanban_log(new.card_id, 'anexo_incluiu', jsonb_build_object('anexo', new.nome));
+  else
+    perform public.kanban_log(old.card_id, 'anexo_excluiu', jsonb_build_object('anexo', old.nome));
+  end if;
+  return null;
+end $$;
+
+drop trigger if exists kanban_anexos_depois on kanban_anexos;
+create trigger kanban_anexos_depois after insert or delete on kanban_anexos
+  for each row execute function public.kanban_anexos_depois();
+
+create or replace function public.kanban_comentarios_antes() returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  if public.hub_email() is null then return new; end if;
+  if tg_op = 'INSERT' then
+    new.trello_id := null;
+    new.autor_email := public.hub_email(); new.autor_nome := public.kanban_autor_nome();
+    new.criado_em := now(); new.editado_em := null;
+  else
+    new.trello_id := old.trello_id; new.card_id := old.card_id;
+    new.autor_email := old.autor_email; new.autor_nome := old.autor_nome;
+    new.criado_em := old.criado_em;
+    new.editado_em := case when new.texto is distinct from old.texto then now() else old.editado_em end;
+  end if;
+  return new;
+end $$;
+
+drop trigger if exists kanban_comentarios_antes on kanban_comentarios;
+create trigger kanban_comentarios_antes before insert or update on kanban_comentarios
+  for each row execute function public.kanban_comentarios_antes();
+
+-- ---- copiar card ----
+-- Como o "Copiar" do Trello com checklists, etiquetas e membros (o mesmo
+-- keepFromSource do pc_trello, que duplica os cards do fechamento todo mês).
+-- A descrição vai sempre. Os itens do checklist nascem DESMARCADOS: é o que o
+-- Trello faz — nos 3.695 itens marcados de cards copiados, o clique foi sempre
+-- depois da cópia. Uma transação só: não sobra card pela metade se algo falhar.
+-- SECURITY INVOKER: quem chama precisa poder gravar (RLS); a service_role pode.
+create or replace function public.kanban_copiar_card(
+  p_origem      uuid,
+  p_nome        text,
+  p_lista       uuid,
+  p_pos         double precision default null,
+  p_checklists  boolean default true,
+  p_etiquetas   boolean default true,
+  p_membros     boolean default true
+) returns uuid
+language plpgsql security invoker set search_path = public as $$
+declare
+  o   kanban_cards;
+  v   uuid;
+  cl  record;
+  ncl uuid;
+begin
+  select * into o from kanban_cards where id = p_origem;
+  if not found then raise exception 'card de origem não encontrado'; end if;
+
+  perform set_config('kanban.copia', o.nome, true);
+  insert into kanban_cards (lista_id, nome, descricao, pos)
+  values (p_lista,
+          coalesce(nullif(btrim(p_nome), ''), o.nome),
+          o.descricao,
+          coalesce(p_pos, (select coalesce(min(pos), 131072) / 2
+                             from kanban_cards where lista_id = p_lista and not arquivado)))
+  returning id into v;
+
+  if p_etiquetas then
+    insert into kanban_card_etiquetas (card_id, etiqueta_id)
+    select v, etiqueta_id from kanban_card_etiquetas where card_id = p_origem;
+  end if;
+  if p_membros then
+    insert into kanban_card_membros (card_id, membro_id)
+    select v, membro_id from kanban_card_membros where card_id = p_origem;
+  end if;
+  if p_checklists then
+    for cl in select * from kanban_checklists where card_id = p_origem order by pos loop
+      insert into kanban_checklists (card_id, nome, pos) values (v, cl.nome, cl.pos)
+      returning id into ncl;
+      insert into kanban_checkitens (checklist_id, nome, pos, concluido, membro_id, prazo)
+      select ncl, nome, pos, false, membro_id, prazo
+        from kanban_checkitens where checklist_id = cl.id;
+    end loop;
+  end if;
+  perform set_config('kanban.copia', '', true);
+  return v;
+end $$;
+
+revoke execute on function public.kanban_entrar() from public, anon;
+revoke execute on function public.kanban_copiar_card(uuid, text, uuid, double precision, boolean, boolean, boolean) from public, anon;
+grant  execute on function public.kanban_entrar() to authenticated;
+grant  execute on function public.kanban_copiar_card(uuid, text, uuid, double precision, boolean, boolean, boolean) to authenticated, service_role;
+
+-- ---- RLS ----
+-- `(select hub_can(...))` e não `hub_can(...)` direto: assim o Postgres avalia
+-- uma vez por consulta, e não uma por linha — o arquivado tem mil e tantos cards
+-- e o histórico, dezenas de milhares de linhas.
+alter table kanban_membros         enable row level security;
+alter table kanban_listas          enable row level security;
+alter table kanban_etiquetas       enable row level security;
+alter table kanban_cards           enable row level security;
+alter table kanban_card_etiquetas  enable row level security;
+alter table kanban_card_membros    enable row level security;
+alter table kanban_checklists      enable row level security;
+alter table kanban_checkitens      enable row level security;
+alter table kanban_comentarios     enable row level security;
+alter table kanban_anexos          enable row level security;
+alter table kanban_atividade       enable row level security;
+
+-- membros: todos leem; nome corrigido só pelo admin; linha nova só pela
+-- kanban_entrar() ou pela importação
+drop policy if exists kanban_membros_select on kanban_membros;
+create policy kanban_membros_select on kanban_membros
+  for select to authenticated using ( (select public.hub_can('kanban')) );
+drop policy if exists kanban_membros_admin on kanban_membros;
+create policy kanban_membros_admin on kanban_membros
+  for update to authenticated
+  using ( (select public.hub_is_admin()) ) with check ( (select public.hub_is_admin()) );
+
+drop policy if exists kanban_listas_rw on kanban_listas;
+create policy kanban_listas_rw on kanban_listas
+  for all to authenticated
+  using ( (select public.hub_can('kanban')) ) with check ( (select public.hub_can('kanban')) );
+
+drop policy if exists kanban_etiquetas_rw on kanban_etiquetas;
+create policy kanban_etiquetas_rw on kanban_etiquetas
+  for all to authenticated
+  using ( (select public.hub_can('kanban')) ) with check ( (select public.hub_can('kanban')) );
+
+drop policy if exists kanban_cards_rw on kanban_cards;
+create policy kanban_cards_rw on kanban_cards
+  for all to authenticated
+  using ( (select public.hub_can('kanban')) ) with check ( (select public.hub_can('kanban')) );
+
+drop policy if exists kanban_card_etiquetas_rw on kanban_card_etiquetas;
+create policy kanban_card_etiquetas_rw on kanban_card_etiquetas
+  for all to authenticated
+  using ( (select public.hub_can('kanban')) ) with check ( (select public.hub_can('kanban')) );
+
+drop policy if exists kanban_card_membros_rw on kanban_card_membros;
+create policy kanban_card_membros_rw on kanban_card_membros
+  for all to authenticated
+  using ( (select public.hub_can('kanban')) ) with check ( (select public.hub_can('kanban')) );
+
+drop policy if exists kanban_checklists_rw on kanban_checklists;
+create policy kanban_checklists_rw on kanban_checklists
+  for all to authenticated
+  using ( (select public.hub_can('kanban')) ) with check ( (select public.hub_can('kanban')) );
+
+drop policy if exists kanban_checkitens_rw on kanban_checkitens;
+create policy kanban_checkitens_rw on kanban_checkitens
+  for all to authenticated
+  using ( (select public.hub_can('kanban')) ) with check ( (select public.hub_can('kanban')) );
+
+drop policy if exists kanban_anexos_rw on kanban_anexos;
+create policy kanban_anexos_rw on kanban_anexos
+  for all to authenticated
+  using ( (select public.hub_can('kanban')) ) with check ( (select public.hub_can('kanban')) );
+
+drop policy if exists kanban_comentarios_select on kanban_comentarios;
+create policy kanban_comentarios_select on kanban_comentarios
+  for select to authenticated using ( (select public.hub_can('kanban')) );
+drop policy if exists kanban_comentarios_insert on kanban_comentarios;
+create policy kanban_comentarios_insert on kanban_comentarios
+  for insert to authenticated with check ( (select public.hub_can('kanban')) );
+drop policy if exists kanban_comentarios_autor on kanban_comentarios;
+create policy kanban_comentarios_autor on kanban_comentarios
+  for update to authenticated
+  using      ( (select public.hub_can('kanban'))
+               and (autor_email = (select public.hub_email()) or (select public.hub_is_admin())) )
+  with check ( (select public.hub_can('kanban')) );
+drop policy if exists kanban_comentarios_apagar on kanban_comentarios;
+create policy kanban_comentarios_apagar on kanban_comentarios
+  for delete to authenticated
+  using ( (select public.hub_can('kanban'))
+          and (autor_email = (select public.hub_email()) or (select public.hub_is_admin())) );
+
+drop policy if exists kanban_atividade_select on kanban_atividade;
+create policy kanban_atividade_select on kanban_atividade
+  for select to authenticated using ( (select public.hub_can('kanban')) );
+
+-- GRANT explícito: projeto Supabase novo não expõe tabela nova à API sozinho, e
+-- função nova não nasce executável por todos. Sem isto, num rebuild do zero a
+-- tela levaria "permission denied" antes mesmo de chegar na RLS — que continua
+-- sendo a barreira de verdade. anon não recebe nada.
+grant select, insert, update, delete on
+  kanban_listas, kanban_etiquetas, kanban_cards, kanban_card_etiquetas, kanban_card_membros,
+  kanban_checklists, kanban_checkitens, kanban_comentarios, kanban_anexos
+  to authenticated;
+grant select, update on kanban_membros to authenticated;
+grant select on kanban_atividade to authenticated;
+grant all on
+  kanban_membros, kanban_listas, kanban_etiquetas, kanban_cards, kanban_card_etiquetas,
+  kanban_card_membros, kanban_checklists, kanban_checkitens, kanban_comentarios, kanban_anexos,
+  kanban_atividade
+  to service_role;
+revoke all on
+  kanban_membros, kanban_listas, kanban_etiquetas, kanban_cards, kanban_card_etiquetas,
+  kanban_card_membros, kanban_checklists, kanban_checkitens, kanban_comentarios, kanban_anexos,
+  kanban_atividade
+  from anon;
+grant execute on function public.hub_email(), public.hub_is_admin(), public.hub_can(text)
+  to authenticated;
+
+-- ---- anexos: bucket PRÓPRIO, privado ----
+-- Não é o hub-data: lá a leitura sai do nome do arquivo e só a service_role
+-- grava. Aqui quem tem a aba anexa e apaga, como no Trello. 50 MB por arquivo
+-- (o maior que veio do Trello tem 10 MB).
+insert into storage.buckets (id, name, public, file_size_limit)
+values ('kanban', 'kanban', false, 52428800)
+on conflict (id) do update set public = false;
+
+drop policy if exists kanban_arquivos_ler on storage.objects;
+create policy kanban_arquivos_ler on storage.objects
+  for select to authenticated
+  using ( bucket_id = 'kanban' and (select public.hub_can('kanban')) );
+
+drop policy if exists kanban_arquivos_enviar on storage.objects;
+create policy kanban_arquivos_enviar on storage.objects
+  for insert to authenticated
+  with check ( bucket_id = 'kanban' and (select public.hub_can('kanban')) );
+
+drop policy if exists kanban_arquivos_apagar on storage.objects;
+create policy kanban_arquivos_apagar on storage.objects
+  for delete to authenticated
+  using ( bucket_id = 'kanban' and (select public.hub_can('kanban')) );
+
+-- Realtime: quem está com o board aberto vê o card que o colega moveu.
+do $$
+declare t text;
+begin
+  foreach t in array array['kanban_listas','kanban_etiquetas','kanban_cards','kanban_card_etiquetas',
+                           'kanban_card_membros','kanban_checklists','kanban_checkitens',
+                           'kanban_comentarios','kanban_anexos'] loop
+    if not exists (
+      select 1 from pg_publication_tables
+      where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = t
+    ) then
+      execute format('alter publication supabase_realtime add table public.%I', t);
+    end if;
+  end loop;
+end $$;
