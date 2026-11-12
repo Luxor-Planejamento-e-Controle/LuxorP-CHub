@@ -104,6 +104,25 @@ function showGate(msg, showForm, retry){
 }
 function hideGate(){ const o=document.getElementById('hub-gate'); if(o) o.style.display='none'; }
 
+/* Link direto (ex.: card do Kanban vindo do aviso no Slack) aberto sem sessão: o
+   e-mail de acesso volta para a raiz do site e o destino se perderia. Guarda o
+   destino antes do login e devolve depois — vale por 1 hora, e só se o endereço de
+   volta não trouxer outro destino. */
+function guardarDestino(){
+  try {
+    if(/^#\/[a-z_]+/.test(location.hash))
+      localStorage.setItem('hub.destino', JSON.stringify({ h: location.hash, t: Date.now() }));
+  } catch(e) { /* sem storage: o link só não sobrevive ao login */ }
+}
+function restaurarDestino(){
+  try {
+    const d = JSON.parse(localStorage.getItem('hub.destino') || 'null');
+    localStorage.removeItem('hub.destino');
+    if(d && Date.now() - d.t < 3600e3 && /^#\/[a-z_]+/.test(d.h) && (!location.hash || location.hash === '#'))
+      history.replaceState(history.state, '', location.pathname + location.search + d.h);
+  } catch(e) {}
+}
+
 function sendLink(){
   const email = (document.getElementById('gate-email').value||'').trim().toLowerCase();
   const msg = document.getElementById('gate-msg');
@@ -269,7 +288,7 @@ async function start(){
     const email = session ? (session.user.email||'').toLowerCase() : null;
     if(email === sessaoAtual) return;
     sessaoAtual = email;
-    if(!session){ window.HUB.email=null; showGate('', true); return; }
+    if(!session){ window.HUB.email=null; guardarDestino(); showGate('', true); return; }
     try {
       const access = await loadAccess(email);
       // Falhou: volta pra "estado desconhecido" (undefined, não null) pra um
@@ -307,6 +326,7 @@ async function start(){
                                   dashboards:access.dashboards });
       await loadData(access.dashboards);
       hideGate();
+      restaurarDestino();
       window.hubBoot();
     } catch(e){
       // Nada pode escapar daqui: exceção sem tratamento deixaria a tela preta,
