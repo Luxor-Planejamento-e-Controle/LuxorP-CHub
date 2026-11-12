@@ -30,6 +30,8 @@ const HUB_DATASETS = {
   tarituba: null,
   // tabelas kanban_* (ver sql/hub_schema.sql, seção 8), lidas e gravadas pelo iframe
   kanban: null,
+  // chat, organogramas e quadro societário vêm do bot (assets/societario/so_app.js)
+  societario: null,
 };
 
 /* Erro devolvido pelo GoTrue vem na URL (hash no fluxo implícito, query no PKCE)

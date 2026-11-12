@@ -69,7 +69,9 @@ const ICON = {
   // e dois ícones iguais no menu é o problema que o comentário acima já resolveu uma vez.
   imovel:'M4 21V5l8-3v19M12 21V9l8 3v9M2 21h20M7 8h2M7 12h2M7 16h2M15 14h2M15 18h2',
   // três colunas de cards de alturas diferentes: o board, e não o checklist de `proj`
-  kanban:'M4 4h4.5v16H4zM9.75 4h4.5v10h-4.5zM15.5 4H20v13h-4.5z'
+  kanban:'M4 4h4.5v16H4zM9.75 4h4.5v10h-4.5zM15.5 4H20v13h-4.5z',
+  // organograma: uma caixa no topo ligada a duas embaixo
+  org:'M9 2.5h6v5H9zM12 7.5v4M5.5 11.5h13M5.5 11.5v4M18.5 11.5v4M2.5 15.5h6v5h-6zM15.5 15.5h6v5h-6z'
 };
 const ROUTES = [
   {id:'', title:'Início', sub:'Hub de Planejamento & Controle', icon:'home', render:renderHome},
@@ -83,6 +85,7 @@ const ROUTES = [
   {id:'controle_pagamentos', title:'Controle de Pagamentos', sub:'Fornecedores fixos do mês e o que já foi pago', icon:'pagamentos', render:renderControlePagamentos},
   {id:'tarituba', title:'Fluxo de Caixa — Tarituba', sub:'Orçado × realizado do imóvel, mês a mês', icon:'imovel', render:renderTarituba},
   {id:'kanban', title:'Kanban Planejamento, Controle e Concierge', sub:'Tarefas do time: a fazer, em andamento, bloqueadas e feitas', icon:'kanban', render:renderKanban},
+  {id:'societario', title:'Estruturas Societárias', sub:'Chat, organogramas e quadro societário do Grupo Luxor', icon:'org', render:renderSocietario},
 ];
 // Rotas que o usuário logado pode abrir (Início sempre). Fora da allowlist a
 // aba nem aparece — e o dado dela nem foi baixado (ver assets/auth.js).
@@ -99,6 +102,7 @@ function temDado(id, hub){
   if(id==='controle_pagamentos') return true;     // idem
   if(id==='tarituba') return true;                // idem
   if(id==='kanban') return true;                  // tabelas kanban_* direto do Postgres
+  if(id==='societario') return true;              // fala direto com o bot das estruturas societárias
   return true;                                    // Projetos lê direto do Postgres
 }
 function allowed(){
@@ -949,6 +953,15 @@ function renderKanban(el, params){
   const card=params && params.get('card');
   const alvo=card && /^[0-9a-f-]{36}$/i.test(card) ? '#card='+card : '';
   el.innerHTML=`<iframe class="embed" src="assets/kanban/index.html${alvo}" title="Kanban Planejamento, Controle e Concierge"></iframe>`;
+}
+
+/* ---- Estruturas Societárias ----
+   Chat com o bot das estruturas societárias + organogramas, empresas e investidores.
+   O iframe fala direto com o bot (assets/societario/config.js), que confere a sessão
+   do hub e hub_can('societario') a cada pedido. Nada vem do bucket. */
+function renderSocietario(el){
+  el.classList.add('flush');
+  el.innerHTML=`<iframe class="embed" src="assets/societario/index.html" title="Estruturas Societárias"></iframe>`;
 }
 
 /* ---- sidebar: desktop colapsa pra ícone, mobile vira drawer ----
