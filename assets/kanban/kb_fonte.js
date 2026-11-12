@@ -271,6 +271,9 @@ window.KB_FONTE = (function () {
    * chama decide o que recarregar — mais simples e mais seguro que remendar o estado
    * da tela com cada evento (o DELETE nem traz a linha inteira). */
   function assinar(aoMudar) {
+    // aberto por file:// é o teste (test_painel.py), com a rede interceptada: o
+    // websocket iria direto ao Supabase de verdade
+    if (location.protocol === 'file:') return function () {};
     var sb = cliente();
     var canal = sb.channel('kanban');
     ['kanban_listas', 'kanban_etiquetas', 'kanban_cards', 'kanban_card_etiquetas', 'kanban_card_membros',
