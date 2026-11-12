@@ -124,6 +124,28 @@ HTML é servido por `srcdoc` e um asset externo não carregaria.
 **Contém PII** (coluna Cliente na tabela de detalhe das vendas). Mesmo tratamento da
 inadimplência: `.gitignore`, bucket privado, `hub_can('vendas')`.
 
+## Kanban Planejamento e Controle
+
+O board que vivia no Trello ("Kanban Planejamento, Controle e Concierge"), com o
+arquivado junto. Não usa snapshot nem `app_state`: lê e grava as tabelas `kanban_*` e
+os anexos no bucket privado `kanban` (seção 8 do `sql/hub_schema.sql`), tudo atrás de
+`hub_can('kanban')`. Autor de card, comentário e anexo, e o histórico, são carimbados
+pelo banco a partir do login.
+
+Trazer o Trello (rodar o `hub_schema.sql` antes):
+
+```bash
+python tools/import_trello_kanban.py            # prévia: baixa, confere, não grava
+python tools/import_trello_kanban.py --gravar   # grava e confere banco × Trello
+```
+
+Precisa de `TRELLO_API_KEY`/`TRELLO_TOKEN` (no `.env` daqui ou no da pasta de cima) além
+da service_role. Os anexos baixados ficam em `~/.cache/hub_kanban`, fora do repo.
+
+Rodar de novo atualiza em vez de duplicar, então dá para importar agora e de novo no
+dia da virada. Depois que o time começa a usar o hub, a gravação recusa (desfaria o
+que foi feito aqui), a não ser com `--forcar`.
+
 ### Dashboard novo no hub, o que precisa mexer
 
 1. `tools/build_<nome>.py` — re-skin → `assets/<nome>/dashboard.html`

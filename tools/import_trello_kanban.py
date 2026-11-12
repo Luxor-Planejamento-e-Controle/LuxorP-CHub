@@ -583,6 +583,10 @@ def main():
     ap.add_argument("--mapa")
     ap.add_argument("--forcar", action="store_true")
     args = ap.parse_args()
+    # nome de pessoa e de arquivo com acento: no PowerShell redirecionado para arquivo a
+    # saída seria cp1252 e um caractere fora dele derrubaria a rodada no meio
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
     cfg = credenciais()
     tr = Trello(cfg["TRELLO_API_KEY"], cfg["TRELLO_TOKEN"])
