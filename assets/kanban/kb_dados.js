@@ -1,4 +1,4 @@
-/* Kanban Planejamento e Controle — a parte que não fala com rede nem com a tela.
+/* Kanban Planejamento, Controle e Concierge — a parte que não fala com rede nem com a tela.
  *
  * Posição dos cards, filtros, o markdown dos textos, as frases do histórico e o estado
  * do prazo. Sem DOM e sem dependência de propósito: roda igual no navegador e no teste.

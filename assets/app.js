@@ -82,7 +82,7 @@ const ROUTES = [
   {id:'saldo_bancario', title:'Saldo Bancário', sub:'Projeção de caixa da semana — Grupo Luxor', icon:'moeda', render:renderSaldoBancario},
   {id:'controle_pagamentos', title:'Controle de Pagamentos', sub:'Fornecedores fixos do mês e o que já foi pago', icon:'pagamentos', render:renderControlePagamentos},
   {id:'tarituba', title:'Fluxo de Caixa — Tarituba', sub:'Orçado × realizado do imóvel, mês a mês', icon:'imovel', render:renderTarituba},
-  {id:'kanban', title:'Kanban Planejamento e Controle', sub:'Tarefas do time: a fazer, em andamento, bloqueadas e feitas', icon:'kanban', render:renderKanban},
+  {id:'kanban', title:'Kanban Planejamento, Controle e Concierge', sub:'Tarefas do time: a fazer, em andamento, bloqueadas e feitas', icon:'kanban', render:renderKanban},
 ];
 // Rotas que o usuário logado pode abrir (Início sempre). Fora da allowlist a
 // aba nem aparece — e o dado dela nem foi baixado (ver assets/auth.js).
@@ -938,13 +938,13 @@ function renderTarituba(el){
   el.innerHTML=`<iframe class="embed" src="assets/tarituba/index.html" title="Fluxo de Caixa — Tarituba"></iframe>`;
 }
 
-/* ---- Kanban Planejamento e Controle (mesmo padrão) ----
+/* ---- Kanban Planejamento, Controle e Concierge (mesmo padrão) ----
    O board que vivia no Trello. Lê e grava as tabelas kanban_* e o bucket `kanban`
    (sql/hub_schema.sql, seção 8) com a sessão do hub — por isso iframe com src local,
    e não srcdoc com HTML do bucket. */
 function renderKanban(el){
   el.classList.add('flush');
-  el.innerHTML=`<iframe class="embed" src="assets/kanban/index.html" title="Kanban Planejamento e Controle"></iframe>`;
+  el.innerHTML=`<iframe class="embed" src="assets/kanban/index.html" title="Kanban Planejamento, Controle e Concierge"></iframe>`;
 }
 
 /* ---- sidebar: desktop colapsa pra ícone, mobile vira drawer ----

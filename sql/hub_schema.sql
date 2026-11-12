@@ -294,8 +294,8 @@ create policy al_admin_read on access_log
 
 
 -- ---------------------------------------------------------------------
--- 8) Kanban Planejamento e Controle — o board que vivia no Trello
---    ("Kanban Planejamento, Controle e Concierge"), trazido para o hub em
+-- 8) Kanban Planejamento, Controle e Concierge — o board de mesmo nome que
+--    vivia no Trello, trazido para o hub em
 --    11/2026 por tools/import_trello_kanban.py, com o arquivado junto.
 --
 --    Tabelas próprias, e não um documento em app_state (ver seção 6).

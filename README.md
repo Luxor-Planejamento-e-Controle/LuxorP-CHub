@@ -124,7 +124,7 @@ HTML é servido por `srcdoc` e um asset externo não carregaria.
 **Contém PII** (coluna Cliente na tabela de detalhe das vendas). Mesmo tratamento da
 inadimplência: `.gitignore`, bucket privado, `hub_can('vendas')`.
 
-## Kanban Planejamento e Controle
+## Kanban Planejamento, Controle e Concierge
 
 O board que vivia no Trello ("Kanban Planejamento, Controle e Concierge"), com o
 arquivado junto. Não usa snapshot nem `app_state`: lê e grava as tabelas `kanban_*` e
