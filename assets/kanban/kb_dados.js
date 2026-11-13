@@ -80,10 +80,35 @@ var KB_DADOS = (function () {
       || String(a.id).localeCompare(String(b.id));
   }
 
-  /* ---------- filtro ----------
-   * f = { texto, membros: [ids], etiquetas: [ids], semMembro: bool, prazo: ''|'vencido'|'semana' }
-   * Membros e etiquetas: basta UM dos marcados (é o "qualquer" do Trello). Entre grupos,
-   * todos valem juntos. */
+  /* ---------- filtro (os mesmos do "Filtrar" do Trello) ----------
+   * f = { texto, membros: [ids], semMembro, etiquetas: [ids], semEtiqueta,
+   *       etiquetasTodas,   // false = basta uma das marcadas ("qualquer"); true = todas
+   *       prazo: '' | 'sem' | 'vencido' | 'dia' | 'semana' | 'mes' | 'concluido' | 'aberto',
+   *       atividade: '' | '1s' | '2s' | '4s' | 'parado' }   // parado = sem atividade há 4 semanas
+   * Entre grupos, todos valem juntos. */
+  var DIA = 24 * 3600e3;
+  function passaPrazo(card, modo, agora) {
+    if (!modo) return true;
+    var n = (agora ? new Date(agora) : new Date()).getTime();
+    var t = card.prazo ? new Date(card.prazo).getTime() : null;
+    if (modo === 'sem') return t === null;
+    if (t === null) return false;
+    if (modo === 'concluido') return !!card.prazo_concluido;
+    if (card.prazo_concluido) return false;              // os demais olham só os em aberto
+    if (modo === 'aberto') return true;
+    if (modo === 'vencido') return t < n;
+    var ate = { dia: DIA, semana: 7 * DIA, mes: 30 * DIA }[modo];
+    return ate ? t < n + ate : true;                       // vence até lá (vencido conta)
+  }
+  function passaAtividade(card, modo, agora) {
+    if (!modo) return true;
+    var n = (agora ? new Date(agora) : new Date()).getTime();
+    var t = new Date(card.atualizado_em || card.criado_em || 0).getTime();
+    if (modo === 'parado') return n - t > 28 * DIA;
+    var janela = { '1s': 7, '2s': 14, '4s': 28 }[modo];
+    return janela ? n - t <= janela * DIA : true;
+  }
+
   function passa(card, f, agora) {
     if (!f) return true;
     if (f.texto) {
@@ -97,22 +122,49 @@ var KB_DADOS = (function () {
       for (var j = 0; !achou && j < (f.membros || []).length; j++) achou = mbr.indexOf(f.membros[j]) >= 0;
       if (!achou) return false;
     }
-    if (f.etiquetas && f.etiquetas.length) {
-      var etq = card.etiquetas || [], ok = false;
-      for (var k = 0; !ok && k < f.etiquetas.length; k++) ok = etq.indexOf(f.etiquetas[k]) >= 0;
+    var etq = card.etiquetas || [];
+    if ((f.etiquetas && f.etiquetas.length) || f.semEtiqueta) {
+      var ok = f.semEtiqueta && !etq.length;
+      var marcadas = f.etiquetas || [];
+      if (!ok && marcadas.length) {
+        var tem = marcadas.filter(function (e) { return etq.indexOf(e) >= 0; }).length;
+        ok = f.etiquetasTodas ? tem === marcadas.length : tem > 0;
+      }
       if (!ok) return false;
     }
-    if (f.prazo) {
-      var st = prazoEstado(card.prazo, card.prazo_concluido, agora);
-      if (f.prazo === 'vencido' && st !== 'vencido') return false;
-      if (f.prazo === 'semana' && st !== 'vencido' && st !== 'proximo' && st !== 'semana') return false;
-    }
+    if (!passaPrazo(card, f.prazo, agora)) return false;
+    if (!passaAtividade(card, f.atividade, agora)) return false;
     return true;
   }
 
   function filtroAtivo(f) {
     return !!(f && (f.texto || (f.membros && f.membros.length) || f.semMembro
-      || (f.etiquetas && f.etiquetas.length) || f.prazo));
+      || (f.etiquetas && f.etiquetas.length) || f.semEtiqueta || f.prazo || f.atividade));
+  }
+
+  /* Datas do card na coluna: "12 nov" (só prazo), "3 – 12 nov" (início e prazo). */
+  function rotuloDatas(inicio, prazo, agora) {
+    if (!inicio) return dataCurta(prazo, agora);
+    if (!prazo) return 'início ' + dataCurta(inicio, agora);
+    var a = new Date(inicio), b = new Date(prazo);
+    if (a.getMonth() === b.getMonth() && a.getFullYear() === b.getFullYear()) {
+      return a.getDate() + ' – ' + dataCurta(prazo, agora);
+    }
+    return dataCurta(inicio, agora) + ' – ' + dataCurta(prazo, agora);
+  }
+
+  /* Ordem de uma lista, como o "Ordenar por" do Trello. */
+  function ordenar(cards, modo) {
+    var c = cards.slice();
+    var t = function (x, campo) { return x[campo] ? new Date(x[campo]).getTime() : null; };
+    if (modo === 'novos') c.sort(function (a, b) { return t(b, 'criado_em') - t(a, 'criado_em'); });
+    else if (modo === 'antigos') c.sort(function (a, b) { return t(a, 'criado_em') - t(b, 'criado_em'); });
+    else if (modo === 'nome') c.sort(function (a, b) { return normal(a.nome).localeCompare(normal(b.nome), 'pt-BR'); });
+    else if (modo === 'prazo') c.sort(function (a, b) {     // sem prazo vai para o fim
+      var x = t(a, 'prazo'), y = t(b, 'prazo');
+      return (x === null) - (y === null) || (x - y);
+    });
+    return c;
   }
 
   /* ---------- prazo ---------- */
@@ -364,7 +416,7 @@ var KB_DADOS = (function () {
     esc: esc, normal: normal, iniciais: iniciais,
     CORES: CORES, corEtiqueta: corEtiqueta, textoEtiqueta: textoEtiqueta,
     PASSO: PASSO, posEntre: posEntre, renumerar: renumerar, porPos: porPos,
-    passa: passa, filtroAtivo: filtroAtivo,
+    passa: passa, filtroAtivo: filtroAtivo, rotuloDatas: rotuloDatas, ordenar: ordenar,
     prazoEstado: prazoEstado, dataCurta: dataCurta, dataHora: dataHora,
     markdown: markdown, urlSegura: urlSegura, frase: frase,
     progresso: progresso, tamanho: tamanho, ehImagem: ehImagem, nomeSeguro: nomeSeguro

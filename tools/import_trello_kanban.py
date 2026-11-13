@@ -150,8 +150,9 @@ class Trello:
                      "Confira antes de importar.")
         acoes, antes = [], None
         while True:
+            # reactions=true: as reações dos comentários (👍 e cia.) só vêm se pedidas
             p = dict(filter="all", limit=1000, memberCreator_fields="fullName,username",
-                     member_fields="fullName,username")
+                     member_fields="fullName,username", reactions="true")
             if antes:
                 p["before"] = antes
             pagina = self.get(f"boards/{b}/actions", **p)
@@ -384,6 +385,9 @@ def montar(exp, pessoas, caminhos, eu=None):
             "nome": c["name"], "descricao": reescrever(c.get("desc") or "", caminhos),
             "pos": float(c["pos"]), "arquivado": bool(c["closed"]), "arquivado_em": arq,
             "prazo": c.get("due"), "prazo_concluido": bool(c.get("dueComplete")),
+            "inicio": c.get("start"),
+            # dueReminder do Trello: minutos antes do prazo; -1 = "Nenhum"; vazio = padrão
+            "lembrete_min": c.get("dueReminder") if isinstance(c.get("dueReminder"), int) else None,
             "modelo": bool(c.get("isTemplate")),
             "criado_por": nome_de.get(autor), "criado_por_email": email_de.get(autor),
             "criado_em": (cria or {}).get("date") or data_do_id(c["id"]),
@@ -439,6 +443,16 @@ def montar(exp, pessoas, caminhos, eu=None):
                 "autor_nome": nome_de.get(autor), "autor_email": email_de.get(autor),
                 "texto": reescrever(d.get("text") or "", caminhos) or "(vazio)",
                 "criado_em": a["date"], "editado_em": d.get("dateLastEdited")})
+            for r in a.get("reactions") or []:
+                emoji = (r.get("emoji") or {}).get("native")
+                if not emoji:
+                    continue
+                quem = r.get("idMember")
+                t["kanban_reacoes"].append({
+                    "id": uid("reacao", r["id"]), "trello_id": r["id"],
+                    "comentario_id": uid("comentario", a["id"]), "emoji": emoji,
+                    "autor_nome": nome_de.get(quem) or (r.get("member") or {}).get("fullName"),
+                    "autor_email": email_de.get(quem), "criado_em": data_do_id(r["id"])})
             continue
         # uma ação pode virar mais de um evento (duas etiquetas de uma vez): o primeiro
         # leva o id da ação, os seguintes o id + ":n" — eventos() é determinístico, então
@@ -671,7 +685,8 @@ def main():
     # 5) trava de virada
     if not args.forcar:
         do_hub = {tab: sb.select(tab, "id", "trello_id=is.null&limit=1")
-                  for tab in ("kanban_cards", "kanban_comentarios", "kanban_anexos", "kanban_checklists")}
+                  for tab in ("kanban_cards", "kanban_comentarios", "kanban_anexos", "kanban_checklists",
+                              "kanban_reacoes")}
         usados = [tab for tab, linhas in do_hub.items() if linhas]
         if usados:
             sys.exit("O board já está sendo usado no hub (" + ", ".join(usados) + " com linha criada "
@@ -726,7 +741,8 @@ def main():
 
     # 8) tabelas, na ordem das chaves estrangeiras
     for tab in ("kanban_listas", "kanban_etiquetas", "kanban_cards", "kanban_checklists",
-                "kanban_checkitens", "kanban_comentarios", "kanban_anexos", "kanban_atividade"):
+                "kanban_checkitens", "kanban_comentarios", "kanban_reacoes", "kanban_anexos",
+                "kanban_atividade"):
         sb.upsert(tab, t[tab])
         print(f"  {tab}: {len(t[tab])}")
     cards_trello = [c["id"] for c in t["kanban_cards"]]
@@ -740,8 +756,9 @@ def main():
     print(f"  capas: {len(t['_capas'])}")
 
     # 9) o que saiu do Trello entre uma rodada e outra sai do hub (só linha importada)
-    for tab in ("kanban_atividade", "kanban_anexos", "kanban_comentarios", "kanban_checkitens",
-                "kanban_checklists", "kanban_cards", "kanban_etiquetas", "kanban_listas"):
+    for tab in ("kanban_atividade", "kanban_anexos", "kanban_reacoes", "kanban_comentarios",
+                "kanban_checkitens", "kanban_checklists", "kanban_cards", "kanban_etiquetas",
+                "kanban_listas"):
         agora = {x["trello_id"] for x in t[tab]}
         sobra = [x["id"] for x in sb.select(tab, "id,trello_id", "trello_id=not.is.null")
                  if x["trello_id"] not in agora]
@@ -754,7 +771,8 @@ def main():
     ok = True
     for tab, esperado in (("kanban_listas", len(exp["lists"])), ("kanban_cards", n_cards),
                           ("kanban_checklists", len(exp["checklists"])), ("kanban_checkitens", n_itens),
-                          ("kanban_comentarios", n_coment), ("kanban_anexos", len(t["kanban_anexos"])),
+                          ("kanban_comentarios", n_coment), ("kanban_reacoes", len(t["kanban_reacoes"])),
+                          ("kanban_anexos", len(t["kanban_anexos"])),
                           ("kanban_atividade", len(t["kanban_atividade"]))):
         n = len(sb.select(tab, "id", "trello_id=not.is.null"))
         ok &= n == esperado

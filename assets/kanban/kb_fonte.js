@@ -55,7 +55,7 @@ window.KB_FONTE = (function () {
    * comentários e anexos). O arquivado vem só quando alguém abre "Arquivados". */
   /* Cards e anexos têm DUAS ligações (o anexo é do card; a capa do card é um anexo):
    * sem dizer qual chave usar, o PostgREST recusa o embed por ambiguidade. */
-  var CAMPOS_CARD = 'id,lista_id,nome,descricao,pos,arquivado,arquivado_em,prazo,prazo_concluido,modelo,'
+  var CAMPOS_CARD = 'id,lista_id,nome,descricao,pos,arquivado,arquivado_em,inicio,prazo,prazo_concluido,lembrete_min,modelo,'
     + 'criado_por,criado_em,atualizado_em,trello_url,capa_anexo_id,'
     + 'kanban_card_etiquetas(etiqueta_id),kanban_card_membros(membro_id),kanban_seguidores(membro_id),'
     + 'kanban_checklists(kanban_checkitens(concluido)),'
@@ -67,8 +67,9 @@ window.KB_FONTE = (function () {
     (c.kanban_checklists || []).forEach(function (cl) { itens = itens.concat(cl.kanban_checkitens || []); });
     return {
       id: c.id, lista_id: c.lista_id, nome: c.nome, descricao: c.descricao || '', pos: c.pos,
-      arquivado: c.arquivado, arquivado_em: c.arquivado_em, prazo: c.prazo,
-      prazo_concluido: c.prazo_concluido, modelo: c.modelo, criado_por: c.criado_por,
+      arquivado: c.arquivado, arquivado_em: c.arquivado_em, inicio: c.inicio || null, prazo: c.prazo,
+      prazo_concluido: c.prazo_concluido, lembrete_min: c.lembrete_min == null ? null : c.lembrete_min,
+      modelo: c.modelo, criado_por: c.criado_por,
       criado_em: c.criado_em, atualizado_em: c.atualizado_em, trello_url: c.trello_url,
       etiquetas: (c.kanban_card_etiquetas || []).map(function (x) { return x.etiqueta_id; }),
       membros: (c.kanban_card_membros || []).map(function (x) { return x.membro_id; }),
@@ -117,7 +118,10 @@ window.KB_FONTE = (function () {
       sb.from('kanban_cards').select(CAMPOS_CARD).eq('id', id).maybeSingle(),
       sb.from('kanban_checklists').select('id,nome,pos,kanban_checkitens(id,nome,pos,concluido,membro_id,prazo)')
         .eq('card_id', id).order('pos'),
-      tudo(function () { return sb.from('kanban_comentarios').select('*').eq('card_id', id).order('criado_em', { ascending: false }); }, 'comentários'),
+      tudo(function () {
+        return sb.from('kanban_comentarios').select('*,kanban_reacoes(id,emoji,autor_nome,autor_email)')
+          .eq('card_id', id).order('criado_em', { ascending: false });
+      }, 'comentários'),
       sb.from('kanban_anexos').select('*').eq('card_id', id).order('pos'),
       tudo(function () { return sb.from('kanban_atividade').select('*').eq('card_id', id).order('criado_em', { ascending: false }); }, 'histórico')
     ]);
@@ -170,20 +174,63 @@ window.KB_FONTE = (function () {
     }
   }
 
+  /* Um arquivo pode ser de mais de um anexo (card copiado com anexos aponta para o mesmo
+   * arquivo). Só sai do bucket o que nenhum anexo usa mais — conferido DEPOIS de a
+   * linha sumir. */
+  async function apagarArquivosSemUso(caminhos) {
+    var sb = cliente(), soltos = [];
+    for (var i = 0; i < caminhos.length; i++) {
+      var r = ok(await sb.from('kanban_anexos').select('id').eq('caminho', caminhos[i]).limit(1), 'anexos');
+      if (!r || !r.length) soltos.push(caminhos[i]);
+    }
+    if (soltos.length) ok(await sb.storage.from(BUCKET).remove(soltos), 'apagar arquivos');
+  }
+
   async function excluirCard(id) {
     var sb = cliente();
-    // os arquivos antes da linha: a linha sumindo leva junto a referência a eles
     var anexos = ok(await sb.from('kanban_anexos').select('caminho').eq('card_id', id), 'anexos') || [];
-    var caminhos = anexos.map(function (a) { return a.caminho; }).filter(Boolean);
-    if (caminhos.length) ok(await sb.storage.from(BUCKET).remove(caminhos), 'apagar arquivos');
     ok(await sb.from('kanban_cards').delete().eq('id', id), 'excluir card');
+    await apagarArquivosSemUso(anexos.map(function (a) { return a.caminho; }).filter(Boolean));
   }
 
   async function copiarCard(origem, nome, listaId, pos, manter) {
     return ok(await cliente().rpc('kanban_copiar_card', {
       p_origem: origem, p_nome: nome, p_lista: listaId, p_pos: pos,
-      p_checklists: !!manter.checklists, p_etiquetas: !!manter.etiquetas, p_membros: !!manter.membros
+      p_checklists: !!manter.checklists, p_etiquetas: !!manter.etiquetas, p_membros: !!manter.membros,
+      p_anexos: !!manter.anexos, p_comentarios: !!manter.comentarios
     }), 'copiar card');
+  }
+
+  /* "Copiar lista": lista nova logo à direita, com cópia completa de cada card aberto,
+   * na mesma ordem (o Trello faz igual). */
+  async function copiarLista(lista, nome, pos, cards) {
+    var nova = await criarLista(nome, pos);
+    for (var i = 0; i < cards.length; i++) {
+      await copiarCard(cards[i].id, cards[i].nome, nova, cards[i].pos,
+        { checklists: true, etiquetas: true, membros: true, anexos: true, comentarios: true });
+    }
+    return nova;
+  }
+
+  /* "Mover todos os cards desta lista": vão para o fim da lista de destino, na ordem. */
+  async function moverTodos(cards, destino, depoisDe) {
+    var sb = cliente();
+    for (var i = 0; i < cards.length; i++) {
+      ok(await sb.from('kanban_cards').update({ lista_id: destino, pos: depoisDe + (i + 1) * KB_DADOS.PASSO })
+        .eq('id', cards[i].id), 'mover cards');
+    }
+  }
+
+  async function modelos() {
+    return ok(await cliente().from('kanban_cards').select('id,nome,lista_id').eq('modelo', true)
+      .eq('arquivado', false).order('nome'), 'modelos') || [];
+  }
+
+  async function reagir(comentarioId, emoji, ligar, email) {
+    var t = cliente().from('kanban_reacoes');
+    ok(await (ligar ? t.insert({ comentario_id: comentarioId, emoji: emoji })
+                    : t.delete().eq('comentario_id', comentarioId).eq('emoji', emoji).eq('autor_email', email)),
+       'reação');
   }
 
   async function alternarEtiqueta(cardId, etqId, ligar) {
@@ -294,9 +341,8 @@ window.KB_FONTE = (function () {
   }
 
   async function excluirAnexo(anexo) {
-    var sb = cliente();
-    if (anexo.caminho) ok(await sb.storage.from(BUCKET).remove([anexo.caminho]), 'apagar arquivo');
-    ok(await sb.from('kanban_anexos').delete().eq('id', anexo.id), 'excluir anexo');
+    ok(await cliente().from('kanban_anexos').delete().eq('id', anexo.id), 'excluir anexo');
+    if (anexo.caminho) await apagarArquivosSemUso([anexo.caminho]);
   }
 
   async function renomearAnexo(id, nome) {
@@ -310,7 +356,8 @@ window.KB_FONTE = (function () {
   }
 
   async function criarLista(nome, pos) {
-    ok(await cliente().from('kanban_listas').insert({ nome: nome, pos: pos }), 'criar lista');
+    return ok(await cliente().from('kanban_listas').insert({ nome: nome, pos: pos }).select('id').single(),
+              'criar lista').id;
   }
   async function atualizarLista(id, campos) {
     ok(await cliente().from('kanban_listas').update(campos).eq('id', id), 'gravar lista');
@@ -327,7 +374,7 @@ window.KB_FONTE = (function () {
     var canal = sb.channel('kanban');
     ['kanban_listas', 'kanban_etiquetas', 'kanban_cards', 'kanban_card_etiquetas', 'kanban_card_membros',
      'kanban_checklists', 'kanban_checkitens', 'kanban_comentarios', 'kanban_anexos',
-     'kanban_seguidores'].forEach(function (t) {
+     'kanban_seguidores', 'kanban_reacoes'].forEach(function (t) {
       canal.on('postgres_changes', { event: '*', schema: 'public', table: t },
                function (p) { aoMudar(t, p); });
     });
@@ -340,7 +387,8 @@ window.KB_FONTE = (function () {
     carregarBoard: carregarBoard, umResumo: umResumo, carregarCard: carregarCard,
     arquivados: arquivados, atividadeBoard: atividadeBoard,
     criarCard: criarCard, atualizarCard: atualizarCard, renumerarLista: renumerarLista,
-    excluirCard: excluirCard, copiarCard: copiarCard,
+    excluirCard: excluirCard, copiarCard: copiarCard, copiarLista: copiarLista, moverTodos: moverTodos,
+    modelos: modelos, reagir: reagir,
     alternarEtiqueta: alternarEtiqueta, alternarMembro: alternarMembro,
     salvarEtiqueta: salvarEtiqueta, excluirEtiqueta: excluirEtiqueta,
     criarChecklist: criarChecklist, renomearChecklist: renomearChecklist, excluirChecklist: excluirChecklist,

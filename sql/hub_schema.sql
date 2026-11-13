@@ -460,6 +460,27 @@ create index if not exists kanban_anexos_card on kanban_anexos (card_id);
 alter table kanban_cards add column if not exists capa_anexo_id uuid
   references kanban_anexos(id) on delete set null;
 
+-- Datas como no Trello: início (opcional) e lembrete do prazo, em minutos antes dele
+-- (nulo = o padrão, 1 dia antes; -1 = "Nenhum", sem lembrete).
+alter table kanban_cards add column if not exists inicio timestamptz;
+alter table kanban_cards add column if not exists lembrete_min integer
+  check (lembrete_min is null or lembrete_min >= -1);
+
+-- Reações em comentário (👍 e cia.), como no Trello: o board tinha 625. Uma por
+-- pessoa e emoji; as importadas de quem não tem login ficam só com o nome.
+create table if not exists kanban_reacoes (
+  id             uuid primary key default gen_random_uuid(),
+  trello_id      text unique,
+  comentario_id  uuid not null references kanban_comentarios(id) on delete cascade,
+  emoji          text not null check (length(emoji) between 1 and 16),
+  autor_nome     text,
+  autor_email    text,
+  criado_em      timestamptz not null default now()
+);
+create unique index if not exists kanban_reacoes_uma_por_pessoa
+  on kanban_reacoes (comentario_id, emoji, autor_email) where autor_email is not null;
+create index if not exists kanban_reacoes_comentario on kanban_reacoes (comentario_id);
+
 -- "Seguir" o card, como no Trello: quem segue é avisado dos comentários e do prazo
 -- mesmo sem ser membro. Da importação vêm os cards que o dono do token seguia.
 create table if not exists kanban_seguidores (
@@ -757,8 +778,11 @@ begin
   if public.hub_email() is null then return new; end if;
   if tg_op = 'INSERT' then
     new.trello_id := null;
-    new.autor_email := public.hub_email(); new.autor_nome := public.kanban_autor_nome();
-    new.criado_em := now();
+    -- na cópia de card o anexo mantém quem anexou e quando, como no Trello
+    if not public.kanban_copiando() then
+      new.autor_email := public.hub_email(); new.autor_nome := public.kanban_autor_nome();
+      new.criado_em := now();
+    end if;
   else
     new.trello_id := old.trello_id; new.autor_email := old.autor_email;
     new.autor_nome := old.autor_nome; new.criado_em := old.criado_em;
@@ -774,6 +798,7 @@ create trigger kanban_anexos_antes before insert or update on kanban_anexos
 create or replace function public.kanban_anexos_depois() returns trigger
 language plpgsql security definer set search_path = public as $$
 begin
+  if public.kanban_copiando() then return null; end if;
   if tg_op = 'INSERT' then
     perform public.kanban_log(new.card_id, 'anexo_incluiu', jsonb_build_object('anexo', new.nome));
   else
@@ -792,8 +817,11 @@ begin
   if public.hub_email() is null then return new; end if;
   if tg_op = 'INSERT' then
     new.trello_id := null;
-    new.autor_email := public.hub_email(); new.autor_nome := public.kanban_autor_nome();
-    new.criado_em := now(); new.editado_em := null;
+    -- na cópia de card o comentário continua de quem escreveu (o Trello faz igual)
+    if not public.kanban_copiando() then
+      new.autor_email := public.hub_email(); new.autor_nome := public.kanban_autor_nome();
+      new.criado_em := now(); new.editado_em := null;
+    end if;
   else
     new.trello_id := old.trello_id; new.card_id := old.card_id;
     new.autor_email := old.autor_email; new.autor_nome := old.autor_nome;
@@ -816,7 +844,8 @@ declare
   mencionados  text[];
   participantes text[];
 begin
-  if public.hub_email() is null then return null; end if;
+  -- importação, automação e comentário copiado junto com o card não avisam ninguém
+  if public.hub_email() is null or public.kanban_copiando() then return null; end if;
   select coalesce(array_agg(distinct mb.email), '{}') into mencionados
     from regexp_matches(new.texto, '@([A-Za-z0-9_]+)', 'g') as m(x)
     join kanban_membros mb
@@ -839,10 +868,41 @@ drop trigger if exists kanban_comentarios_avisos on kanban_comentarios;
 create trigger kanban_comentarios_avisos after insert on kanban_comentarios
   for each row execute function public.kanban_comentarios_avisos();
 
--- Prazo: o job das 08:00 (dia útil) chama esta função. Enfileira para membros e
--- seguidores dos cards abertos cujo prazo vence nas próximas 24h ("vence") ou venceu
--- nos últimos 3 dias ("venceu" — cobre o fim de semana). A chave impede repetir o
--- mesmo aviso nos dias seguintes; prazo mudado é aviso novo.
+-- Reação: autor sai do login, como no comentário; o autor do comentário é avisado
+-- ("Fulano reagiu 👍 ao seu comentário"), que é o que o Trello fazia.
+create or replace function public.kanban_reacoes_antes() returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  if public.hub_email() is null then return new; end if;
+  new.trello_id := null;
+  new.autor_email := public.hub_email(); new.autor_nome := public.kanban_autor_nome();
+  new.criado_em := now();
+  return new;
+end $$;
+
+drop trigger if exists kanban_reacoes_antes on kanban_reacoes;
+create trigger kanban_reacoes_antes before insert on kanban_reacoes
+  for each row execute function public.kanban_reacoes_antes();
+
+create or replace function public.kanban_reacoes_avisos() returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  if public.hub_email() is null then return null; end if;
+  perform public.kanban_avisar(
+    array(select autor_email from kanban_comentarios where id = new.comentario_id),
+    'reacao', (select card_id from kanban_comentarios where id = new.comentario_id), new.emoji);
+  return null;
+end $$;
+
+drop trigger if exists kanban_reacoes_avisos on kanban_reacoes;
+create trigger kanban_reacoes_avisos after insert on kanban_reacoes
+  for each row execute function public.kanban_reacoes_avisos();
+
+-- Prazo: a entrega dos avisos (pc_kanban_avisos, de minuto em minuto em dia útil) chama
+-- esta função antes de cada rodada. Enfileira para membros e seguidores dos cards
+-- abertos quando chega a hora do lembrete do card (o padrão é 1 dia antes; "Nenhum"
+-- não avisa antes) e quando o prazo vence — o "venceu" olha 3 dias para trás, o que
+-- cobre o fim de semana. A chave impede repetir o mesmo aviso; prazo mudado é aviso novo.
 create or replace function public.kanban_avisos_de_prazo() returns integer
 language plpgsql security definer set search_path = public as $$
 declare n integer;
@@ -861,8 +921,10 @@ begin
      and (mb.id in (select membro_id from kanban_card_membros where card_id = c.id)
           or mb.id in (select membro_id from kanban_seguidores where card_id = c.id))
    where not c.arquivado and not c.prazo_concluido and c.prazo is not null
-     and c.prazo <= now() + interval '24 hours'
-     and c.prazo >  now() - interval '3 days'
+     and c.prazo > now() - interval '3 days'
+     and (c.prazo <= now()
+          or (coalesce(c.lembrete_min, 1440) >= 0
+              and c.prazo - make_interval(mins => coalesce(c.lembrete_min, 1440)) <= now()))
   on conflict (chave) do nothing;
   get diagnostics n = row_count;
   return n;
@@ -894,20 +956,26 @@ language sql stable security invoker set search_path = public as $$
 $$;
 
 -- ---- copiar card ----
--- Como o "Copiar" do Trello com checklists, etiquetas e membros (o mesmo
--- keepFromSource do pc_trello, que duplica os cards do fechamento todo mês).
--- A descrição vai sempre. Os itens do checklist nascem DESMARCADOS: é o que o
--- Trello faz — nos 3.695 itens marcados de cards copiados, o clique foi sempre
--- depois da cópia. Uma transação só: não sobra card pela metade se algo falhar.
+-- Como o "Copiar" do Trello: checklists, etiquetas e membros (o keepFromSource do
+-- pc_trello, que duplica os cards do fechamento todo mês) e, se pedido, anexos e
+-- comentários. A descrição vai sempre. Os itens do checklist nascem DESMARCADOS: é o
+-- que o Trello faz — nos 3.695 itens marcados de cards copiados, o clique foi sempre
+-- depois da cópia. Anexo copiado aponta para o MESMO arquivo do bucket (a tela só
+-- apaga o arquivo quando nenhum anexo o usa mais). Comentário copiado mantém o autor.
+-- Uma transação só: não sobra card pela metade se algo falhar.
 -- SECURITY INVOKER: quem chama precisa poder gravar (RLS); a service_role pode.
+-- A versão de 7 parâmetros sai antes: com as duas, a API não saberia qual chamar.
+drop function if exists public.kanban_copiar_card(uuid, text, uuid, double precision, boolean, boolean, boolean);
 create or replace function public.kanban_copiar_card(
-  p_origem      uuid,
-  p_nome        text,
-  p_lista       uuid,
-  p_pos         double precision default null,
-  p_checklists  boolean default true,
-  p_etiquetas   boolean default true,
-  p_membros     boolean default true
+  p_origem       uuid,
+  p_nome         text,
+  p_lista        uuid,
+  p_pos          double precision default null,
+  p_checklists   boolean default true,
+  p_etiquetas    boolean default true,
+  p_membros      boolean default true,
+  p_anexos       boolean default false,
+  p_comentarios  boolean default false
 ) returns uuid
 language plpgsql security invoker set search_path = public as $$
 declare
@@ -945,17 +1013,27 @@ begin
         from kanban_checkitens where checklist_id = cl.id;
     end loop;
   end if;
+  if p_anexos then
+    insert into kanban_anexos (card_id, nome, caminho, url, mime, bytes, autor_nome, autor_email, criado_em, pos)
+    select v, nome, caminho, url, mime, bytes, autor_nome, autor_email, criado_em, pos
+      from kanban_anexos where card_id = p_origem;
+  end if;
+  if p_comentarios then
+    insert into kanban_comentarios (card_id, autor_nome, autor_email, texto, criado_em, editado_em)
+    select v, autor_nome, autor_email, texto, criado_em, editado_em
+      from kanban_comentarios where card_id = p_origem;
+  end if;
   perform set_config('kanban.copia', '', true);
   return v;
 end $$;
 
 revoke execute on function public.kanban_entrar() from public, anon;
-revoke execute on function public.kanban_copiar_card(uuid, text, uuid, double precision, boolean, boolean, boolean) from public, anon;
+revoke execute on function public.kanban_copiar_card(uuid, text, uuid, double precision, boolean, boolean, boolean, boolean, boolean) from public, anon;
 revoke execute on function public.kanban_buscar(text, integer) from public, anon;
 revoke execute on function public.kanban_avisos_de_prazo() from public, anon, authenticated;
 revoke execute on function public.kanban_avisar(text[], text, uuid, text) from public, anon, authenticated;
 grant  execute on function public.kanban_entrar() to authenticated;
-grant  execute on function public.kanban_copiar_card(uuid, text, uuid, double precision, boolean, boolean, boolean) to authenticated, service_role;
+grant  execute on function public.kanban_copiar_card(uuid, text, uuid, double precision, boolean, boolean, boolean, boolean, boolean) to authenticated, service_role;
 grant  execute on function public.kanban_buscar(text, integer) to authenticated;
 grant  execute on function public.kanban_avisos_de_prazo() to service_role;
 
@@ -975,6 +1053,20 @@ alter table kanban_comentarios     enable row level security;
 alter table kanban_anexos          enable row level security;
 alter table kanban_atividade       enable row level security;
 alter table kanban_seguidores      enable row level security;
+alter table kanban_reacoes         enable row level security;
+
+-- reação: todos veem e reagem; cada um só tira a sua
+drop policy if exists kanban_reacoes_select on kanban_reacoes;
+create policy kanban_reacoes_select on kanban_reacoes
+  for select to authenticated using ( (select public.hub_can('kanban')) );
+drop policy if exists kanban_reacoes_insert on kanban_reacoes;
+create policy kanban_reacoes_insert on kanban_reacoes
+  for insert to authenticated with check ( (select public.hub_can('kanban')) );
+drop policy if exists kanban_reacoes_apagar on kanban_reacoes;
+create policy kanban_reacoes_apagar on kanban_reacoes
+  for delete to authenticated
+  using ( (select public.hub_can('kanban')) and autor_email = (select public.hub_email()) );
+
 -- fila de avisos: RLS ligada e NENHUMA policy = só a service_role (o Function App)
 alter table kanban_notificacoes    enable row level security;
 
@@ -1065,15 +1157,16 @@ grant select, insert, update, delete on
   to authenticated;
 grant select, update on kanban_membros to authenticated;
 grant select on kanban_atividade to authenticated;
+grant select, insert, delete on kanban_reacoes to authenticated;
 grant all on
   kanban_membros, kanban_listas, kanban_etiquetas, kanban_cards, kanban_card_etiquetas,
   kanban_card_membros, kanban_checklists, kanban_checkitens, kanban_comentarios, kanban_anexos,
-  kanban_atividade, kanban_seguidores, kanban_notificacoes
+  kanban_atividade, kanban_seguidores, kanban_notificacoes, kanban_reacoes
   to service_role;
 revoke all on
   kanban_membros, kanban_listas, kanban_etiquetas, kanban_cards, kanban_card_etiquetas,
   kanban_card_membros, kanban_checklists, kanban_checkitens, kanban_comentarios, kanban_anexos,
-  kanban_atividade, kanban_seguidores, kanban_notificacoes
+  kanban_atividade, kanban_seguidores, kanban_notificacoes, kanban_reacoes
   from anon;
 revoke all on kanban_notificacoes from authenticated;
 grant execute on function public.hub_email(), public.hub_is_admin(), public.hub_can(text)
@@ -1108,7 +1201,7 @@ declare t text;
 begin
   foreach t in array array['kanban_listas','kanban_etiquetas','kanban_cards','kanban_card_etiquetas',
                            'kanban_card_membros','kanban_checklists','kanban_checkitens',
-                           'kanban_comentarios','kanban_anexos','kanban_seguidores'] loop
+                           'kanban_comentarios','kanban_anexos','kanban_seguidores','kanban_reacoes'] loop
     if not exists (
       select 1 from pg_publication_tables
       where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = t
