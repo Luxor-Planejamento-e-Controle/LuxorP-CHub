@@ -16,9 +16,13 @@
 (function () {
   const PX_IN = 96;
   const PT = 4 / 3;
-  const W = 1280, H = 720;
+  // tamanho da página: 1280×720 nos decks do PBI; a carta é retrato (pagina() troca)
+  let W = 1280, H = 720;
+  const pagina = p => { W = (p && p.w) || 1280; H = (p && p.h) || 720; };
   const FONTE = 'Segoe UI Semibold';
   const FONTE_TAB = 'Calibri';                    // a planilha do fluxo de caixa (Budget FO)
+  const FONTE_CARTA = 'Aptos';                    // corpo e títulos da carta (tema do PPTX dela)
+  const FONTE_CARTA_T = 'Roboto Medium';          // capa e títulos verticais da carta
   const COR = {
     fundo: '103E44', branco: 'FFFFFF', laranja: 'FFA400', vermelho: 'FF0000', teal: '1D6E79',
     tealEsc: '215968', cinzaKR: 'D9D9D9', ini: 'F2A900', neg: 'FF2D16', fim: '3E7D8C',
@@ -34,7 +38,7 @@
     const px = pt * PT;
     try {
       if (!_ctx) _ctx = document.createElement('canvas').getContext('2d');
-      _ctx.font = `${fonte === FONTE_TAB ? 400 : 600} ${px}px "${fonte || FONTE}", "Segoe UI", Arial, sans-serif`;
+      _ctx.font = `${fonte && fonte !== FONTE ? 400 : 600} ${px}px "${fonte || FONTE}", "Segoe UI", Arial, sans-serif`;
       return _ctx.measureText(String(txt)).width;
     } catch (e) {
       return String(txt).length * px * 0.55;
@@ -124,6 +128,7 @@
       P.push(T(cx - slot / 2, b.v >= 0 ? ya - hl - 2 : yb + 2, slot, hl, txt, {pt: ptv, al: 'c', va: 'm'}));
     });
     P.push(L(x, y0, x + w, y0, {c: COR.branco, esp: 1.5}));
+    if (o.semCat) return;
     // rótulos da categoria embaixo do gráfico, como o eixo X do PBI
     const ptc = o.ptCat || 11;
     painel.barras.forEach((b, i) => {
@@ -173,10 +178,11 @@
     o = o || {};
     P.push(R(x, y, w, h, {fill: c.cor, raio: 10}));
     const linhas = c.linhas || [];
-    const yNome = y + h - 22 - linhas.length * 30 - 40;
-    P.push(T(x + 14, yNome, w - 24, 40, c.nome, {pt: o.ptNome || 24, va: 'm'}));
-    linhas.forEach((l, i) => P.push(T(x + 14, yNome + 40 + i * 30, w - 24, 30, l,
-                                      {pt: encaixa(l, o.ptLinha || 20, w - 28, 13), va: 'm'})));
+    const passo = o.passo || 30, alto = o.alto || 40;
+    const yNome = y + h - 22 - linhas.length * passo - alto;
+    P.push(T(x + 14, yNome, w - 24, alto, c.nome, {pt: o.ptNome || 24, va: 'm'}));
+    linhas.forEach((l, i) => P.push(T(x + 14, yNome + alto + i * passo, w - 24, passo, l,
+                                      {pt: encaixa(l, o.ptLinha || 20, w - 28, 9), va: 'm'})));
   }
   S.cartoes = s => {
     const P = [];
@@ -377,12 +383,11 @@
   };
 
   /* ---------------- pilhas (New Asset Value | Growth) ---------------- */
-  S.pilhas = s => {
-    const P = [];
-    titulo(P, s);
-    const x = 110, w = 1080, y = 170, h = 400;
+  function pilhas(P, s, x, y, w, h, o) {
+    o = o || {};
     const max = Math.max(...s.barras.map(b => b.total)) * 1.08;
     const slot = w / s.barras.length, bw = slot * 0.66;
+    const ptT = o.ptTot || 8, ptC = o.ptCat || 7;
     s.barras.forEach((b, i) => {
       const cx = x + slot * (i + 0.5);
       let acc = 0;
@@ -392,19 +397,26 @@
         acc += pa.v;
       });
       const ytop = y + h * (1 - acc / max);
-      P.push(T(cx - slot, ytop - 18, slot * 2, 16, nf(b.total, 0), {pt: 8, al: 'c', va: 'm'}));
-      P.push(T(cx - slot / 2 - 4, y + h + 6, slot + 8, 14, b.r, {pt: 7, al: 'c', va: 'm'}));
+      P.push(T(cx - slot, ytop - ptT * PT * 1.6, slot * 2, ptT * PT * 1.4, nf(b.total, 0), {pt: ptT, al: 'c', va: 'm'}));
+      P.push(T(cx - slot / 2 - 4, y + h + 5, slot + 8, ptC * PT * 1.5, b.r, {pt: ptC, al: 'c', va: 'm'}));
     });
     P.push(L(x, y + h, x + w, y + h, {c: COR.branco, esp: 1.5}));
-    // legenda embaixo, centrada
+    // legenda embaixo, centrada no gráfico
     const itens = s.legenda || [];
-    const larg = itens.map(l => 22 + largura(l.s, 10) + 24);
-    let lx = (W - larg.reduce((a, b) => a + b, 0)) / 2;
+    const ptL = o.ptLeg || 10;
+    const larg = itens.map(l => 2.2 * ptL + largura(l.s, ptL) + 2.4 * ptL);
+    let lx = x + (w - larg.reduce((a, b) => a + b, 0)) / 2;
+    const yl = o.yLeg || y + h + 42;
     itens.forEach((l, i) => {
-      P.push(R(lx, 612, 10, 10, {fill: l.cor, forma: 'elipse'}));
-      P.push(T(lx + 16, 604, larg[i], 26, l.s, {pt: 10, va: 'm'}));
+      P.push(R(lx, yl + ptL * 0.35, ptL, ptL, {fill: l.cor, forma: 'elipse'}));
+      P.push(T(lx + 1.6 * ptL, yl - ptL * 0.45, larg[i], ptL * 2.6, l.s, {pt: ptL, va: 'm'}));
       lx += larg[i];
     });
+  }
+  S.pilhas = s => {
+    const P = [];
+    titulo(P, s);
+    pilhas(P, s, 110, 170, 1080, 400, {yLeg: 612});
     logo(P);
     return P;
   };
@@ -628,8 +640,171 @@
     return P;
   };
 
+  /* ================= Carta Trimestral (retrato, 888×1134 px) =================
+     Geometria tirada do Carta_Trimestral_<idioma>_2Q2026.pptx (polegada × 96). Os
+     números vêm do build; os textos (ctx.textos) são os que o Arthur cola na aba, no
+     idioma da tela (ctx.lang). */
+  const CARTA = {fundo: '0F3E44', caixa: '1D6E79', tinta: '262626', ouro: 'FFA400', cinza: 'BFBFBF'};
+  const ROT = {
+    pt: {capa: 'Carta\nTrimestral', proposito: 'Propósito e Missão', valores: 'Valores',
+         destaques: 'Destaques e Prioridades', atualizacoes: 'Atualizações do Grupo Luxor',
+         lido: 'O que temos lido, ouvido ou feito:', retorno: 'Retorno do Grupo Luxor vs IPCA',
+         portfolio: 'Retorno por Portfolio', m36: '36 Meses', patrimonio: 'Evolução do Patrimônio - R$ Milhões',
+         alocacao: 'Alocação por Portfolio', vazio: 'Texto ainda não colado — use "Editar textos".'},
+    en: {capa: 'Quarterly\nLetter', proposito: 'Purpose and Mission', valores: 'Values',
+         destaques: 'Highlights and Priorities', atualizacoes: 'Luxor Group Updates',
+         lido: 'What we have been reading, listening to or doing:', retorno: 'Luxor Group Return vs IPCA',
+         portfolio: 'Return by Portfolio', m36: '36 Months', patrimonio: 'Asset Evolution - R$ Millions',
+         alocacao: 'Allocation by Portfolio', vazio: 'English text not pasted yet — use "Editar textos".'},
+  };
+  const rot = (ctx, k) => (ROT[ctx.lang] || ROT.pt)[k];
+  const tituloCarta = (P, t, y, h) =>
+    P.push(T(34, y, 821, h || 56, t, {pt: 24.5, al: 'c', va: 'm', c: CARTA.ouro, fonte: FONTE_CARTA, sp: 2.5}));
+  function rodapeCarta(P, branca) {
+    if (branca) {
+      P.push(L(140, 1108, 800, 1108, {c: CARTA.ouro, esp: 1}));
+      P.push(I(806, 1094, 32, 29, LOGO, {logo: 1}));
+    } else {
+      P.push(L(75, 1108, 811, 1108, {c: CARTA.ouro, esp: 1}));
+      P.push(I(816, 1094, 32, 29, LOGO, {logo: 1}));
+    }
+  }
+
+  /* texto colado → parágrafos (uma linha = um parágrafo) com **negrito** e *itálico* */
+  function paragrafos(txt) {
+    return String(txt || '').split(/\r?\n/).map(l => l.trim()).filter(Boolean).map(l => {
+      const runs = [];
+      const re = /(\*\*[^*]+\*\*|\*[^*]+\*)/g;
+      let i = 0, m;
+      while ((m = re.exec(l))) {
+        if (m.index > i) runs.push({t: l.slice(i, m.index)});
+        const b = m[0].startsWith('**');
+        runs.push({t: m[0].slice(b ? 2 : 1, b ? -2 : -1), b: b ? 1 : 0, i: b ? 0 : 1});
+        i = m.index + m[0].length;
+      }
+      if (i < l.length) runs.push({t: l.slice(i)});
+      return runs;
+    });
+  }
+  /* maior corpo (de `max` até `min`) em que os parágrafos cabem na caixa — medido no
+     próprio navegador, com a mesma fonte e entrelinha da tela e do PPTX */
+  const ENTRE = 1.2, ESP_PAR = 0.55;    // entrelinha e espaço depois do parágrafo (em "em")
+  function corpoQueCabe(paras, w, h, max, min, fonte) {
+    if (typeof document === 'undefined' || !paras.length) return max;
+    const d = document.createElement('div');
+    d.style.cssText = `position:absolute;left:-99999px;top:0;width:${w}px;line-height:${ENTRE};` +
+      `font-family:'${fonte}','Segoe UI',Arial,sans-serif;text-align:justify`;
+    d.innerHTML = paras.map(r => `<p style="margin:0 0 ${ESP_PAR}em">${'  ' + r.map(x => escH(x.t)).join('')}</p>`).join('');
+    document.body.appendChild(d);
+    let pt = max;
+    for (; pt > min; pt -= 0.25) {
+      d.style.fontSize = (pt * PT) + 'px';
+      if (d.scrollHeight <= h) break;
+    }
+    d.remove();
+    return pt;
+  }
+  function blocoTexto(P, txt, x, y, w, h, ctx, o) {
+    o = o || {};
+    const paras = paragrafos(txt);
+    if (!paras.length) {
+      if (ctx && ctx.tela) P.push(T(x, y, w, 40, rot(ctx, 'vazio'), {pt: 11, c: '999999', i: 1, fonte: FONTE_CARTA, va: 't'}));
+      return;
+    }
+    const pt = corpoQueCabe(paras, w, h * 0.97, o.max || 12, o.min || 8, FONTE_CARTA);
+    P.push(T(x, y, w, h, '', {k2: 'par', paras, pt, c: o.c || CARTA.tinta, fonte: FONTE_CARTA, va: 't', al: 'j', wrap: 1}));
+  }
+
+  S.carta_capa = (s, ctx) => {
+    const P = [];
+    if (s.logo) P.push(I(222, 372, 482, 229, s.logo));
+    P.push(R(10, 839, 482, 206, {fill: CARTA.caixa}));
+    P.push(T(55, 846, 398, 117, rot(ctx, 'capa'), {pt: 32.6, al: 'c', va: 'm', fonte: FONTE_CARTA_T, sp: 3, wrap: 1}));
+    P.push(L(124, 963, 379, 963, {c: 'D9B54A', esp: 1}));
+    P.push(T(89, 969, 329, 50, s.rotulo, {pt: 24.5, al: 'c', va: 'm', fonte: FONTE_CARTA_T, sp: 3}));
+    rodapeCarta(P);
+    return P;
+  };
+
+  S.carta_proposito = (s, ctx) => {
+    const P = [];
+    const l = ctx.lang === 'en' ? 'en' : 'pt';
+    tituloCarta(P, rot(ctx, 'proposito'), 66);
+    if (s.img && s.img['proposito_' + l]) P.push(I(21, 122, 821, 357, s.img['proposito_' + l], {cabe: 1}));
+    tituloCarta(P, rot(ctx, 'valores'), 518);
+    if (s.img && s.img['valores_' + l]) P.push(I(42, 606, 804, 406, s.img['valores_' + l], {cabe: 1}));
+    rodapeCarta(P);
+    return P;
+  };
+
+  S.carta_texto = (s, ctx) => {
+    const P = [];
+    const tx = (ctx.textos || {});
+    P.push(R(0, 0, 130, 1134, {fill: CARTA.fundo}));
+    // título vertical, lendo de baixo para cima, centrado na faixa
+    P.push(T(0, 0, 1067, 90, rot(ctx, s.slot), {pt: 36.7, al: 'c', va: 'm', c: CARTA.ouro, fonte: FONTE_CARTA_T, sp: 2,
+                                                  rot: -90, rx: 65, ry: 567 - 1067 / 2}));
+    const leituras = s.slot === 'atualizacoes' ? (tx.leituras || []).filter(x => x.img || x.texto) : [];
+    if (!leituras.length) {
+      blocoTexto(P, tx[s.slot], 170, 69, 661, 1010, ctx);
+    } else {
+      blocoTexto(P, tx[s.slot], 170, 69, 661, 380, ctx, {max: 12.2});
+      P.push(T(88, 460, 826, 44, rot(ctx, 'lido'), {pt: 20, al: 'c', va: 'm', c: CARTA.ouro, fonte: FONTE_CARTA, sp: 2}));
+      const passo = Math.min(294, 560 / leituras.length);
+      leituras.slice(0, 3).forEach((it, i) => {
+        const y = 522 + i * passo;
+        if (it.img) P.push(I(215, y + 7, 159, Math.min(242, passo - 30), it.img, {cabe: 1}));
+        blocoTexto(P, it.texto, 416, y, 290, Math.min(252, passo - 20), ctx, {max: 12.2});
+      });
+    }
+    rodapeCarta(P, true);
+    return P;
+  };
+
+  S.carta_retornos = (s, ctx) => {
+    const P = [];
+    tituloCarta(P, rot(ctx, 'retorno'), 51, 64);
+    // três painéis (trimestre, YTD, 36 meses) na MESMA escala — o ajuste feito no PBI em 11/11
+    const cab = [s.q, s.ytd, rot(ctx, 'm36')];
+    const pain = s.ipca.map(([fo, ip]) => ({fmt: 'pct1', barras: [
+      {r: 'Luxor FO', v: fo, cor: fo >= 0 ? COR.laranja : COR.vermelho}, {r: 'IPCA', v: ip, cor: COR.cinzaKR}]}));
+    const esc = escala(pain);
+    const wp = 262;
+    pain.forEach((p, i) => {
+      P.push(T(58 + i * wp, 150, wp, 24, cab[i], {pt: 11, al: 'c', va: 'm'}));
+      barras(P, p, 58 + i * wp, 180, wp, 290, {escala: esc, ptValor: 10, semCat: 1, larg: 0.36, max: 60});
+    });
+    // legenda: o FO tem as duas cores (positivo/negativo), como no PBI
+    P.push(R(330, 498, 12, 12, {fill: COR.laranja}));
+    P.push(R(346, 498, 12, 12, {fill: COR.vermelho}));
+    P.push(T(364, 490, 110, 28, 'Luxor FO', {pt: 13, va: 'm'}));
+    P.push(R(484, 498, 12, 12, {fill: COR.cinzaKR}));
+    P.push(T(502, 490, 80, 28, 'IPCA', {pt: 13, va: 'm'}));
+
+    tituloCarta(P, rot(ctx, 'portfolio'), 602, 64);
+    const wq = 380;
+    [s.q, s.ytd].forEach((c, i) => {
+      P.push(T(58 + i * (wq + 26), 720, wq, 24, c, {pt: 10, al: 'c', va: 'm'}));
+      barras(P, {fmt: 'pct1', barras: s.portfolio[i]}, 58 + i * (wq + 26), 750, wq, 170,
+             {escala: [-0.5, 0.5], ptValor: 8.5, ptCat: 8, larg: 0.45, max: 50});
+    });
+    rodapeCarta(P);
+    return P;
+  };
+
+  S.carta_patrimonio = (s, ctx) => {
+    const P = [];
+    tituloCarta(P, rot(ctx, 'patrimonio'), 40);
+    const bs = s.barras.map(b => Object.assign({}, b, {r: ctx.lang === 'en' ? b.r : (b.rp || b.r)}));
+    pilhas(P, {barras: bs, legenda: s.legenda}, 60, 130, 770, 300, {ptTot: 6.5, ptCat: 5.5, yLeg: 462, ptLeg: 8});
+    tituloCarta(P, rot(ctx, 'alocacao'), 690);
+    s.cartoes.forEach((c, i) => cartao(P, c, 53 + i * 265, 790, 253, 200, {ptNome: 14, ptLinha: 12.5, passo: 20, alto: 26}));
+    rodapeCarta(P);
+    return P;
+  };
+
   const prims = (s, ctx) => (S[s.t] || S.pendente)(s, ctx || {});
-  const fundo = () => COR.fundo;
+  const fundo = s => s && s.t === 'carta_texto' ? 'FFFFFF' : s && s.t && s.t.startsWith('carta_') ? CARTA.fundo : COR.fundo;
 
   /* ---------------- saída HTML ---------------- */
   const escH = x => String(x == null ? '' : x).replace(/[&<>"]/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[c]));
@@ -642,9 +817,15 @@
   /* aspas SIMPLES: isto vai dentro de style="…" — aspas duplas fechavam o atributo e
      tudo depois da fonte (alinhamento inclusive) sumia */
   function fonteCSS(p) {
-    return p.fonte === FONTE_TAB ? `font-family:Calibri,Carlito,Arial,sans-serif;font-weight:${p.b ? 700 : 400}`
-      : `font-family:'Segoe UI Semibold','Segoe UI',system-ui,sans-serif;font-weight:600`;
+    if (p.fonte === FONTE_TAB) return `font-family:Calibri,Carlito,Arial,sans-serif;font-weight:${p.b ? 700 : 400}`;
+    if (p.fonte === FONTE_CARTA) return `font-family:Aptos,'Segoe UI',Arial,sans-serif;font-weight:${p.b ? 700 : 400}`;
+    if (p.fonte === FONTE_CARTA_T) return `font-family:'Roboto Medium',Roboto,'Segoe UI',Arial,sans-serif;font-weight:500`;
+    return `font-family:'Segoe UI Semibold','Segoe UI',system-ui,sans-serif;font-weight:600`;
   }
+  const runHTML = r => {
+    const st = (r.b ? 'font-weight:700;' : '') + (r.i ? 'font-style:italic;' : '');
+    return st ? `<span style="${st}">${escH(r.t)}</span>` : escH(r.t);
+  };
   function html(ps, base) {
     const linhas = [];
     const corpo = ps.map(p => {
@@ -658,7 +839,13 @@
       }
       if (p.k === 'i') {
         const src = String(p.src).startsWith('data:') ? p.src : (base || '') + p.src;
-        return `<img class="pi${p.cobre ? ' cobre' : ''}" src="${escH(src)}" alt="" style="${box}">`;
+        return `<img class="pi${p.cobre ? ' cobre' : ''}${p.cabe ? ' cabe' : ''}" src="${escH(src)}" alt="" style="${box}">`;
+      }
+      if (p.k2 === 'par') {
+        // parágrafos justificados da carta; o recuo da 1ª linha são dois em-spaces, igual no PPTX
+        const st = `${box};font-size:${(p.pt * PT).toFixed(2)}px;color:#${p.c || CARTA.tinta};${fonteCSS(p)};line-height:${ENTRE}`;
+        return `<div class="ppar" style="${st}">` + p.paras.map(r =>
+          `<p style="margin:0 0 ${ESP_PAR}em;text-align:justify">  ${r.map(runHTML).join('')}</p>`).join('') + '</div>';
       }
       /* texto girado (rótulo do eixo X do Leverage): a caixa fica de pé com o fim do
          texto em (rx, ry) — mesma conta do PPTX, que gira em torno do centro */
@@ -666,7 +853,7 @@
         `width:${p.w.toFixed(1)}px;height:${p.h.toFixed(1)}px;transform:rotate(${p.rot}deg)` : box;
       const st = `${caixa};font-size:${(p.pt * PT).toFixed(2)}px;color:${rgba(p.c || COR.branco, p.alfa)};${fonteCSS(p)};` +
         `justify-content:${JUST[p.al || 'l']};align-items:${ALINH[p.va || 'm']};text-align:${{l: 'left', c: 'center', r: 'right'}[p.al || 'l']}` +
-        (p.i ? ';font-style:italic' : '');
+        (p.i ? ';font-style:italic' : '') + (p.sp ? `;letter-spacing:${(p.sp * PT).toFixed(2)}px` : '');
       const conteudo = p.runs ? p.runs.map(r => `<span style="color:#${r.c || p.c || COR.branco}">${escH(r.t)}</span>`).join('')
         : `<span>${escH(p.t)}</span>`;
       return `<div class="pt${p.wrap ? ' quebra' : ''}" style="${st}">${conteudo}</div>`;
@@ -713,12 +900,28 @@
         if (!data) continue;
         const o = Object.assign({data}, g);
         if (p.cobre) o.sizing = {type: 'cover', w: g.w, h: g.h};
+        if (p.cabe && imagens && imagens.__dim && imagens.__dim[p.src]) {
+          // "contain": a imagem inteira dentro da caixa, centrada, sem distorcer
+          const [iw, ih] = imagens.__dim[p.src];
+          const k = Math.min(p.w / iw, p.h / ih), w2 = iw * k, h2 = ih * k;
+          Object.assign(o, {x: pol(p.x + (p.w - w2) / 2), y: pol(p.y + (p.h - h2) / 2), w: pol(w2), h: pol(h2)});
+        }
         sl.addImage(o);
         continue;
       }
-      const base = {fontFace: p.fonte === FONTE_TAB ? FONTE_TAB : FONTE, fontSize: +p.pt.toFixed(2),
-        bold: p.fonte === FONTE_TAB ? !!p.b : false, italic: !!p.i, color: p.c || COR.branco,
+      if (p.k2 === 'par') {
+        const runs = [];
+        p.paras.forEach(r => r.forEach((x, j) => runs.push({
+          text: (j === 0 ? '  ' : '') + x.t,
+          options: {bold: !!x.b, italic: !!x.i, breakLine: j === r.length - 1, paraSpaceAfter: +(p.pt * ESP_PAR).toFixed(2)}})));
+        sl.addText(runs, Object.assign({}, g, {fontFace: p.fonte, fontSize: +p.pt.toFixed(2), color: p.c || CARTA.tinta,
+          align: 'justify', valign: 'top', margin: 0, lineSpacingMultiple: ENTRE, fit: 'none'}));
+        continue;
+      }
+      const base = {fontFace: p.fonte || FONTE, fontSize: +p.pt.toFixed(2),
+        bold: p.fonte && p.fonte !== FONTE ? !!p.b : false, italic: !!p.i, color: p.c || COR.branco,
         align: AL[p.al || 'l'], valign: VA[p.va || 'm'], margin: 0, wrap: !!p.wrap, fit: 'none'};
+      if (p.sp) base.charSpacing = p.sp;
       if (p.alfa != null) base.transparency = Math.round((1 - p.alfa) * 100);
       let o = Object.assign({}, g, base);
       if (p.rot) {
@@ -731,5 +934,6 @@
     }
   }
 
-  window.AP_LAYOUT = {prims, html, pptx, fundo, COR, LOGO, W, H, nf, pct};
+  window.AP_LAYOUT = {prims, html, pptx, fundo, COR, LOGO, nf, pct, pagina,
+                      tam: () => ({W, H})};
 })();
