@@ -92,6 +92,8 @@ BASE = {
          "autor_email": "alguem@luxor.com.br", "criado_em": "2026-11-04T09:30:00Z", "pos": 2},
     ],
     "kanban_seguidores": [],
+    # foto do Slack (hub_fotos): só o Fulano tem
+    "hub_fotos": [{"email": EU, "foto_url": "https://avatars.slack-edge.com/teste/fulano_192.png"}],
     "kanban_atividade": [
         {"id": "at1", "card_id": "c-fech", "tipo": "moveu", "dados": {"de": "Backlog", "para": "To Do"},
          "autor_nome": "Aline", "autor_email": "alguem@luxor.com.br", "criado_em": "2026-11-03T12:00:00Z"},
@@ -264,6 +266,8 @@ def _pagina(cls, hash_=""):
         return route.fulfill(status=404, body="")
 
     pg.route("**/*.supabase.co/**", rota)
+    pg.route("https://avatars.slack-edge.com/**",
+             lambda route, req: route.fulfill(status=200, content_type="image/png", body=PNG_1PX))
     pg.add_init_script(f"window.HUB = {{email:'{EU}'}}; window.__xss = 0;")
     pg.goto((AQUI / "index.html").as_uri() + hash_)
     pg.wait_for_selector(".kcol", timeout=8000)
@@ -347,6 +351,19 @@ class TestKanban(unittest.TestCase):
         pg.click("#fLimpar")
         pg.wait_for_timeout(150)
         self.assertEqual(pg.locator(".kcard").count(), 3)
+
+    def test_07_foto_do_slack_no_avatar(self):
+        pg = self.pg
+        pg.wait_for_timeout(300)
+        face = pg.locator('.kcard[data-id="c-fech"] .mbrs .av').first
+        self.assertTrue(face.locator("img").evaluate("i => i.complete && i.naturalWidth > 0"),
+                        "quem tem foto no Slack aparece com a foto")
+        dre = pg.locator('.kcard[data-id="c-dre"] .mbrs .av').first
+        self.assertEqual(dre.locator("img").count(), 0, "quem não tem foto fica com as iniciais")
+        self.assertEqual(dre.inner_text().strip(), "A")
+
+    def test_08_botao_tela_cheia(self):
+        self.assertEqual(self.pg.locator("#btTelaCheia").count(), 1)
 
     # ---------------- card aberto ----------------
 

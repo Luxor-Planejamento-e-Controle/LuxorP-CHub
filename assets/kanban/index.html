@@ -108,7 +108,8 @@ a{color:var(--teal-light)}
 .prazo.concluido{background:var(--pos);color:#201700}
 .mbrs{display:flex;gap:2px;margin-left:auto}
 .av{width:24px;height:24px;border-radius:50%;display:inline-grid;place-items:center;font-size:10px;font-weight:600;
-  color:#fff;flex:0 0 auto;letter-spacing:.02em}
+  color:#fff;flex:0 0 auto;letter-spacing:.02em;position:relative;overflow:hidden}
+.av img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
 .av.g{width:30px;height:30px;font-size:11.5px}
 .placeholder{border:2px dashed var(--orange);border-radius:10px;background:var(--orange-soft);flex:0 0 auto}
 
@@ -371,12 +372,19 @@ function corAvatar(nome) {
   let h = 0; for (const ch of String(nome || '')) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
   return CORES_AV[h % CORES_AV.length];
 }
-function avatar(m, grande) {
-  if (!m) return '';
-  return `<span class="av${grande ? ' g' : ''}" style="background:${corAvatar(m.nome)}" title="${esc(m.nome)}">${esc(KB.iniciais(m.nome))}</span>`;
+/* Avatar: foto do Slack por cima das iniciais. Se a imagem não carregar, ela se
+   remove e as iniciais (que já estão embaixo) aparecem. */
+function fotoDe(email) {
+  const u = email && S.fotos && S.fotos[String(email).toLowerCase()];
+  return u && /^https:\/\//.test(u) ? u : null;
 }
-function avatarNome(nome, grande) {
-  return `<span class="av${grande ? ' g' : ''}" style="background:${corAvatar(nome)}" title="${esc(nome || '')}">${esc(KB.iniciais(nome))}</span>`;
+function avatarNome(nome, grande, email) {
+  const f = fotoDe(email);
+  return `<span class="av${grande ? ' g' : ''}" style="background:${corAvatar(nome)}" title="${esc(nome || '')}">${esc(KB.iniciais(nome))}${
+    f ? `<img src="${esc(f)}" alt="" referrerpolicy="no-referrer" loading="lazy" onerror="this.remove()">` : ''}</span>`;
+}
+function avatar(m, grande) {
+  return m ? avatarNome(m.nome, grande, m.email) : '';
 }
 function chipEtq(e, grande) {
   if (!e) return '';
@@ -1033,11 +1041,11 @@ function linhaDoTempo(A) {
   if (!itens.length) return '';
   return itens.map(i => {
     const x = i.x;
-    if (i.t === 'a') return `<div class="evento ativ">${avatarNome(x.autor_nome)}<div class="corpo">
+    if (i.t === 'a') return `<div class="evento ativ">${avatarNome(x.autor_nome, false, x.autor_email)}<div class="corpo">
       <div class="quem"><b>${esc(x.autor_nome || '?')}</b> ${KB.frase(x)}</div>
       <div class="quando">${esc(KB.dataHora(x.criado_em))}</div></div></div>`;
     const meu = x.autor_email && x.autor_email === S.eu.email;
-    return `<div class="evento" data-coment="${esc(x.id)}">${avatarNome(x.autor_nome)}<div class="corpo">
+    return `<div class="evento" data-coment="${esc(x.id)}">${avatarNome(x.autor_nome, false, x.autor_email)}<div class="corpo">
       <div class="quem"><b>${esc(x.autor_nome || '?')}</b> <span class="quando">${esc(KB.dataHora(x.criado_em))}${x.editado_em ? ' (editado)' : ''}</span></div>
       ${editandoComentario === x.id ? `<div class="editor"><textarea id="inComent" aria-label="Comentário">${esc(x.texto)}</textarea>
         <div class="row"><button class="btn-acao btn-mini" data-a="salvar-coment" type="button">Salvar</button>
@@ -1271,7 +1279,7 @@ function checarMencao(el) {
   if (!m) return fecharMencao();
   const q = KB.normal(m[2]);
   const itens = [{ usuario: 'card', nome: 'card', sub: 'todos os membros do card' }]
-    .concat(S.membros.filter(x => x.usuario && x.email).map(x => ({ usuario: x.usuario, nome: x.nome, sub: '@' + x.usuario })))
+    .concat(S.membros.filter(x => x.usuario && x.email).map(x => ({ usuario: x.usuario, nome: x.nome, email: x.email, sub: '@' + x.usuario })))
     .filter(o => !q || KB.normal(o.nome).includes(q) || KB.normal(o.usuario).includes(q))
     .slice(0, 8);
   if (!itens.length) return fecharMencao();
@@ -1279,7 +1287,7 @@ function checarMencao(el) {
   mencao = { el, ini: antes.length - m[2].length - 1, itens, sel };
   const r = el.getBoundingClientRect();
   $('#mencoes').innerHTML = `<div class="mencoes" style="left:${Math.min(r.left, innerWidth - 330)}px;top:${Math.min(r.bottom + 4, innerHeight - 280)}px">
-    ${itens.map((o, i) => `<div class="opt${i === sel ? ' on' : ''}" data-i="${i}">${o.usuario === 'card' ? '<span class="av" style="background:var(--surface-3)">@</span>' : avatarNome(o.nome)}
+    ${itens.map((o, i) => `<div class="opt${i === sel ? ' on' : ''}" data-i="${i}">${o.usuario === 'card' ? '<span class="av" style="background:var(--surface-3)">@</span>' : avatarNome(o.nome, false, o.email)}
       <span>${esc(o.nome)} <span class="sub">${esc(o.sub)}</span></span></div>`).join('')}</div>`;
 }
 function escolherMencao(i) {
@@ -1692,7 +1700,7 @@ async function carregarAtividade() {
 function desenharAtividade() {
   const g = gaveta;
   if (!g || g.tipo !== 'atv') return;
-  const corpo = g.itens.map(x => `<div class="evento ativ">${avatarNome(x.autor_nome)}<div class="corpo">
+  const corpo = g.itens.map(x => `<div class="evento ativ">${avatarNome(x.autor_nome, false, x.autor_email)}<div class="corpo">
       <div class="quem"><b>${esc(x.autor_nome || '?')}</b> ${KB.frase(x, true)}</div>
       <div class="quando">${esc(KB.dataHora(x.criado_em))}${x.card_id ? ` · <button class="lnk" data-abrir="${esc(x.card_id)}" type="button">abrir card</button>` : ''}</div></div></div>`).join('')
     + (g.carregando ? '<div class="sync">Carregando…</div>'

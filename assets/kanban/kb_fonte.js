@@ -81,6 +81,15 @@ window.KB_FONTE = (function () {
     };
   }
 
+  /* Foto do Slack de cada pessoa (hub_fotos, seção 9 do hub_schema.sql). Enfeite: se
+   * falhar — tabela ainda não criada, rede —, o board abre com as iniciais. */
+  async function fotos() {
+    try {
+      var r = await cliente().from('hub_fotos').select('email,foto_url');
+      return r.error ? {} : (r.data || []).reduce(function (m, f) { m[f.email] = f.foto_url; return m; }, {});
+    } catch (e) { return {}; }
+  }
+
   async function carregarBoard() {
     var sb = cliente();
     var r = await Promise.all([
@@ -89,9 +98,10 @@ window.KB_FONTE = (function () {
       tudo(function () { return sb.from('kanban_membros').select('id,nome,usuario,email').order('nome'); }, 'membros'),
       tudo(function () {
         return sb.from('kanban_cards').select(CAMPOS_CARD).eq('arquivado', false).order('pos');
-      }, 'cards')
+      }, 'cards'),
+      fotos()
     ]);
-    return { listas: r[0], etiquetas: r[1], membros: r[2], cards: r[3].map(resumo) };
+    return { listas: r[0], etiquetas: r[1], membros: r[2], cards: r[3].map(resumo), fotos: r[4] };
   }
 
   async function umResumo(id) {

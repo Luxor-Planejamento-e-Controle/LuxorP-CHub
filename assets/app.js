@@ -1082,6 +1082,21 @@ function renderApresentacao(el, deck, titulo){
   });
 })();
 
+/* Foto do Slack no avatar do topo (tabela hub_fotos, seção 9 do sql/hub_schema.sql;
+   quem preenche é o pc_hub_fotos na Azure). Enfeite: sem foto, sem tabela ou com a
+   imagem quebrada, ficam as iniciais. Por DOM, não innerHTML: a URL vem do banco. */
+async function fotoNoAvatar(email){
+  try{
+    const sb=window.HUB && window.HUB.sb; if(!sb) return;
+    const {data,error}=await sb.from('hub_fotos').select('foto_url').eq('email',email).maybeSingle();
+    if(error || !data || !/^https:\/\//.test(data.foto_url||'')) return;
+    const el=document.getElementById('userAvatar'), img=new Image();
+    img.alt=''; img.referrerPolicy='no-referrer';
+    img.onload=()=>{ el.textContent=''; el.appendChild(img); el.classList.add('com-foto'); };
+    img.src=data.foto_url;
+  }catch(e){ /* fica com as iniciais */ }
+}
+
 /* ---- boot: chamado pelo porteiro (assets/auth.js) depois da sessão ---- */
 let booted=false;
 window.hubBoot=function(){
@@ -1095,6 +1110,7 @@ window.hubBoot=function(){
     document.getElementById('userAvatar').textContent=
       nome.split(/[\s.]+/).slice(0,2).map(s=>s[0]||'').join('').toUpperCase();
     chip.hidden=false; out.hidden=false; out.onclick=window.hubSignOut;
+    fotoNoAvatar(window.HUB.email);
   }
   buildNav();
   window.addEventListener('hashchange',router);

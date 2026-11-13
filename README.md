@@ -139,6 +139,10 @@ Avisos no Slack, por mensagem direta: os gatilhos do banco enfileiram em
 `luxor-planejamento-functions`, em dia útil. Precisa de `KANBAN_SLACK_BOT_TOKEN` nas App
 Settings do Function App.
 
+Fotos dos avatares (topo do hub e Kanban): a do perfil do Slack de cada pessoa, copiada
+para a tabela `hub_fotos` (seção 9 do `sql/hub_schema.sql`) pelo `pc_hub_fotos`, de hora em
+hora em dia útil. Sem foto no Slack, ficam as iniciais.
+
 Os cards do fechamento mensal são criados pelo `pc_trello` (repo
 `LuxorMonthlyP-CRoutines`, `Trello_automations`): com `"destino": "hub"` no
 `cards_mensais.json` eles nascem aqui, pela função `kanban_copiar_card`.
