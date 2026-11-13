@@ -75,6 +75,8 @@ BASE = {
          "membro_id": None, "prazo": None},
         {"id": "i2", "checklist_id": "k1", "nome": "Enviar ao board", "pos": 2, "concluido": False,
          "membro_id": M_ALINE, "prazo": None},
+        {"id": "i3", "checklist_id": "k1", "nome": "Arquivar no Drive", "pos": 3, "concluido": False,
+         "membro_id": None, "prazo": None},
     ],
     "kanban_comentarios": [
         {"id": "cm1", "card_id": "c-fech", "autor_nome": "Aline", "autor_email": "alguem@luxor.com.br",
@@ -92,6 +94,8 @@ BASE = {
          "autor_email": "alguem@luxor.com.br", "criado_em": "2026-11-04T09:30:00Z", "pos": 2},
     ],
     "kanban_seguidores": [],
+    "kanban_reacoes": [{"id": "r1", "comentario_id": "cm1", "emoji": "👍", "autor_nome": "Fulano de Tal",
+                        "autor_email": EU}],
     # foto do Slack (hub_fotos): só o Fulano tem
     "hub_fotos": [{"email": EU, "foto_url": "https://avatars.slack-edge.com/teste/fulano_192.png"}],
     "kanban_atividade": [
@@ -149,8 +153,11 @@ class Fake:
                 velhas = {l["id"] for l in self.db["kanban_listas"] if l["arquivada"]}
                 linhas = [c for c in linhas if c["arquivado"] or c["lista_id"] in velhas]
             else:
-                linhas = [c for c in linhas if self._casa(c, {k: v for k, v in f.items() if k in ("id", "arquivado")})]
+                linhas = [c for c in linhas if self._casa(c, {k: v for k, v in f.items() if k in ("id", "arquivado", "modelo")})]
             return [self.card_resumo(c) for c in linhas]
+        if tabela == "kanban_comentarios":
+            return [{**m, "kanban_reacoes": [r for r in self.db["kanban_reacoes"] if r["comentario_id"] == m["id"]]}
+                    for m in self.db["kanban_comentarios"] if self._casa(m, f)]
         if tabela == "kanban_checklists":
             return [{**k, "kanban_checkitens": [i for i in self.db["kanban_checkitens"] if i["checklist_id"] == k["id"]]}
                     for k in self.db["kanban_checklists"] if self._casa(k, f)]
@@ -176,9 +183,11 @@ class Fake:
                      "prazo_concluido": False, "modelo": False, "criado_por": "Fulano de Tal",
                      "criado_em": "2026-11-12T12:00:00Z", "atualizado_em": "2026-11-12T12:00:00Z",
                      "trello_url": None, **l}
-            if tabela == "kanban_comentarios":   # o gatilho do banco carimba o autor
-                l.update({"autor_nome": "Fulano de Tal", "autor_email": EU,
-                          "criado_em": "2026-11-12T12:00:00Z", "editado_em": None})
+            if tabela in ("kanban_comentarios", "kanban_reacoes"):   # o gatilho carimba o autor
+                l.update({"autor_nome": "Fulano de Tal", "autor_email": EU, "criado_em": "2026-11-12T12:00:00Z"})
+                if tabela == "kanban_comentarios":
+                    l["editado_em"] = None
+                l.setdefault("id", f"novo-{self.seq}")
             if tabela == "kanban_checkitens":
                 l.setdefault("concluido", False); l.setdefault("membro_id", None); l.setdefault("prazo", None)
             self.db.setdefault(tabela, []).append(l)
@@ -322,7 +331,7 @@ class TestKanban(unittest.TestCase):
         face = self.pg.locator('.kcard[data-id="c-fech"]')
         txt = face.inner_text()
         self.assertIn("Aline", txt, "etiqueta com o nome")
-        self.assertIn("1/2", txt, "itens do checklist feitos/total")
+        self.assertIn("1/3", txt, "itens do checklist feitos/total")
         self.assertIn("2", txt, "comentários")
         self.assertEqual(face.locator(".av").count(), 1, "um membro")
         dre = self.pg.locator('.kcard[data-id="c-dre"]')
@@ -525,6 +534,147 @@ class TestKanban(unittest.TestCase):
         pg.wait_for_timeout(500)
         self.assertIn("moveu", pg.inner_text(".gaveta"))
         pg.click("#btFecharGav")
+
+    # ---------------- o resto do Trello ----------------
+
+    def test_50_reacoes(self):
+        pg = self.pg
+        self._abrir()
+        meu = pg.locator('[data-coment="cm1"] .reacao.minha')
+        self.assertIn("👍 1", meu.inner_text(), "a reação veio do banco, e é minha")
+        meu.click()
+        pg.wait_for_timeout(500)
+        f, _c = _ultima(self, "DELETE", "kanban_reacoes")
+        self.assertEqual(f, {"comentario_id": "cm1", "emoji": "👍", "autor_email": EU}, "clicar na sua tira a sua")
+        pg.hover('[data-coment="cm1"]')
+        pg.click('[data-coment="cm1"] [data-a="add-reacao"]')
+        pg.click('.emojis [data-emoji="👏"]')
+        pg.wait_for_timeout(500)
+        _f, c = _ultima(self, "POST", "kanban_reacoes")
+        self.assertEqual(c, {"comentario_id": "cm1", "emoji": "👏"}, "autor não vai da tela")
+
+    def test_51_datas_com_inicio_e_lembrete(self):
+        pg = self.pg
+        self._abrir()
+        pg.click('.dlg-side [data-a="prazo"]')
+        pg.check("#inTemInicio")
+        pg.fill("#inInicio", "2026-11-20T09:00")
+        pg.fill("#inPrazo", "2026-11-27T18:00")
+        pg.select_option("#inLembrete", "15")
+        pg.click('[data-p="salvar"]')
+        pg.wait_for_timeout(500)
+        _f, c = _ultima(self, "PATCH", "kanban_cards")
+        self.assertEqual(c["lembrete_min"], 15)
+        self.assertTrue(c["inicio"].startswith("2026-11-2") and c["prazo"].startswith("2026-11-2"))
+        self.assertIn("20 – 27 nov", pg.inner_text('.kcard[data-id="c-fech"]'), "início e prazo no card")
+
+    def test_52_copiar_com_anexos_e_comentarios(self):
+        pg = self.pg
+        self._abrir()
+        pg.click('.dlg-side [data-a="copiar"]')
+        pg.click('[data-c="ok"]')
+        pg.wait_for_timeout(600)
+        _f, c = _ultima(self, "RPC", "kanban_copiar_card")
+        self.assertTrue(c["p_anexos"] and c["p_comentarios"], "como no Trello, mantém tudo por padrão")
+
+    def test_53_tornar_modelo_e_criar_a_partir_dele(self):
+        pg = self.pg
+        self._abrir()
+        pg.click('.dlg-side [data-a="tornar-modelo"]')
+        pg.wait_for_timeout(500)
+        f, c = _ultima(self, "PATCH", "kanban_cards")
+        self.assertEqual((f, c), ({"id": "c-fech"}, {"modelo": True}))
+        pg.click('[data-a="criar-do-modelo"]')
+        self.assertFalse(pg.locator("#cpCom").is_checked(), "do modelo não vêm os comentários")
+        pg.fill("#inCpNome", "Novo a partir do modelo")
+        pg.click('[data-c="ok"]')
+        pg.wait_for_timeout(600)
+        _f, c = _ultima(self, "RPC", "kanban_copiar_card")
+        self.assertEqual(c["p_nome"], "Novo a partir do modelo")
+        self._fechar()
+
+    def test_54_filtro_sem_etiqueta(self):
+        pg = self.pg
+        self._fechar()
+        pg.click("#fEtiquetas")
+        pg.click('.pop [data-sem="1"]')
+        pg.wait_for_timeout(200)
+        ids = [e.get_attribute("data-id") for e in pg.locator(".kcard").all()]
+        self.assertIn("c-xss", ids)
+        self.assertNotIn("c-dre", ids)
+        pg.keyboard.press("Escape")
+        pg.click("#fLimpar")
+
+    def test_55_recolher_lista(self):
+        pg = self.pg
+        pg.click(f'.kcol[data-lista="{L_TODO}"] [data-acao="menu-lista"]')
+        pg.click('.pop [data-a="recolher"]')
+        self.assertEqual(pg.locator(f'.kcol.recolhida[data-lista="{L_TODO}"]').count(), 1)
+        pg.click(f'.kcol.recolhida[data-lista="{L_TODO}"] .vertical')
+        self.assertEqual(pg.locator(f'.kcol.recolhida[data-lista="{L_TODO}"]').count(), 0)
+
+    def test_56_ordenar_lista_por_nome(self):
+        pg = self.pg
+        antes = len(self.fake.escritas)
+        pg.click(f'.kcol[data-lista="{L_TODO}"] [data-acao="menu-lista"]')
+        pg.click('.pop [data-a="ordenar"]')
+        pg.click('.pop [data-o="nome"]')
+        pg.wait_for_timeout(700)
+        novas = [e for e in self.fake.escritas[antes:] if e[0] == "PATCH" and e[1] == "kanban_cards"]
+        self.assertTrue(novas and all(set(c) == {"pos"} for _m, _t, _f, c in novas), "renumera as posições")
+
+    def test_57_visualizador_de_anexo(self):
+        pg = self.pg
+        self._abrir()
+        pg.click('[data-anexo-id="a2"] .nome')
+        pg.wait_for_selector(".visor-corpo img", timeout=5000)
+        self.assertIn("2", pg.inner_text(".visor-barra"), "seta entre os 2 anexos")
+        pg.keyboard.press("ArrowLeft")
+        pg.wait_for_selector(".visor-corpo iframe", timeout=5000)     # o pdf abre aqui mesmo
+        pg.keyboard.press("Escape")
+        self.assertEqual(pg.locator(".visor").count(), 0)
+        self.assertEqual(pg.locator("#ovl").count(), 1, "Esc fecha só o visualizador")
+
+    def test_58_barra_de_formatacao(self):
+        pg = self.pg
+        pg.fill("#novoComent", "importante")
+        pg.evaluate("() => document.getElementById('novoComent').setSelectionRange(0, 10)")
+        pg.click('.fmt[data-alvo="novoComent"] [data-fmt="b"]')
+        self.assertEqual(pg.input_value("#novoComent"), "**importante**")
+        pg.fill("#novoComent", "")
+
+    def test_59_arrastar_item_de_checklist(self):
+        pg = self.pg
+        pg.evaluate("""() => {
+          const dt = new DataTransfer(), it = document.querySelector('[data-item="i1"]');
+          it.dispatchEvent(new DragEvent('dragstart', {bubbles: true, dataTransfer: dt}));
+          const r = document.querySelector('[data-item="i3"]').getBoundingClientRect();
+          document.querySelector('[data-item="i3"]').dispatchEvent(new DragEvent('dragover',
+            {bubbles: true, cancelable: true, clientX: r.left + 10, clientY: r.bottom - 2, dataTransfer: dt}));
+          document.querySelector('.ph-item').dispatchEvent(new DragEvent('drop', {bubbles: true, cancelable: true, dataTransfer: dt}));
+        }""")
+        pg.wait_for_timeout(500)
+        f, c = _ultima(self, "PATCH", "kanban_checkitens")
+        self.assertEqual(f, {"id": "i1"})
+        self.assertEqual(c["checklist_id"], "k1")
+        self.assertGreater(c["pos"], 3, "i1 foi para depois do i3")
+        self._fechar()
+
+    def test_60_arrastar_lista(self):
+        pg = self.pg
+        pg.evaluate(f"""() => {{
+          const dt = new DataTransfer();
+          document.querySelector('.kcol[data-lista="{L_DONE}"] .kcol-head').dispatchEvent(
+            new DragEvent('dragstart', {{bubbles: true, dataTransfer: dt}}));
+          const alvo = document.querySelector('.kcol[data-lista="{L_TODO}"]'), r = alvo.getBoundingClientRect();
+          alvo.dispatchEvent(new DragEvent('dragover', {{bubbles: true, cancelable: true, clientX: r.left + 5, clientY: r.top + 20, dataTransfer: dt}}));
+          document.querySelector('.ph-lista').dispatchEvent(new DragEvent('drop', {{bubbles: true, cancelable: true, dataTransfer: dt}}));
+        }}""")
+        pg.wait_for_timeout(500)
+        f, c = _ultima(self, "PATCH", "kanban_listas")
+        self.assertEqual(f, {"id": L_DONE})
+        self.assertLess(c["pos"], 100, "Done foi para antes do To Do")
+        pg.evaluate("() => document.querySelectorAll('.kcol').forEach(c => c.dispatchEvent(new DragEvent('dragend', {bubbles: true})))")
 
     def test_90_arquivar_todos_os_cards_da_lista(self):
         # por último: arquiva a lista onde o card dos outros testes foi parar

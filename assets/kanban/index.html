@@ -1998,10 +1998,11 @@ function popPrazo(anc) {
         if ($('#inTemInicio').checked && !ini) return $('#inInicio').focus();
         if ($('#inTemPrazo').checked && !pz) return $('#inPrazo').focus();
         if (ini && pz && new Date(ini) > new Date(pz)) return toast('O início tem de ser antes do prazo.', true);
-        const l = $('#inLembrete').value;
+        // tudo lido ANTES de fechar: fechado, o popover some e os campos com ele
+        const l = $('#inLembrete').value, ok = $('#inPrazoOk').checked;
         fecharPop();
         mudarCard({ inicio: ini ? new Date(ini).toISOString() : null, prazo: pz ? new Date(pz).toISOString() : null,
-                    prazo_concluido: pz ? $('#inPrazoOk').checked : false, lembrete_min: l === '' ? null : Number(l) });
+                    prazo_concluido: pz ? ok : false, lembrete_min: l === '' ? null : Number(l) });
       });
     });
 }
