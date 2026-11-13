@@ -67,6 +67,15 @@ a{color:var(--teal-light)}
 .kcol{flex:0 0 var(--col-w);max-height:100%;display:flex;flex-direction:column;background:var(--bg-2);
   border:1px solid var(--line);border-radius:var(--r)}
 .kcol-head{display:flex;align-items:center;gap:8px;padding:10px 10px 6px 14px}
+.kcol-head[draggable="true"]{cursor:grab}
+.kcol.arrastando{opacity:.35}
+.ph-lista{flex:0 0 var(--col-w);border:2px dashed var(--orange);border-radius:var(--r);background:var(--orange-soft)}
+.kcol-topo{padding:2px 8px 6px}
+/* lista recolhida: faixa estreita, nome na vertical */
+.kcol.recolhida{flex:0 0 44px;align-items:center;padding:8px 0;gap:8px;cursor:pointer}
+.kcol.recolhida .vertical{writing-mode:vertical-rl;font-family:var(--font-serif);font-weight:600;font-size:13.5px;
+  white-space:nowrap;display:flex;gap:8px;align-items:center}
+.kcol.recolhida .vertical .n{color:var(--ink-3);font-size:12px}
 .kcol-head h2{font-family:var(--font-serif);font-size:14px;font-weight:600;margin:0;flex:1;
   overflow-wrap:anywhere;cursor:text}
 .kcol-head .n{color:var(--ink-3);font-size:12px;font-variant-numeric:tabular-nums}
@@ -128,6 +137,42 @@ a{color:var(--teal-light)}
   max-width:calc(100vw - 32px)}
 .toast.erro{border-color:rgba(229,103,78,.7);background:#3a2422}
 .toast .lnk{margin-left:12px;font-size:13px;color:var(--orange)}
+
+/* ---- reações, formatação, visualizador ---- */
+.reacoes{display:inline-flex;flex-wrap:wrap;gap:5px;align-items:center}
+.reacao{height:24px;padding:0 8px;border-radius:12px;border:1px solid var(--line);background:var(--surface);color:var(--ink);
+  font-size:12.5px;cursor:pointer;font-family:inherit}
+.reacao:hover{border-color:var(--line-strong)}
+.reacao.minha{border-color:var(--orange);background:var(--orange-soft)}
+.reacao.mais-reacao{color:var(--ink-3);opacity:0;transition:opacity .12s}
+.evento:hover .mais-reacao,.mais-reacao:focus{opacity:1}
+.emojis{display:grid;grid-template-columns:repeat(6,1fr);gap:4px}
+.emojis button{height:38px;font-size:20px;border:0;border-radius:8px;background:transparent;cursor:pointer}
+.emojis button:hover{background:var(--surface-2)}
+.fmt{display:flex;flex-wrap:wrap;gap:2px;margin-bottom:4px}
+.fmt button{min-width:28px;height:26px;padding:0 6px;border:1px solid transparent;border-radius:6px;background:transparent;
+  color:var(--ink-2);cursor:pointer;font-size:12.5px;display:inline-grid;place-items:center}
+.fmt button:hover{background:var(--surface);border-color:var(--line);color:var(--ink)}
+.novo-coment .fmt{opacity:.7}
+.novo-coment:focus-within .fmt{opacity:1}
+.banner-modelo{background:rgba(46,151,166,.16);border-bottom-color:rgba(46,151,166,.45)}
+.kb-ver{cursor:zoom-in}
+.item[draggable="true"]{cursor:grab}
+.item.arrastando{opacity:.35}
+.ph-item{border:2px dashed var(--orange);border-radius:7px;background:var(--orange-soft);margin:2px 0}
+.visor{position:fixed;inset:0;z-index:80;background:rgba(3,10,12,.92);display:flex;flex-direction:column}
+.visor-barra{display:flex;align-items:center;gap:10px;padding:10px 16px;border-bottom:1px solid var(--line)}
+.visor-barra .nm{font-weight:600;overflow-wrap:anywhere}
+.visor-barra .sub{color:var(--ink-3);font-size:12px}
+.visor-corpo{flex:1;display:grid;place-items:center;padding:16px;overflow:auto}
+.visor-corpo img{max-width:100%;max-height:calc(100vh - 110px);border-radius:6px;box-shadow:0 10px 40px rgba(0,0,0,.6)}
+.visor-corpo iframe{width:min(1100px,100%);height:calc(100vh - 100px);border:0;border-radius:6px;background:#fff}
+.sem-previa{text-align:center;color:var(--ink-2)}
+.sem-previa .big{font-size:28px;font-weight:700;color:var(--ink);margin-bottom:6px}
+.visor-nav{position:absolute;top:50%;transform:translateY(-50%);width:46px;height:46px;border-radius:50%;border:1px solid var(--line-strong);
+  background:rgba(20,56,64,.85);color:var(--ink);cursor:pointer;display:grid;place-items:center}
+.visor-nav.ant{left:14px}
+.visor-nav.prox{right:14px}
 
 /* ---- capa e sugestão de @ ---- */
 .kcard .capa{margin:-8px -10px 7px;border-radius:10px 10px 0 0;overflow:hidden;max-height:150px;background:var(--surface-2)}
@@ -288,6 +333,7 @@ a{color:var(--teal-light)}
 <div id="gaveta"></div>
 <div id="pop"></div>
 <div id="mencoes"></div>
+<div id="visor"></div>
 <div id="toast"></div>
 
 <script src="../vendor/supabase.min.js"></script>
@@ -610,25 +656,49 @@ function faceCard(c) {
   </div>`;
 }
 
+/* Listas recolhidas ("Recolher lista" do Trello): por pessoa, neste navegador. */
+let RECOLHIDAS = new Set();
+try { RECOLHIDAS = new Set(JSON.parse(localStorage.getItem('kanban.recolhidas') || '[]')); } catch (e) {}
+function alternarRecolhida(id) {
+  if (RECOLHIDAS.has(id)) RECOLHIDAS.delete(id); else RECOLHIDAS.add(id);
+  try { localStorage.setItem('kanban.recolhidas', JSON.stringify([...RECOLHIDAS])); } catch (e) {}
+  renderBoard();
+}
+
+function composer(l) {
+  const temModelo = S.cards.some(c => c.modelo);
+  return `<div class="composer">
+      <textarea id="inCard" placeholder="Título do card" aria-label="Título do novo card"></textarea>
+      <div class="row"><button class="btn-acao btn-mini" data-acao="salvar-card" type="button">Adicionar card</button>
+        <button class="ico-btn" data-acao="cancelar-card" type="button" aria-label="Cancelar">${svg('x', 16)}</button>
+        ${temModelo ? `<span style="flex:1"></span><button class="btn btn-mini" data-acao="usar-modelo" type="button" title="Criar a partir de um card modelo">${svg('copiar', 12)} Modelo</button>` : ''}</div>
+    </div>`;
+}
+
 function coluna(l) {
   const todos = cardsDaLista(l.id);
   const vis = todos.filter(passaFiltro);
   const filtrando = KB.filtroAtivo(S.filtro);
+  const n = `${filtrando ? vis.length + '/' : ''}${todos.length}`;
+  if (RECOLHIDAS.has(l.id)) {
+    return `<section class="kcol recolhida" data-lista="${esc(l.id)}" aria-label="${esc(l.nome)} (recolhida)">
+      <button class="ico-btn" data-acao="expandir" type="button" title="Expandir a lista" aria-label="Expandir ${esc(l.nome)}">${svg('dir', 14)}</button>
+      <div class="vertical" data-acao="expandir">${esc(l.nome)} <span class="n">${n}</span></div>
+    </section>`;
+  }
+  const noTopo = compondo && compondo.lista === l.id && compondo.topo;
   return `<section class="kcol" data-lista="${esc(l.id)}" aria-label="${esc(l.nome)}">
-    <div class="kcol-head">
+    <div class="kcol-head"${renomeandoLista === l.id ? '' : ' draggable="true" title="Arraste para mudar a lista de lugar"'}>
       ${renomeandoLista === l.id
         ? `<input id="inLista" value="${esc(l.nome)}" aria-label="Nome da lista">`
         : `<h2 data-acao="renomear-lista" title="Clique para renomear">${esc(l.nome)}</h2>`}
-      <span class="n">${filtrando ? vis.length + '/' : ''}${todos.length}</span>
+      <span class="n">${n}</span>
       <button class="ico-btn" data-acao="menu-lista" type="button" aria-label="Ações da lista">${svg('menu', 16)}</button>
     </div>
+    ${noTopo ? `<div class="kcol-topo">${composer(l)}</div>` : ''}
     <div class="kcol-cards" data-lista="${esc(l.id)}">${vis.map(faceCard).join('')}</div>
-    <div class="kcol-foot">${compondo === l.id ? `
-      <div class="composer">
-        <textarea id="inCard" placeholder="Título do card" aria-label="Título do novo card"></textarea>
-        <div class="row"><button class="btn-acao btn-mini" data-acao="salvar-card" type="button">Adicionar card</button>
-          <button class="ico-btn" data-acao="cancelar-card" type="button" aria-label="Cancelar">${svg('x', 16)}</button></div>
-      </div>` : `<button class="add-card" data-acao="novo-card" type="button">+ Adicionar card</button>`}</div>
+    <div class="kcol-foot">${compondo && compondo.lista === l.id && !compondo.topo ? composer(l)
+      : `<button class="add-card" data-acao="novo-card" type="button">+ Adicionar card</button>`}</div>
   </section>`;
 }
 
@@ -665,9 +735,11 @@ $('#board').addEventListener('click', ev => {
   const lista = col && col.dataset.lista;
   if (alvo) {
     const a = alvo.dataset.acao;
-    if (a === 'novo-card') { compondo = lista; renderBoard(); }
+    if (a === 'novo-card') { compondo = { lista, topo: false }; renderBoard(); }
     else if (a === 'cancelar-card') { compondo = null; renderBoard(); }
     else if (a === 'salvar-card') salvarCardNovo(lista);
+    else if (a === 'usar-modelo') popModelos(alvo, lista);
+    else if (a === 'expandir') alternarRecolhida(lista);
     else if (a === 'renomear-lista') { renomeandoLista = lista; renderBoard(); }
     else if (a === 'menu-lista') menuLista(alvo, lista);
     return;
@@ -687,6 +759,9 @@ $('#board').addEventListener('contextmenu', ev => {
   if (!c) return;
   abrirPop(ancoraNoPonto(ev.clientX, ev.clientY), c.nome, () => `<div class="rows">
       <div class="opt" data-q="abrir">${svg('desc')}<span class="nm">Abrir card</span></div>
+      <div class="opt" data-q="etiquetas">${svg('etiqueta')}<span class="nm">Etiquetas…</span></div>
+      <div class="opt" data-q="membros">${svg('pessoa')}<span class="nm">Membros…</span></div>
+      <div class="opt" data-q="prazo">${svg('relogio')}<span class="nm">Datas…</span></div>
       <div class="opt" data-q="link">${svg('link')}<span class="nm">Copiar link</span></div>
       <div class="opt" data-q="mover">${svg('mover')}<span class="nm">Mover…</span></div>
       <div class="opt" data-q="copiar">${svg('copiar')}<span class="nm">Copiar…</span></div>
@@ -700,7 +775,7 @@ $('#board').addEventListener('contextmenu', ev => {
     if (q === 'link') return copiarLink(c.id);
     if (q === 'arquivar') return arquivarCard(c.id);
     if (q === 'seguir') return tentar(() => KB_FONTE.seguir(c.id, S.eu.membroId, !eSigo(c)));
-    await abrirCard(c.id);                                 // mover / copiar: os mesmos do card
+    await abrirCard(c.id);                // etiquetas, membros, datas, mover, copiar: os do card
     const b = $(`.dlg-side [data-a="${q}"]`); if (b) b.click();
   }));
 });
@@ -737,23 +812,75 @@ async function salvarCardNovo(listaId) {
   const nome = ic ? ic.value.trim() : '';
   if (!nome) { if (ic) ic.focus(); return; }
   ic.value = '';
-  const ult = cardsDaLista(listaId).slice(-1)[0];
-  await tentar(() => KB_FONTE.criarCard(listaId, nome, ult ? ult.pos + KB.PASSO : KB.PASSO));
+  const cs = cardsDaLista(listaId);
+  // no topo: metade da posição do primeiro; no fim: depois do último
+  const pos = compondo && compondo.topo
+    ? (cs[0] ? (KB.posEntre(null, cs[0].pos) || cs[0].pos / 2) : KB.PASSO)
+    : (cs.length ? cs[cs.length - 1].pos + KB.PASSO : KB.PASSO);
+  await tentar(() => KB_FONTE.criarCard(listaId, nome, pos));
+}
+
+/* "Criar a partir de modelo": lista os cards modelo; a cópia leva checklists,
+   etiquetas, membros e anexos, como o "Criar card a partir do modelo" do Trello. */
+async function popModelos(anc, listaId) {
+  let modelos = [];
+  try { modelos = await KB_FONTE.modelos(); } catch (e) { return toast(e.message, true); }
+  const titulo = ($('#inCard') && $('#inCard').value.trim()) || '';
+  abrirPop(anc, 'Criar a partir de modelo', () => modelos.length
+    ? `<div class="rows">${modelos.map(m => `<div class="opt" data-m="${esc(m.id)}"><span class="nm">${esc(m.nome)}</span></div>`).join('')}</div>`
+    : '<div class="sub">Nenhum card modelo. Abra um card e use "Tornar modelo".</div>',
+    el => el.addEventListener('click', async ev => {
+      const o = ev.target.closest('[data-m]'); if (!o) return;
+      fecharPop();
+      const m = modelos.find(x => x.id === o.dataset.m);
+      const cs = cardsDaLista(listaId);
+      const pos = compondo && compondo.topo ? (cs[0] ? cs[0].pos / 2 : KB.PASSO)
+        : (cs.length ? cs[cs.length - 1].pos + KB.PASSO : KB.PASSO);
+      compondo = null;
+      const novo = await tentar(() => KB_FONTE.copiarCard(m.id, titulo || m.nome, listaId, pos,
+        { checklists: true, etiquetas: true, membros: true, anexos: true, comentarios: false }));
+      if (novo) abrirCard(novo);                 // a cópia nasce card comum, não modelo
+    }));
+}
+
+/* Renumera as listas abertas na ordem dada (quando não cabe posição entre duas). */
+async function renumerarListas(ordem) {
+  const pos = KB.renumerar(ordem.length);
+  for (let i = 0; i < ordem.length; i++) await KB_FONTE.atualizarLista(ordem[i].id, { pos: pos[i] });
 }
 
 function menuLista(anc, listaId) {
   const ls = listasAbertas(), i = ls.findIndex(l => l.id === listaId), l = ls[i];
+  const n = cardsDaLista(listaId).length;
   abrirPop(anc, l.nome, () => `<div class="rows">
+      <div class="opt" data-a="topo"><span class="nm">Adicionar card no topo</span></div>
       <div class="opt" data-a="renomear"><span class="nm">Renomear</span></div>
+      <div class="opt" data-a="copiar-lista"><span class="nm">Copiar lista…</span></div>
+      ${n && ls.length > 1 ? '<div class="opt" data-a="mover-todos"><span class="nm">Mover todos os cards desta lista…</span></div>' : ''}
+      ${n > 1 ? '<div class="opt" data-a="ordenar"><span class="nm">Ordenar por…</span></div>' : ''}
       ${i > 0 ? '<div class="opt" data-a="esq"><span class="nm">Mover para a esquerda</span></div>' : ''}
       ${i < ls.length - 1 ? '<div class="opt" data-a="dir"><span class="nm">Mover para a direita</span></div>' : ''}
-      ${cardsDaLista(listaId).length ? '<div class="opt" data-a="arquivar-cards"><span class="nm">Arquivar todos os cards desta lista</span></div>' : ''}
+      <div class="opt" data-a="recolher"><span class="nm">Recolher lista</span></div>
+      ${n ? '<div class="opt" data-a="arquivar-cards"><span class="nm">Arquivar todos os cards desta lista</span></div>' : ''}
       <div class="opt" data-a="arquivar"><span class="nm">Arquivar esta lista</span></div>
     </div>`, el => el.addEventListener('click', ev => {
     const o = ev.target.closest('.opt'); if (!o) return;
-    fecharPop();
     const a = o.dataset.a;
-    if (a === 'renomear') { renomeandoLista = listaId; renderBoard(); }
+    if (a === 'mover-todos') return popMoverTodos(anc, l);
+    if (a === 'ordenar') return popOrdenar(anc, l);
+    fecharPop();
+    if (a === 'topo') { compondo = { lista: listaId, topo: true }; renderBoard(); }
+    else if (a === 'recolher') alternarRecolhida(listaId);
+    else if (a === 'copiar-lista') {
+      const nome = prompt('Nome da cópia da lista', l.nome);
+      if (!nome || !nome.trim()) return;
+      const prox = ls[i + 1];
+      const pos = KB.posEntre(l.pos, prox ? prox.pos : null) || l.pos + 1;
+      toast('Copiando a lista…');
+      tentar(() => KB_FONTE.copiarLista(l, nome.trim(), pos, cardsDaLista(listaId)))
+        .then(r => { if (r) toast(`Lista "${nome.trim()}" criada com ${n} card${n === 1 ? '' : 's'}.`); });
+    }
+    else if (a === 'renomear') { renomeandoLista = listaId; renderBoard(); }
     else if (a === 'esq' || a === 'dir') {
       // troca de lugar com a vizinha: duas gravações, e a ordem fica certa mesmo
       // quando as duas tinham a mesma posição
@@ -776,6 +903,32 @@ function menuLista(anc, listaId) {
   }));
 }
 
+function popMoverTodos(anc, l) {
+  const cards = cardsDaLista(l.id);
+  abrirPop(anc, 'Mover todos os cards para', () => `<div class="rows">${listasAbertas().filter(x => x.id !== l.id)
+    .map(x => `<div class="opt" data-l="${esc(x.id)}"><span class="nm">${esc(x.nome)}</span></div>`).join('')}</div>`,
+    el => el.addEventListener('click', ev => {
+      const o = ev.target.closest('[data-l]'); if (!o) return;
+      fecharPop();
+      const destino = cardsDaLista(o.dataset.l);
+      const fim = destino.length ? destino[destino.length - 1].pos : 0;
+      tentar(() => KB_FONTE.moverTodos(cards, o.dataset.l, fim))
+        .then(() => toast(`${cards.length} card${cards.length === 1 ? '' : 's'} movido${cards.length === 1 ? '' : 's'}.`));
+    }));
+}
+
+function popOrdenar(anc, l) {
+  const op = [['novos', 'Mais novos primeiro'], ['antigos', 'Mais antigos primeiro'], ['nome', 'Nome (A–Z)'],
+              ['prazo', 'Prazo (mais próximo primeiro)']];
+  abrirPop(anc, 'Ordenar lista', () => `<div class="rows">${op.map(([v, t]) =>
+    `<div class="opt" data-o="${v}"><span class="nm">${t}</span></div>`).join('')}</div>`,
+    el => el.addEventListener('click', ev => {
+      const o = ev.target.closest('[data-o]'); if (!o) return;
+      fecharPop();
+      tentar(() => KB_FONTE.renumerarLista(KB.ordenar(cardsDaLista(l.id), o.dataset.o)));
+    }));
+}
+
 /* ---------- arrastar e soltar ----------
    Só o card arrastado é gravado: ganha a posição entre os vizinhos de onde caiu
    (KB.posEntre). Se não couber número entre eles, a lista toda é renumerada. */
@@ -783,7 +936,23 @@ let arrastado = null;
 const ph = document.createElement('div');
 ph.className = 'placeholder';
 
+/* Lista arrastada pelo cabeçalho: uma coluna tracejada mostra onde ela vai cair; ao
+   soltar grava só a posição dela (o ponto médio entre as vizinhas). */
+let arrastadoLista = null;
+const phLista = document.createElement('div');
+phLista.className = 'ph-lista';
+
 $('#board').addEventListener('dragstart', ev => {
+  const cab = ev.target.closest && ev.target.closest('.kcol-head');
+  if (cab && !ev.target.closest('.kcard')) {
+    const col = cab.closest('.kcol');
+    arrastadoLista = col.dataset.lista;
+    phLista.style.height = Math.min(col.offsetHeight, 400) + 'px';
+    ev.dataTransfer.effectAllowed = 'move';
+    try { ev.dataTransfer.setData('text/plain', 'lista:' + arrastadoLista); } catch (e) {}
+    requestAnimationFrame(() => col.classList.add('arrastando'));
+    return;
+  }
   const c = ev.target.closest && ev.target.closest('.kcard');
   if (!c) return;
   arrastado = c.dataset.id;
@@ -793,10 +962,38 @@ $('#board').addEventListener('dragstart', ev => {
   requestAnimationFrame(() => c.classList.add('arrastando'));
 });
 $('#board').addEventListener('dragend', () => {
-  $$('.kcard.arrastando').forEach(c => c.classList.remove('arrastando'));
+  $$('.kcard.arrastando, .kcol.arrastando').forEach(c => c.classList.remove('arrastando'));
   if (ph.parentNode) ph.parentNode.removeChild(ph);
-  arrastado = null;
+  if (phLista.parentNode) phLista.parentNode.removeChild(phLista);
+  arrastado = null; arrastadoLista = null;
   pararRolagem();
+});
+$('#board').addEventListener('dragover', ev => {
+  if (!arrastadoLista) return;
+  ev.preventDefault();
+  const board = $('#board');
+  const cols = $$('.kcol:not(.arrastando)', board);
+  const depois = cols.find(el => { const r = el.getBoundingClientRect(); return ev.clientX < r.left + r.width / 2; });
+  if (depois) board.insertBefore(phLista, depois);
+  else board.insertBefore(phLista, $('.nova-lista', board));
+});
+$('#board').addEventListener('drop', ev => {
+  if (!arrastadoLista || !phLista.parentNode) return;
+  ev.preventDefault();
+  const id = arrastadoLista;
+  const fila = Array.from($('#board').children).filter(e => e === phLista
+    || (e.classList.contains('kcol') && e.dataset.lista !== id));
+  const i = fila.indexOf(phLista);
+  const prev = fila[i - 1] && IX.lista.get(fila[i - 1].dataset.lista);
+  const prox = fila[i + 1] && IX.lista.get(fila[i + 1].dataset.lista);
+  const atual = listasAbertas(), k = atual.findIndex(l => l.id === id);
+  if ((atual[k - 1] || null) === (prev || null) && (atual[k + 1] || null) === (prox || null)) return renderBoard();
+  const pos = KB.posEntre(prev ? prev.pos : null, prox ? prox.pos : null);
+  if (pos !== null) { IX.lista.get(id).pos = pos; renderBoard(); return tentar(() => KB_FONTE.atualizarLista(id, { pos })); }
+  // sem espaço entre as vizinhas: renumera todas na ordem nova
+  const ordem = atual.filter(l => l.id !== id);
+  ordem.splice(prox ? ordem.indexOf(prox) : ordem.length, 0, IX.lista.get(id));
+  tentar(() => renumerarListas(ordem));
 });
 
 /* Rolagem durante o arrasto. O navegador não rola sozinho uma área com barra própria
@@ -811,7 +1008,7 @@ function velocidade(dist, borda, max) {
 }
 function passoRolagem() {
   rafRolagem = 0;
-  if (!arrastado || !ponteiro) return;
+  if (!(arrastado || arrastadoLista) || !ponteiro) return;
   const board = $('#board'), r = board.getBoundingClientRect(), { x, y } = ponteiro;
   const dx = velocidade(x - r.left, BORDA_X, VEL_X) ? -velocidade(x - r.left, BORDA_X, VEL_X)
            : velocidade(r.right - x, BORDA_X, VEL_X);
@@ -834,7 +1031,7 @@ function pararRolagem() {
 // no documento inteiro, e não só nas colunas: a borda pode cair na barra de cima, no
 // espaço entre colunas ou no "Adicionar outra lista"
 document.addEventListener('dragover', ev => {
-  if (!arrastado) return;
+  if (!arrastado && !arrastadoLista) return;
   ponteiro = { x: ev.clientX, y: ev.clientY };
   if (!rafRolagem) rafRolagem = requestAnimationFrame(passoRolagem);
 });
@@ -979,6 +1176,9 @@ function renderCard() {
       <span style="flex:1">${c.arquivado ? 'Este card está arquivado.' : 'A lista deste card está arquivada.'}</span>
       ${c.arquivado ? `<button class="btn btn-mini" data-a="restaurar" type="button">${svg('restaurar', 12)} Restaurar</button>
       <button class="btn-perigo btn-mini" data-a="excluir" type="button">${svg('lixo', 12)} Excluir</button>` : ''}</div>` : ''}
+    ${c.modelo && !c.arquivado ? `<div class="banner-arq banner-modelo">${svg('copiar', 15)}
+      <span style="flex:1">Este é um card modelo.</span>
+      <button class="btn-acao btn-mini" data-a="criar-do-modelo" type="button">Criar card a partir dele</button></div>` : ''}
     <div class="dlg-head">
       <textarea class="titulo" id="titulo" rows="1" aria-label="Título do card" data-orig="${esc(c.nome)}">${esc(c.nome)}</textarea>
       <div class="dlg-sub">
@@ -996,15 +1196,16 @@ function renderCard() {
             <button class="mais" data-a="membros" type="button" aria-label="Membros">+</button></div></div>
           <div><h4>Etiquetas</h4><div class="linha">${etqs.map(e => chipEtq(e, true)).join('')}
             <button class="mais" data-a="etiquetas" type="button" aria-label="Etiquetas">+</button></div></div>
-          ${c.prazo ? `<div><h4>Prazo</h4><div class="linha">
+          ${c.prazo || c.inicio ? `<div><h4>Datas</h4><div class="linha">
             <label class="chk" style="margin:0;display:flex;gap:6px;align-items:center;font-size:13px">
-              <input type="checkbox" id="mPrazoOk" ${c.prazo_concluido ? 'checked' : ''} style="accent-color:var(--orange)"> ${chipPrazo(c, true)}</label>
+              ${c.prazo ? `<input type="checkbox" id="mPrazoOk" ${c.prazo_concluido ? 'checked' : ''} style="accent-color:var(--orange)" aria-label="Prazo concluído">` : ''}
+              ${chipPrazo(c, true)}</label>
             <button class="lnk" data-a="prazo" type="button">alterar</button></div></div>` : ''}
         </div>
 
         <div class="sec"><div class="sec-head"><h3>${svg('desc', 16)} Descrição</h3>
           ${c.descricao && !editandoDesc ? '<button class="btn btn-mini" data-a="editar-desc" type="button">Editar</button>' : ''}</div>
-          ${editandoDesc ? `<div class="editor"><textarea id="inDesc" aria-label="Descrição">${esc(c.descricao)}</textarea>
+          ${editandoDesc ? `<div class="editor">${barraFmt('inDesc')}<textarea id="inDesc" aria-label="Descrição">${esc(c.descricao)}</textarea>
             <div class="row"><button class="btn-acao btn-mini" data-a="salvar-desc" type="button">Salvar</button>
             <button class="btn btn-mini" data-a="cancelar-desc" type="button">Cancelar</button></div></div>`
           : c.descricao ? `<div class="md" id="mdDesc">${md(c.descricao)}</div>`
@@ -1020,7 +1221,7 @@ function renderCard() {
         <div class="sec"><div class="sec-head"><h3>${svg('coment', 16)} Comentários e atividade</h3>
           <button class="btn btn-mini" data-a="detalhes" type="button">${S.detalhes ? 'Ocultar detalhes' : 'Mostrar detalhes'}</button></div>
           <div class="novo-coment">${avatar(IX.mbr.get(S.eu.membroId) || { nome: S.eu.email || '?' })}
-            <div class="caixa"><textarea id="novoComent" placeholder="Escreva um comentário…" aria-label="Novo comentário"></textarea>
+            <div class="caixa">${barraFmt('novoComent')}<textarea id="novoComent" placeholder="Escreva um comentário…" aria-label="Novo comentário"></textarea>
             <div class="row" style="margin-top:6px"><button class="btn-acao btn-mini" data-a="comentar" type="button">Salvar</button></div></div></div>
           ${linhaDoTempo(A)}
         </div>
@@ -1031,13 +1232,14 @@ function renderCard() {
         <button class="btn" data-a="membros" type="button">${svg('pessoa')} Membros</button>
         <button class="btn" data-a="etiquetas" type="button">${svg('etiqueta')} Etiquetas</button>
         <button class="btn" data-a="checklist" type="button">${svg('check')} Checklist</button>
-        <button class="btn" data-a="prazo" type="button">${svg('relogio')} Prazo</button>
+        <button class="btn" data-a="prazo" type="button">${svg('relogio')} Datas</button>
         <button class="btn" data-a="anexo" type="button">${svg('clipe')} Anexo</button>
         <h4>Ações</h4>
         <button class="btn${eSigo(c) ? ' on' : ''}" data-a="seguir" type="button">${svg('olho')} ${eSigo(c) ? 'Seguindo' : 'Seguir'}</button>
         <button class="btn" data-a="link" type="button">${svg('link')} Copiar link</button>
         <button class="btn" data-a="mover" type="button">${svg('mover')} Mover</button>
         <button class="btn" data-a="copiar" type="button">${svg('copiar')} Copiar</button>
+        <button class="btn${c.modelo ? ' on' : ''}" data-a="tornar-modelo" type="button">${svg('copiar')} ${c.modelo ? 'Deixar de ser modelo' : 'Tornar modelo'}</button>
         ${c.arquivado
           ? `<button class="btn" data-a="restaurar" type="button">${svg('restaurar')} Restaurar</button>
              <button class="btn-perigo" data-a="excluir" type="button">${svg('lixo')} Excluir</button>`
@@ -1073,7 +1275,7 @@ function renderChecklist(cl) {
         <div class="row" style="display:flex;gap:8px;margin-top:6px">
           <button class="btn-acao btn-mini" data-a="salvar-item" data-item="${esc(it.id)}" type="button">Salvar</button>
           <button class="btn btn-mini" data-a="cancelar-item" type="button">Cancelar</button></div></div></div>`
-      : `<div class="item${it.concluido ? ' feito' : ''}" data-item="${esc(it.id)}">
+      : `<div class="item${it.concluido ? ' feito' : ''}" data-item="${esc(it.id)}" draggable="true">
         <input type="checkbox" data-a="marcar" ${it.concluido ? 'checked' : ''} aria-label="Concluído">
         <span class="txt md" data-a="editar-item">${md(it.nome).replace(/^<p>|<\/p>$/g, '')}</span>
         ${it.membro_id && IX.mbr.get(it.membro_id) ? avatar(IX.mbr.get(it.membro_id)) : ''}
@@ -1118,14 +1320,66 @@ function linhaDoTempo(A) {
     const meu = x.autor_email && x.autor_email === S.eu.email;
     return `<div class="evento" data-coment="${esc(x.id)}">${avatarNome(x.autor_nome, false, x.autor_email)}<div class="corpo">
       <div class="quem"><b>${esc(x.autor_nome || '?')}</b> <span class="quando">${esc(KB.dataHora(x.criado_em))}${x.editado_em ? ' (editado)' : ''}</span></div>
-      ${editandoComentario === x.id ? `<div class="editor"><textarea id="inComent" aria-label="Comentário">${esc(x.texto)}</textarea>
+      ${editandoComentario === x.id ? `<div class="editor">${barraFmt('inComent')}<textarea id="inComent" aria-label="Comentário">${esc(x.texto)}</textarea>
         <div class="row"><button class="btn-acao btn-mini" data-a="salvar-coment" type="button">Salvar</button>
         <button class="btn btn-mini" data-a="cancelar-coment" type="button">Cancelar</button></div></div>`
       : `<div class="bolha md">${md(x.texto)}</div>
-        ${meu ? `<div class="acoes"><button class="lnk" data-a="editar-coment" type="button">Editar</button>
-          <button class="lnk perigo" data-a="excluir-coment" type="button">Excluir</button></div>` : ''}`}
+        <div class="acoes">${reacoes(x)}
+          ${meu ? `<button class="lnk" data-a="editar-coment" type="button">Editar</button>
+          <button class="lnk perigo" data-a="excluir-coment" type="button">Excluir</button>` : ''}</div>`}
     </div></div>`;
   }).join('');
+}
+
+/* Reações do comentário: um botão por emoji com quantos reagiram (o nome de quem, ao
+   passar o mouse); o seu fica destacado e clicar tira. "+" abre os emojis. */
+const EMOJIS = ['👍', '👏', '✅', '🙌', '🙏', '🤩', '🎉', '😊', '😂', '😉', '😍', '👀', '❤️', '🔥', '💪', '😮', '😢', '👎'];
+function reacoes(x) {
+  const grupos = new Map();
+  (x.kanban_reacoes || []).forEach(r => {
+    const g = grupos.get(r.emoji) || { n: 0, meu: false, nomes: [] };
+    g.n++; g.nomes.push(r.autor_nome || '?');
+    if (r.autor_email && r.autor_email === S.eu.email) g.meu = true;
+    grupos.set(r.emoji, g);
+  });
+  return `<span class="reacoes">${[...grupos].map(([e, g]) =>
+    `<button class="reacao${g.meu ? ' minha' : ''}" data-a="reagir" data-emoji="${esc(e)}" type="button"
+       title="${esc(g.nomes.join(', '))}">${esc(e)} ${g.n}</button>`).join('')}
+    <button class="reacao mais-reacao" data-a="add-reacao" type="button" title="Reagir" aria-label="Reagir">☺+</button></span>`;
+}
+
+/* Barra de formatação (o Trello tem uma no editor): envolve a seleção na marcação. */
+const FMT = [['b', 'Negrito', '<b>B</b>'], ['i', 'Itálico', '<i>I</i>'], ['s', 'Riscado', '<s>S</s>'],
+             ['h', 'Título', 'T'], ['link', 'Link', svg('link', 13)], ['ul', 'Lista', '•'],
+             ['ol', 'Lista numerada', '1.'], ['q', 'Citação', '❝'], ['code', 'Código', '&lt;/&gt;'],
+             ['hr', 'Linha divisória', '—']];
+function barraFmt(alvo) {
+  return `<div class="fmt" data-alvo="${alvo}">${FMT.map(([k, t, r]) =>
+    `<button type="button" data-fmt="${k}" title="${t}" aria-label="${t}">${r}</button>`).join('')}</div>`;
+}
+function aplicarFmt(el, k) {
+  const ini = el.selectionStart, fim = el.selectionEnd, sel = el.value.slice(ini, fim);
+  const envolver = (a, b, padrao) => {
+    const t = sel || padrao;
+    el.setRangeText(a + t + b, ini, fim, 'select');
+    el.setSelectionRange(ini + a.length, ini + a.length + t.length);
+  };
+  const porLinha = prefixo => {
+    const ls = (sel || 'texto').split('\n').map((l, i) => (typeof prefixo === 'function' ? prefixo(i) : prefixo) + l);
+    el.setRangeText(ls.join('\n'), ini, fim, 'end');
+  };
+  if (k === 'b') envolver('**', '**', 'negrito');
+  else if (k === 'i') envolver('_', '_', 'itálico');
+  else if (k === 's') envolver('~~', '~~', 'riscado');
+  else if (k === 'code') envolver('`', '`', 'código');
+  else if (k === 'link') { const u = prompt('Endereço do link (https://…)', 'https://'); if (!u || !/^https?:\/\//i.test(u)) return; envolver('[', '](' + u + ')', 'texto do link'); }
+  else if (k === 'h') porLinha('### ');
+  else if (k === 'ul') porLinha('- ');
+  else if (k === 'ol') porLinha(i => (i + 1) + '. ');
+  else if (k === 'q') porLinha('> ');
+  else if (k === 'hr') el.setRangeText('\n\n---\n\n', ini, fim, 'end');
+  el.focus();
+  el.dispatchEvent(new Event('input', { bubbles: true }));
 }
 
 /* Imagens coladas e links para anexo: o bucket é privado, então o endereço é
@@ -1142,12 +1396,11 @@ function hidratar(raiz) {
   $$('.kb-img[data-anexo]', raiz).forEach(async el => {
     try {
       const url = await urlDe(el.dataset.anexo);
-      const a = document.createElement('a');
-      a.href = url; a.target = '_blank'; a.rel = 'noopener';
+      // clicar abre no visualizador, como a imagem colada no Trello
       const img = document.createElement('img');
       img.src = url; img.alt = el.title || ''; img.loading = 'lazy';
-      a.appendChild(img);
-      el.replaceWith(a);
+      img.className = 'kb-ver'; img.dataset.anexo = el.dataset.anexo; img.dataset.nome = el.title || 'imagem';
+      el.replaceWith(img);
     } catch (e) { el.textContent = el.title || 'imagem'; }
   });
   $$('.kb-thumb[data-anexo], .kb-capa[data-anexo]', raiz).forEach(async el => {
@@ -1168,12 +1421,150 @@ async function abrirArquivo(caminho, nomeParaBaixar) {
   } catch (e) { if (w) w.close(); toast(e.message, true); }
 }
 
+/* ---------- visualizador de anexos ----------
+   Imagem e PDF abrem aqui mesmo, por cima do card, com setas entre os anexos — como
+   no Trello. Outros tipos (planilha, Word) não têm prévia no navegador: botão Baixar. */
+let visor = null;          // { itens: [{nome, caminho, mime}], i }
+function abrirVisor(itens, i) { visor = { itens, i: Math.max(0, i) }; desenharVisor(); }
+function fecharVisor() { visor = null; $('#visor').innerHTML = ''; }
+const ehPdf = it => /pdf/i.test(it.mime || '') || /\.pdf$/i.test(it.nome || '');
+async function desenharVisor() {
+  const v = visor;
+  if (!v) return fecharVisor();
+  const it = v.itens[v.i];
+  $('#visor').innerHTML = `<div class="visor" role="dialog" aria-modal="true" aria-label="${esc(it.nome)}">
+    <div class="visor-barra"><span class="nm">${esc(it.nome)}</span>
+      ${v.itens.length > 1 ? `<span class="sub">${v.i + 1} de ${v.itens.length}</span>` : ''}
+      <span style="flex:1"></span>
+      <button class="btn btn-mini" data-v="baixar" type="button">Baixar</button>
+      <button class="btn btn-mini" data-v="aba" type="button">Abrir em outra aba</button>
+      <button class="ico-btn" data-v="fechar" type="button" aria-label="Fechar">${svg('x', 18)}</button></div>
+    <div class="visor-corpo" data-v="fundo"><div class="sync">Carregando…</div></div>
+    ${v.itens.length > 1 ? `<button class="visor-nav ant" data-v="ant" type="button" aria-label="Anterior">${svg('esq', 26)}</button>
+      <button class="visor-nav prox" data-v="prox" type="button" aria-label="Próximo">${svg('dir', 26)}</button>` : ''}
+  </div>`;
+  const corpo = $('.visor-corpo');
+  try {
+    const url = await urlDe(it.caminho);
+    if (visor !== v || v.itens[v.i] !== it) return;
+    if (KB.ehImagem(it.mime, it.nome)) {
+      const img = document.createElement('img'); img.src = url; img.alt = it.nome;
+      corpo.innerHTML = ''; corpo.appendChild(img);
+    } else if (ehPdf(it)) {
+      const f = document.createElement('iframe'); f.src = url; f.title = it.nome;
+      corpo.innerHTML = ''; corpo.appendChild(f);
+    } else {
+      corpo.innerHTML = `<div class="sem-previa"><div class="big">${esc(extensao(it.nome).toUpperCase())}</div>
+        <div>Este tipo de arquivo não abre no navegador.</div>
+        <button class="btn-acao" data-v="baixar" type="button" style="margin-top:12px">Baixar</button></div>`;
+    }
+  } catch (e) { corpo.textContent = e.message; }
+}
+$('#visor').addEventListener('click', ev => {
+  const b = ev.target.closest('[data-v]');
+  if (!b || !visor) return;
+  const it = visor.itens[visor.i], q = b.dataset.v;
+  if (q === 'fechar' || (q === 'fundo' && ev.target === b)) fecharVisor();
+  else if (q === 'baixar') abrirArquivo(it.caminho, it.nome);
+  else if (q === 'aba') abrirArquivo(it.caminho);
+  else if (q === 'ant' || q === 'prox') {
+    visor.i = (visor.i + (q === 'prox' ? 1 : -1) + visor.itens.length) % visor.itens.length;
+    desenharVisor();
+  }
+});
+document.addEventListener('keydown', ev => {
+  if (!visor) return;
+  if (ev.key === 'Escape') { ev.stopImmediatePropagation(); fecharVisor(); }
+  else if ((ev.key === 'ArrowRight' || ev.key === 'ArrowLeft') && visor.itens.length > 1) {
+    visor.i = (visor.i + (ev.key === 'ArrowRight' ? 1 : -1) + visor.itens.length) % visor.itens.length;
+    desenharVisor();
+  }
+}, true);
+function arquivosDoCard() {
+  return (S.aberto ? S.aberto.anexos : []).filter(a => a.caminho).map(a => ({ nome: a.nome, caminho: a.caminho, mime: a.mime }));
+}
+
+/* ---------- arrastar itens de checklist ----------
+   Reordena e muda de checklist (dentro do mesmo card), como no Trello. Grava só o item:
+   posição entre os vizinhos e, se mudou, o checklist. */
+let arrastadoItem = null;
+const phItem = document.createElement('div');
+phItem.className = 'ph-item';
+$('#modal').addEventListener('dragstart', ev => {
+  const it = ev.target.closest && ev.target.closest('.item[data-item]');
+  if (!it || ev.target.closest('textarea, input')) return;
+  arrastadoItem = it.dataset.item;
+  phItem.style.height = it.offsetHeight + 'px';
+  ev.dataTransfer.effectAllowed = 'move';
+  try { ev.dataTransfer.setData('text/plain', 'item:' + arrastadoItem); } catch (e) {}
+  requestAnimationFrame(() => it.classList.add('arrastando'));
+});
+$('#modal').addEventListener('dragend', () => {
+  $$('.item.arrastando').forEach(x => x.classList.remove('arrastando'));
+  if (phItem.parentNode) phItem.parentNode.removeChild(phItem);
+  arrastadoItem = null;
+});
+$('#modal').addEventListener('dragover', ev => {
+  if (!arrastadoItem) return;
+  const ovl = $('#ovl');
+  if (ovl && ev.clientY < 70) ovl.scrollTop -= 16;                    // perto da borda: rola
+  else if (ovl && ev.clientY > innerHeight - 70) ovl.scrollTop += 16;
+  const ckl = ev.target.closest('.ckl');
+  if (!ckl) return;
+  ev.preventDefault();
+  const itens = $$('.item[data-item]:not(.arrastando)', ckl);
+  const depois = itens.find(el => { const r = el.getBoundingClientRect(); return ev.clientY < r.top + r.height / 2; });
+  if (depois) depois.before(phItem);
+  else if (itens.length) itens[itens.length - 1].after(phItem);
+  else $('.ckl-bar', ckl).after(phItem);
+});
+$('#modal').addEventListener('drop', async ev => {
+  if (!arrastadoItem || !phItem.parentNode || !S.aberto) return;
+  ev.preventDefault();
+  const id = arrastadoItem, ckl = phItem.closest('.ckl'), cklId = ckl.dataset.ckl;
+  const todos = S.aberto.checklists.flatMap(k => k.itens);
+  const fila = $$('.item[data-item], .ph-item', ckl).filter(e => e === phItem || e.dataset.item !== id);
+  const k = fila.indexOf(phItem);
+  const prev = fila[k - 1] && todos.find(x => x.id === fila[k - 1].dataset.item);
+  const prox = fila[k + 1] && todos.find(x => x.id === fila[k + 1].dataset.item);
+  const it = todos.find(x => x.id === id);
+  phItem.remove();
+  let pos = KB.posEntre(prev ? prev.pos : null, prox ? prox.pos : null);
+  if (pos === null) {                       // sem espaço: renumera o checklist de destino
+    const ordem = S.aberto.checklists.find(x => x.id === cklId).itens.filter(x => x.id !== id);
+    ordem.splice(prox ? ordem.indexOf(prox) : ordem.length, 0, it);
+    const ps = KB.renumerar(ordem.length);
+    await tentar(async () => {
+      for (let i = 0; i < ordem.length; i++) {
+        await KB_FONTE.atualizarItem(ordem[i].id, i === ordem.indexOf(it) ? { pos: ps[i], checklist_id: cklId } : { pos: ps[i] });
+      }
+    }, false);
+  } else {
+    await tentar(() => KB_FONTE.atualizarItem(id, { pos, checklist_id: cklId }), false);
+  }
+  await recarregarTudo();
+});
+
 /* ---------- cliques na janela do card ---------- */
 $('#modal').addEventListener('click', async ev => {
   if (ev.target.id === 'ovl') { if (!emEdicao()) fecharCard(); return; }
   if (ev.target.closest('#btFechar')) { fecharCard(); return; }
+  const fmt = ev.target.closest('[data-fmt]');
+  if (fmt) {
+    const alvo = document.getElementById(fmt.closest('.fmt').dataset.alvo);
+    if (alvo) aplicarFmt(alvo, fmt.dataset.fmt);
+    return;
+  }
   const lk = ev.target.closest('.kb-anexo-link');
-  if (lk) { ev.preventDefault(); abrirArquivo(lk.dataset.anexo); return; }
+  const ver = ev.target.closest('.kb-ver');
+  if (lk || ver) {
+    ev.preventDefault();
+    const caminho = (lk || ver).dataset.anexo;
+    const lista = arquivosDoCard(), k = lista.findIndex(x => x.caminho === caminho);
+    if (k >= 0) abrirVisor(lista, k);
+    else abrirVisor([{ nome: ver ? ver.dataset.nome : lk.textContent, caminho, mime: ver ? 'image/png' : '' }], 0);
+    return;
+  }
   const el = ev.target.closest('[data-a]');
   if (!el || !S.aberto) return;
   const A = S.aberto, c = A.card, a = el.dataset.a;
@@ -1282,7 +1673,30 @@ $('#modal').addEventListener('click', async ev => {
       await tentar(() => KB_FONTE.excluirChecklist(cklId), false);
       return recarregarTudo();
     }
-    case 'abrir-anexo': return anexo.caminho ? abrirArquivo(anexo.caminho) : window.open(anexo.url, '_blank', 'noopener');
+    case 'abrir-anexo': {
+      if (!anexo.caminho) return window.open(anexo.url, '_blank', 'noopener');
+      const lista = arquivosDoCard();
+      return abrirVisor(lista, lista.findIndex(x => x.caminho === anexo.caminho));
+    }
+    case 'tornar-modelo':
+      return mudarCard({ modelo: !c.modelo }, c.modelo ? 'O card deixou de ser modelo.' : 'Card virou modelo.');
+    case 'criar-do-modelo': return popCopiar(el, true);
+    case 'reagir': {
+      const e = el.dataset.emoji;
+      const meu = (coment.kanban_reacoes || []).some(r => r.emoji === e && r.autor_email === S.eu.email);
+      await tentar(() => KB_FONTE.reagir(coment.id, e, !meu, S.eu.email), false);
+      return recarregarTudo();
+    }
+    case 'add-reacao':
+      return abrirPop(el, 'Reagir', () => `<div class="emojis">${EMOJIS.map(e =>
+        `<button type="button" data-emoji="${esc(e)}" aria-label="${esc(e)}">${esc(e)}</button>`).join('')}</div>`,
+        corpo => corpo.addEventListener('click', async e2 => {
+          const b = e2.target.closest('[data-emoji]'); if (!b) return;
+          fecharPop();
+          const ja = (coment.kanban_reacoes || []).some(r => r.emoji === b.dataset.emoji && r.autor_email === S.eu.email);
+          if (!ja) await tentar(() => KB_FONTE.reagir(coment.id, b.dataset.emoji, true, S.eu.email), false);
+          await recarregarTudo();
+        }));
     case 'baixar-anexo': return abrirArquivo(anexo.caminho, anexo.nome);
     case 'renomear-anexo': {
       const nome = prompt('Nome do anexo', anexo.nome);
@@ -1549,21 +1963,47 @@ function paraLocal(iso) {
   const d = new Date(iso), z = n => String(n).padStart(2, '0');
   return `${d.getFullYear()}-${z(d.getMonth() + 1)}-${z(d.getDate())}T${z(d.getHours())}:${z(d.getMinutes())}`;
 }
+/* Datas, como o "Datas" do Trello: início (opcional), prazo e lembrete do prazo. O
+   lembrete vira aviso no Slack para membros e seguidores (pc_kanban na Azure). */
+const LEMBRETES = [['', '1 dia antes (padrão)'], ['-1', 'Nenhum'], ['0', 'Na hora do prazo'],
+                   ['5', '5 minutos antes'], ['10', '10 minutos antes'], ['15', '15 minutos antes'],
+                   ['60', '1 hora antes'], ['120', '2 horas antes'], ['1440', '1 dia antes'], ['2880', '2 dias antes']];
 function popPrazo(anc) {
   const c = S.aberto.card;
-  abrirPop(anc, 'Prazo', () => `<label class="lbl" for="inPrazo">Data e hora</label>
-      <input type="datetime-local" id="inPrazo" value="${esc(paraLocal(c.prazo))}">
-      <label class="chk"><input type="checkbox" id="inPrazoOk" ${c.prazo_concluido ? 'checked' : ''}> Concluído</label>
+  const lem = c.lembrete_min == null ? '' : String(c.lembrete_min);
+  abrirPop(anc, 'Datas', () => `
+      <label class="chk"><input type="checkbox" id="inTemInicio" ${c.inicio ? 'checked' : ''}> Data de início</label>
+      <input type="datetime-local" id="inInicio" value="${esc(paraLocal(c.inicio))}" ${c.inicio ? '' : 'disabled'}>
+      <label class="chk"><input type="checkbox" id="inTemPrazo" ${c.prazo || !c.inicio ? 'checked' : ''}> Prazo</label>
+      <input type="datetime-local" id="inPrazo" value="${esc(paraLocal(c.prazo))}" ${c.prazo || !c.inicio ? '' : 'disabled'}>
+      <label class="lbl" for="inLembrete">Lembrete</label>
+      <select id="inLembrete">${LEMBRETES.map(([v, t]) =>
+        `<option value="${v}"${(LEMBRETES.some(x => x[0] === lem) ? lem : '') === v ? ' selected' : ''}>${t}</option>`).join('')}</select>
+      <label class="chk"><input type="checkbox" id="inPrazoOk" ${c.prazo_concluido ? 'checked' : ''}> Prazo concluído</label>
       <div class="fim"><button class="btn-acao btn-mini" data-p="salvar" type="button">Salvar</button>
-      ${c.prazo ? '<button class="btn btn-mini" data-p="remover" type="button">Remover</button>' : ''}</div>`,
-    el => el.addEventListener('click', ev => {
-      const b = ev.target.closest('[data-p]'); if (!b) return;
-      if (b.dataset.p === 'remover') { fecharPop(); return mudarCard({ prazo: null, prazo_concluido: false }); }
-      const v = $('#inPrazo').value;
-      if (!v) { $('#inPrazo').focus(); return; }
-      fecharPop();
-      mudarCard({ prazo: new Date(v).toISOString(), prazo_concluido: $('#inPrazoOk').checked });
-    }));
+      ${c.prazo || c.inicio ? '<button class="btn btn-mini" data-p="remover" type="button">Remover datas</button>' : ''}</div>`,
+    el => {
+      el.addEventListener('change', ev => {
+        if (ev.target.id === 'inTemInicio') $('#inInicio').disabled = !ev.target.checked;
+        if (ev.target.id === 'inTemPrazo') $('#inPrazo').disabled = !ev.target.checked;
+      });
+      el.addEventListener('click', ev => {
+        const b = ev.target.closest('[data-p]'); if (!b) return;
+        if (b.dataset.p === 'remover') {
+          fecharPop();
+          return mudarCard({ inicio: null, prazo: null, prazo_concluido: false, lembrete_min: null });
+        }
+        const ini = $('#inTemInicio').checked ? $('#inInicio').value : '';
+        const pz = $('#inTemPrazo').checked ? $('#inPrazo').value : '';
+        if ($('#inTemInicio').checked && !ini) return $('#inInicio').focus();
+        if ($('#inTemPrazo').checked && !pz) return $('#inPrazo').focus();
+        if (ini && pz && new Date(ini) > new Date(pz)) return toast('O início tem de ser antes do prazo.', true);
+        const l = $('#inLembrete').value;
+        fecharPop();
+        mudarCard({ inicio: ini ? new Date(ini).toISOString() : null, prazo: pz ? new Date(pz).toISOString() : null,
+                    prazo_concluido: pz ? $('#inPrazoOk').checked : false, lembrete_min: l === '' ? null : Number(l) });
+      });
+    });
 }
 function popChecklist(anc) {
   abrirPop(anc, 'Adicionar checklist', () => `<label class="lbl" for="inNovoCkl">Título</label>
@@ -1635,15 +2075,21 @@ function popMover(anc) {
       mudarCard(campos, 'Card movido.');
     }));
 }
-function popCopiar(anc) {
-  const c = S.aberto.card;
+/* Copiar card (e "Criar card a partir do modelo", que é a mesma tela com outro título):
+   o que manter, como no Trello. */
+function popCopiar(anc, doModelo) {
+  const A = S.aberto, c = A.card;
   const atual = listasAbertas().some(l => l.id === c.lista_id) ? c.lista_id : (listasAbertas()[0] || {}).id;
-  abrirPop(anc, 'Copiar card', () => `<label class="lbl" for="inCpNome">Título</label>
-      <textarea id="inCpNome" rows="2">${esc(c.nome)}</textarea>
+  const nItens = A.checklists.reduce((s, k) => s + k.itens.length, 0);
+  const qtd = n => n ? ` <span class="sub">(${n})</span>` : '';
+  abrirPop(anc, doModelo ? 'Criar card a partir do modelo' : 'Copiar card', () => `<label class="lbl" for="inCpNome">Título</label>
+      <textarea id="inCpNome" rows="2">${doModelo ? '' : esc(c.nome)}</textarea>
       <label class="lbl">Manter</label>
-      <label class="chk"><input type="checkbox" id="cpCkl" checked> Checklists</label>
-      <label class="chk"><input type="checkbox" id="cpEtq" checked> Etiquetas</label>
-      <label class="chk"><input type="checkbox" id="cpMbr" checked> Membros</label>
+      <label class="chk"><input type="checkbox" id="cpCkl" checked> Checklists${qtd(nItens)}</label>
+      <label class="chk"><input type="checkbox" id="cpEtq" checked> Etiquetas${qtd(c.etiquetas.length)}</label>
+      <label class="chk"><input type="checkbox" id="cpMbr" checked> Membros${qtd(c.membros.length)}</label>
+      <label class="chk"><input type="checkbox" id="cpAnx" checked> Anexos${qtd(A.anexos.length)}</label>
+      <label class="chk"><input type="checkbox" id="cpCom" ${doModelo ? '' : 'checked'}> Comentários${qtd(A.comentarios.length)}</label>
       <label class="lbl" for="inCpLista">Copiar para</label>
       <select id="inCpLista">${opcoesListas(atual)}</select>
       <label class="lbl" for="inCpPos">Posição</label>
@@ -1655,10 +2101,11 @@ function popCopiar(anc) {
       const destino = $('#inCpLista').value, topo = $('#inCpPos').value === 'topo';
       const outros = cardsDaLista(destino);
       const pos = topo ? (outros[0] ? outros[0].pos / 2 : KB.PASSO) : (outros.length ? outros[outros.length - 1].pos + KB.PASSO : KB.PASSO);
-      const manter = { checklists: $('#cpCkl').checked, etiquetas: $('#cpEtq').checked, membros: $('#cpMbr').checked };
+      const manter = { checklists: $('#cpCkl').checked, etiquetas: $('#cpEtq').checked, membros: $('#cpMbr').checked,
+                       anexos: $('#cpAnx').checked, comentarios: $('#cpCom').checked };
       fecharPop();
       const novo = await tentar(() => KB_FONTE.copiarCard(c.id, nome, destino, pos, manter));
-      if (novo) { toast('Cópia criada.'); abrirCard(novo); }
+      if (novo) { toast(doModelo ? 'Card criado a partir do modelo.' : 'Cópia criada.'); abrirCard(novo); }
     }));
 }
 
@@ -1805,7 +2252,7 @@ let tMudanca = null;
 function aoMudar() {
   clearTimeout(tMudanca);
   tMudanca = setTimeout(async () => {
-    if (arrastado) return aoMudar();
+    if (arrastado || arrastadoLista || arrastadoItem) return aoMudar();
     await recarregar();
     if (S.aberto) { if (emEdicao()) pendente = true; else await recarregarCard(); }
   }, 400);
