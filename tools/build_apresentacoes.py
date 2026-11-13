@@ -802,6 +802,10 @@ def s_budget_fc(b, d, m):
             continue
         rot = r.Rotulo if isinstance(r.Rotulo, str) else ""
         fill = r.Fill.lstrip("#").upper() if isinstance(r.Fill, str) and r.Fill.strip() else None
+        # linha branca sem negrito (Salários, Encargos, Bônus, Treinamentos) fica oculta
+        # no slide, como na aba Comitê; Saldo Inicial e Receita Líquida são brancas em negrito
+        if fill is None and not bool(r.Negrito):
+            continue
         linhas.append({"r": rot, "fill": fill, "b": bool(r.Negrito), "v": [num(getattr(r, c)) for c in cols]})
     return {"t": "budget_fc", "titulo": "Budget |", "destaque": str(d.year),
             "grupos": [str(r0.RotuloMes), str(r0.RotuloYtd), str(r0.RotuloAno)],
@@ -924,7 +928,7 @@ def s_carta_texto(slot):
 
 ROTEIRO = {
     "comite_fo": [
-        ("kr_fo", s_kr_fo), ("pl_portfolio", s_pl_portfolio), ("retorno_portfolio", s_retorno_portfolio),
+        ("kr_fo", s_kr_fo), ("retorno_portfolio", s_retorno_portfolio), ("pl_portfolio", s_pl_portfolio),
         ("portfolio", s_portfolio), ("alavancagem", s_alavancagem), ("foto_participacoes", s_foto_participacoes),
         ("kr_participacoes", s_kr_participacoes), ("aum_participacoes", s_aum_participacoes),
         ("retorno_ativo", s_retorno_ativo), ("analise_ativos", s_analise_ativos), ("fcf", s_fcf),
