@@ -391,12 +391,20 @@ function chipEtq(e, grande) {
   return `<span class="etq${grande ? ' g' : ''}${e.nome ? '' : ' vazia'}" style="background:${KB.corEtiqueta(e.cor)};color:${KB.textoEtiqueta(e.cor)}"
     title="${esc(e.nome || 'sem nome')}">${esc(e.nome)}</span>`;
 }
+// datas do card: "12 nov", ou "3 – 12 nov" com início; a cor é a do prazo
 function chipPrazo(c, longo) {
-  const st = KB.prazoEstado(c.prazo, c.prazo_concluido);
-  if (!st) return '';
-  const quando = longo ? KB.dataHora(c.prazo) : KB.dataCurta(c.prazo);
-  return `<span class="prazo ${st}" title="Prazo ${esc(KB.dataHora(c.prazo))}">${svg('relogio', 12)} ${esc(quando)}</span>`;
+  if (!c.prazo && !c.inicio) return '';
+  const st = KB.prazoEstado(c.prazo, c.prazo_concluido) || '';
+  const quando = longo
+    ? [c.inicio ? 'início ' + KB.dataHora(c.inicio) : '', c.prazo ? KB.dataHora(c.prazo) : ''].filter(Boolean).join(' → ')
+    : KB.rotuloDatas(c.inicio, c.prazo);
+  const titulo = [c.inicio ? 'Início ' + KB.dataHora(c.inicio) : '', c.prazo ? 'Prazo ' + KB.dataHora(c.prazo) : ''].filter(Boolean).join(' · ');
+  return `<span class="prazo ${st}" title="${esc(titulo)}">${svg('relogio', 12)} ${esc(quando)}</span>`;
 }
+const ROT_PRAZO = { sem: 'Sem prazo', vencido: 'Vencidos', dia: 'Vence em 24h', semana: 'Vence em 7 dias',
+                    mes: 'Vence em 30 dias', concluido: 'Prazo concluído', aberto: 'Prazo em aberto' };
+const ROT_ATIV = { '1s': 'Ativos na semana', '2s': 'Ativos em 2 semanas', '4s': 'Ativos em 4 semanas',
+                   parado: 'Parados há 4 semanas' };
 
 /* ---------- avisos ---------- */
 let tToast = null;
@@ -438,14 +446,16 @@ async function tentar(fn, depois) {
    ============================================================ */
 function renderBarra() {
   const f = S.filtro, ativo = KB.filtroAtivo(f);
-  const nMbr = (f.membros || []).length + (f.semMembro ? 1 : 0), nEtq = (f.etiquetas || []).length;
+  const nMbr = (f.membros || []).length + (f.semMembro ? 1 : 0);
+  const nEtq = (f.etiquetas || []).length + (f.semEtiqueta ? 1 : 0);
+  const datas = [ROT_PRAZO[f.prazo], ROT_ATIV[f.atividade]].filter(Boolean).join(' · ');
   const meu = S.eu.membroId && f.membros.length === 1 && f.membros[0] === S.eu.membroId && !f.semMembro;
   $('#barra').innerHTML = `
     <input class="busca" id="fTexto" type="search" placeholder="Buscar cards" value="${esc(f.texto)}" aria-label="Buscar cards">
     ${S.eu.membroId ? `<button class="btn${meu ? ' on' : ''}" id="fMeus" type="button">${svg('pessoa', 13)} Meus cards</button>` : ''}
     <button class="btn${nMbr ? ' on' : ''}" id="fMembros" type="button">${svg('pessoa', 13)} Membros${nMbr ? ' · ' + nMbr : ''}</button>
     <button class="btn${nEtq ? ' on' : ''}" id="fEtiquetas" type="button">${svg('etiqueta', 13)} Etiquetas${nEtq ? ' · ' + nEtq : ''}</button>
-    <button class="btn${f.prazo ? ' on' : ''}" id="fPrazo" type="button">${svg('relogio', 13)} ${f.prazo === 'vencido' ? 'Vencidos' : f.prazo === 'semana' ? 'Vence em 7 dias' : 'Prazo'}</button>
+    <button class="btn${datas ? ' on' : ''}" id="fPrazo" type="button">${svg('relogio', 13)} ${esc(datas || 'Datas e atividade')}</button>
     ${ativo ? `<button class="btn" id="fLimpar" type="button">${svg('x', 12)} Limpar filtros</button>` : ''}
     <span class="spacer"></span>
     <span class="sync" id="sync"></span>
@@ -506,7 +516,9 @@ $('#barra').addEventListener('click', ev => {
   else if (b.id === 'fEtiquetas') popFiltroEtiquetas(b);
   else if (b.id === 'fPrazo') popFiltroPrazo(b);
   else if (b.id === 'fLimpar') {
-    S.filtro = { texto: '', membros: [], etiquetas: [], semMembro: false, prazo: '' };
+    S.filtro = { texto: '', membros: [], etiquetas: [], semMembro: false, semEtiqueta: false,
+                 etiquetasTodas: false, prazo: '', atividade: '' };
+    S.buscaIds = null;
     guardarFiltro(); renderBarra(); renderBoard();
   } else if (b.id === 'btArquivados') abrirArquivados();
   else if (b.id === 'btAtividade') abrirAtividade();
@@ -534,22 +546,39 @@ function popFiltroMembros(anc) {
 function popFiltroEtiquetas(anc) {
   const f = S.filtro;
   abrirPop(anc, 'Filtrar por etiqueta', () => `
-    <div class="rows">${S.etiquetas.map(e => `<div class="opt" data-id="${esc(e.id)}">${chipEtq(e)}<span class="nm"></span>${f.etiquetas.includes(e.id) ? '<span class="ok">✓</span>' : ''}</div>`).join('')
-      || '<div class="sub">Nenhuma etiqueta.</div>'}</div>`, (el, redesenhar) => {
+    <div class="rows">
+      <div class="opt" data-sem="1"><span class="etq vazia" style="background:var(--surface-3)"></span><span class="nm">Sem etiqueta</span>${f.semEtiqueta ? '<span class="ok">✓</span>' : ''}</div>
+      ${S.etiquetas.map(e => `<div class="opt" data-id="${esc(e.id)}">${chipEtq(e)}<span class="nm"></span>${f.etiquetas.includes(e.id) ? '<span class="ok">✓</span>' : ''}</div>`).join('')}
+    </div>
+    <label class="lbl">Com mais de uma marcada</label>
+    <div class="rows"><div class="opt" data-todas="0"><span class="nm">Qualquer uma delas</span>${!f.etiquetasTodas ? '<span class="ok">✓</span>' : ''}</div>
+      <div class="opt" data-todas="1"><span class="nm">Todas elas</span>${f.etiquetasTodas ? '<span class="ok">✓</span>' : ''}</div></div>`,
+    (el, redesenhar) => {
     el.addEventListener('click', ev => {
       const o = ev.target.closest('.opt'); if (!o) return;
-      f.etiquetas = f.etiquetas.includes(o.dataset.id) ? f.etiquetas.filter(x => x !== o.dataset.id) : f.etiquetas.concat(o.dataset.id);
+      if (o.dataset.sem) f.semEtiqueta = !f.semEtiqueta;
+      else if (o.dataset.todas) f.etiquetasTodas = o.dataset.todas === '1';
+      else f.etiquetas = f.etiquetas.includes(o.dataset.id) ? f.etiquetas.filter(x => x !== o.dataset.id) : f.etiquetas.concat(o.dataset.id);
       guardarFiltro(); renderBarra(); renderBoard(); redesenhar();
     });
   });
 }
 function popFiltroPrazo(anc) {
-  const op = [['', 'Qualquer'], ['vencido', 'Vencidos'], ['semana', 'Vence em até 7 dias']];
-  abrirPop(anc, 'Filtrar por prazo', () => `<div class="rows">${op.map(([v, t]) =>
-    `<div class="opt" data-v="${v}"><span class="nm">${t}</span>${S.filtro.prazo === v ? '<span class="ok">✓</span>' : ''}</div>`).join('')}</div>`,
-    el => el.addEventListener('click', ev => {
+  const f = S.filtro;
+  const prazos = [['', 'Qualquer'], ['sem', 'Sem prazo'], ['vencido', 'Vencidos'], ['dia', 'Vence em até 24h'],
+                  ['semana', 'Vence em até 7 dias'], ['mes', 'Vence em até 30 dias'],
+                  ['aberto', 'Com prazo em aberto'], ['concluido', 'Com prazo concluído']];
+  const ativs = [['', 'Qualquer'], ['1s', 'Mexidos na última semana'], ['2s', 'Mexidos nas últimas 2 semanas'],
+                 ['4s', 'Mexidos nas últimas 4 semanas'], ['parado', 'Parados há mais de 4 semanas']];
+  abrirPop(anc, 'Datas e atividade', () => `
+    <label class="lbl">Prazo</label><div class="rows">${prazos.map(([v, t]) =>
+      `<div class="opt" data-p="${v}"><span class="nm">${t}</span>${(f.prazo || '') === v ? '<span class="ok">✓</span>' : ''}</div>`).join('')}</div>
+    <label class="lbl">Atividade</label><div class="rows">${ativs.map(([v, t]) =>
+      `<div class="opt" data-a="${v}"><span class="nm">${t}</span>${(f.atividade || '') === v ? '<span class="ok">✓</span>' : ''}</div>`).join('')}</div>`,
+    (el, redesenhar) => el.addEventListener('click', ev => {
       const o = ev.target.closest('.opt'); if (!o) return;
-      S.filtro.prazo = o.dataset.v; guardarFiltro(); fecharPop(); renderBarra(); renderBoard();
+      if (o.dataset.p !== undefined) f.prazo = o.dataset.p; else f.atividade = o.dataset.a;
+      guardarFiltro(); renderBarra(); renderBoard(); redesenhar();
     }));
 }
 
