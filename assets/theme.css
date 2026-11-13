@@ -53,6 +53,17 @@ a{color:inherit;text-decoration:none}
 .nav a.locked{opacity:.55}
 .nav a .badge{margin-left:auto;font-size:9px;letter-spacing:.06em;padding:2px 6px;border-radius:20px;background:var(--surface-2);color:var(--ink-3)}
 .sidebar .foot{margin-top:auto;padding:12px 10px 2px;border-top:1px solid var(--line);font-size:11px;color:var(--ink-3)}
+/* pastas do menu (app.js, MENU): cabeçalho que abre/fecha + abas recuadas */
+.pasta-cab{display:flex;align-items:center;gap:11px;width:100%;padding:9px 11px;border:0;border-radius:var(--r-sm);
+  background:transparent;color:var(--ink-2);font:inherit;font-weight:600;cursor:pointer;text-align:left;transition:.13s}
+.pasta-cab:hover{background:var(--surface-2);color:var(--ink)}
+.pasta-cab .ico{width:18px;height:18px;flex:0 0 auto;opacity:.8}
+.pasta-cab .seta{width:14px;height:14px;flex:0 0 auto;margin-left:auto;opacity:.6;transition:transform .15s}
+.pasta.aberta .pasta-cab .seta{transform:rotate(90deg)}
+.pasta-itens{display:none;flex-direction:column;gap:2px;margin:2px 0 4px 18px;padding-left:8px;border-left:1px solid var(--line)}
+.pasta.aberta .pasta-itens{display:flex}
+.pasta:has(a.active) > .pasta-cab{color:var(--ink)}
+.home-pasta{font-size:13px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);font-weight:600;margin:26px 0 12px}
 
 /* ---- main ---- */
 .main{display:flex;flex-direction:column;min-width:0}
@@ -66,6 +77,10 @@ a{color:inherit;text-decoration:none}
 .app.collapsed .nav-label,.app.collapsed .foot{display:none}
 .app.collapsed .nav a{justify-content:center;padding:11px 0}
 .app.collapsed .nav a.active::before{left:-8px}
+/* recolhido: a pasta vira um traço e as abas dela aparecem sempre, só o ícone */
+.app.collapsed .pasta-cab{display:none}
+.app.collapsed .pasta{border-top:1px solid var(--line);margin-top:4px;padding-top:4px}
+.app.collapsed .pasta-itens{display:flex;margin:0;padding:0;border:0}
 /* mobile: nada de sidebar-encolhida-pra-caber — isso ainda é "página de
    computador espremida". A sidebar vira um DRAWER de verdade: some da tela por
    padrão (fora do grid, sem tomar espaço do conteúdo) e desliza por cima quando
@@ -84,7 +99,7 @@ a{color:inherit;text-decoration:none}
     -webkit-tap-highlight-color:transparent;
   }
   .app.nav-open .nav-scrim{display:block}
-  .nav a{padding:12px 12px;font-size:15px}           /* alvo de toque maior que no desktop */
+  .nav a,.pasta-cab{padding:12px 12px;font-size:15px}  /* alvo de toque maior que no desktop */
   .collapse-btn{width:42px;height:42px}
   .nav-close{display:grid;place-items:center}
 }
