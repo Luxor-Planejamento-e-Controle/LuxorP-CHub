@@ -775,7 +775,7 @@ $('#board').addEventListener('dragend', () => {
    ao Done era impossível: a tela não acompanhava. Aqui, com o card na mão, encostar na
    borda esquerda/direita do board rola o board, e no alto/pé de uma coluna rola a
    coluna — mais rápido quanto mais perto da borda. */
-const BORDA_X = 110, VEL_X = 30, BORDA_Y = 70, VEL_Y = 20;
+const BORDA_X = 110, VEL_X = 22, BORDA_Y = 70, VEL_Y = 16;
 let ponteiro = null, rafRolagem = 0;
 function velocidade(dist, borda, max) {
   return dist >= borda ? 0 : Math.ceil(max * (1 - Math.max(0, dist) / borda));
