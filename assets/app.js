@@ -132,7 +132,7 @@ const MENU = [
   {pasta:'fluxos', titulo:'Fluxo de Caixa', itens:['tarituba']},
   {pasta:'controles', titulo:'Controles Financeiros', itens:['inadimplencia','vendas','saldo_bancario','controle_pagamentos']},
   {pasta:'apresentacoes', titulo:'Apresentações', itens:['comite_fo','board_fo']},
-  {pasta:'tarefas', titulo:'Projetos & Tarefas', itens:['kanban','projetos']},
+  {pasta:'tarefas', titulo:'Kanban e Projetos', itens:['kanban','projetos']},
   'societario',
 ];
 const PASTA_ICO='M3 7.5A1.5 1.5 0 014.5 6H9.2l1.8 2h8.5A1.5 1.5 0 0121 9.5v8A1.5 1.5 0 0119.5 19h-15A1.5 1.5 0 013 17.5z';
@@ -1024,7 +1024,8 @@ function renderKanban(el, params){
   // link direto de um card (#/kanban?card=<uuid>): vai para o iframe, que abre o card
   const card=params && params.get('card');
   const alvo=card && /^[0-9a-f-]{36}$/i.test(card) ? '#card='+card : '';
-  el.innerHTML=`<iframe class="embed" src="assets/kanban/index.html${alvo}" title="Kanban Planejamento, Controle e Concierge"></iframe>`;
+  // allow="fullscreen": o botão "Tela cheia" do board põe só o iframe na tela inteira
+  el.innerHTML=`<iframe class="embed" src="assets/kanban/index.html${alvo}" title="Kanban Planejamento, Controle e Concierge" allow="fullscreen" allowfullscreen></iframe>`;
 }
 
 /* ---- Estruturas Societárias ----

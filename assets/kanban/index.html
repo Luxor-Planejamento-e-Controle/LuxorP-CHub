@@ -323,6 +323,8 @@ const ICO = {
   esq: 'M15 18l-6-6 6-6', dir: 'M9 18l6-6-6-6',
   link: 'M10 13a5 5 0 007 0l3-3a5 5 0 00-7-7l-1 1M14 11a5 5 0 00-7 0l-3 3a5 5 0 007 7l1-1',
   olho: 'M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12zM12 15a3 3 0 100-6 3 3 0 000 6z',
+  cheia: 'M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5',
+  sair: 'M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5',
   imagem: 'M4 5h16v14H4zM4 15l4-4 4 4 3-3 5 5M15 9h.01'
 };
 const svg = (k, s) => `<svg width="${s||14}" height="${s||14}" viewBox="0 0 24 24" fill="none" stroke="currentColor"
@@ -440,8 +442,18 @@ function renderBarra() {
     <span class="spacer"></span>
     <span class="sync" id="sync"></span>
     <button class="btn" id="btAtividade" type="button">${svg('atividade', 13)} Atividade</button>
-    <button class="btn" id="btArquivados" type="button">${svg('arquivo', 13)} Arquivados</button>`;
+    <button class="btn" id="btArquivados" type="button">${svg('arquivo', 13)} Arquivados</button>
+    ${document.fullscreenEnabled ? `<button class="btn" id="btTelaCheia" type="button" title="${document.fullscreenElement ? 'Sair da tela cheia (Esc)' : 'Tela cheia'}">
+      ${svg(document.fullscreenElement ? 'sair' : 'cheia', 13)} ${document.fullscreenElement ? 'Sair da tela cheia' : 'Tela cheia'}</button>` : ''}`;
 }
+/* Tela cheia: só o board, sem o menu do hub — boa para a reunião de segunda no telão.
+   O iframe do hub precisa do allow="fullscreen" (ver renderKanban em assets/app.js);
+   sem ele o navegador nega e o botão nem aparece (fullscreenEnabled = false). */
+document.addEventListener('fullscreenchange', () => {
+  const foco = document.activeElement && document.activeElement.id === 'fTexto';
+  renderBarra();
+  if (foco) $('#fTexto').focus();
+});
 
 /* Um card passa no filtro pelo título/descrição (na hora, aqui) ou porque a busca do
    banco o achou num comentário ou item de checklist (chega logo depois). */
@@ -490,6 +502,10 @@ $('#barra').addEventListener('click', ev => {
     guardarFiltro(); renderBarra(); renderBoard();
   } else if (b.id === 'btArquivados') abrirArquivados();
   else if (b.id === 'btAtividade') abrirAtividade();
+  else if (b.id === 'btTelaCheia') {
+    const p = document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen();
+    p.catch(e => toast('O navegador não deixou entrar em tela cheia: ' + e.message, true));
+  }
 });
 
 function popFiltroMembros(anc) {

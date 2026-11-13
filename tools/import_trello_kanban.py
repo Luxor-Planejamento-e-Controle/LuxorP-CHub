@@ -36,9 +36,10 @@ no hub (trello_id nulo), a não ser com --forcar.
 
 Membros: cada pessoa do Trello é casada com um login do hub (`allowed_users`) pelo nome,
 sem acento e sem pontuação — primeiro o nome completo, depois o primeiro nome, e só
-quando há UM candidato. Quem não casa (gente que saiu, a conta "Grupo Luxor") entra sem
-e-mail: aparece no histórico e nos cards antigos, mas não loga. A prévia mostra o
-casamento antes de gravar.
+quando há UM candidato. Quem não casa (gente que saiu, a conta "Grupo Luxor") NÃO vira
+membro do Kanban (decisão do Arthur, 13/11/2026): o nome continua no histórico, nos
+comentários e no "criado por", mas a pessoa não aparece em card nem para ser incluída.
+A prévia mostra o casamento antes de gravar.
 """
 from __future__ import annotations
 
@@ -392,9 +393,10 @@ def montar(exp, pessoas, caminhos, eu=None):
             t["kanban_card_etiquetas"].append({"card_id": uid("card", c["id"]),
                                                "etiqueta_id": uid("etiqueta", e)})
         for m in c.get("idMembers") or []:
-            t["kanban_card_membros"].append({"card_id": uid("card", c["id"]),
-                                             "membro_id": uid("membro", m)})
-        if eu and c.get("subscribed"):
+            if email_de.get(m):              # sem login no hub não é membro (decisão de 13/11/2026)
+                t["kanban_card_membros"].append({"card_id": uid("card", c["id"]),
+                                                 "membro_id": uid("membro", m)})
+        if eu and email_de.get(eu) and c.get("subscribed"):
             t["kanban_seguidores"].append({"card_id": uid("card", c["id"]), "membro_id": uid("membro", eu)})
         capa = c.get("idAttachmentCover")
         if capa and capa in caminhos:
@@ -421,7 +423,7 @@ def montar(exp, pessoas, caminhos, eu=None):
             t["kanban_checkitens"].append({
                 "id": uid("item", it["id"]), "trello_id": it["id"], "checklist_id": uid("checklist", cl["id"]),
                 "nome": it["name"], "pos": float(it["pos"]), "concluido": it["state"] == "complete",
-                "membro_id": uid("membro", it["idMember"]) if it.get("idMember") in pessoas else None,
+                "membro_id": uid("membro", it["idMember"]) if email_de.get(it.get("idMember")) else None,
                 "prazo": it.get("due")})
 
     for a in exp["actions"]:
@@ -624,7 +626,7 @@ def main():
     print("\nPessoas do Trello -> login do hub:")
     for tid, p in sorted(pessoas.items(), key=lambda kv: kv[1]["nome"].lower()):
         print(f"  {p['nome']:<40} @{p['usuario'] or '?':<22} "
-              + (f"-> {p['email'].split('@')[0]}" if p["email"] else "-> (sem login no hub)"))
+              + (f"-> {p['email'].split('@')[0]}" if p["email"] else "-> (sem login: só no histórico)"))
     sem_aba = sorted(u["email"].split("@")[0] for u in usuarios
                      if u["ativo"] and u["role"] != "admin" and u["email"] not in acesso)
     if sem_aba:
@@ -700,6 +702,8 @@ def main():
     existentes = sb.select("kanban_membros", "id,trello_id,email")
     por_email = {m["email"]: m for m in existentes if m["email"]}
     for tid, p in pessoas.items():
+        if not p["email"]:
+            continue                         # só o nome, no histórico; não vira membro
         fixo = uid("membro", tid)
         avulsa = por_email.get(p["email"]) if p["email"] else None
         if avulsa and avulsa["id"] != fixo:
