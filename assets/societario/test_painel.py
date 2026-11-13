@@ -45,6 +45,19 @@ DADOS = {
          "indirect": [{"company_key": "beta", "percent": 30.0, "calculated": True, "path": ["Pessoa Um", "Alfa", "Beta"]}]},
     ],
 }
+PROC = {"documents_total": 6, "documents_pending": 2, "documents_failed": 0, "refreshing": True,
+        "updated_at": "2026-11-13T10:00:00-03:00",
+        "items": [
+            {"company_key": "beta", "company": "Beta", "outorgado": "Pessoa Três", "outorgante": "Beta Ltda.",
+             "data_outorga": "2025-01-01", "data_vencimento": "2026-11-01", "poderes": "bancos e INSS",
+             "dias": -12, "status": "vencida", "documents": ["Ata outorga.pdf", "Ata outorga - REGISTRADA.pdf"]},
+            {"company_key": "alfa", "company": "Alfa", "outorgado": "Pessoa Um", "outorgante": "Alfa Holding S.A.",
+             "data_outorga": None, "data_vencimento": "2026-11-20", "poderes": "receita federal",
+             "dias": 7, "status": "vence_7", "documents": ["Procuração DP1.pdf"]},
+            {"company_key": "alfa", "company": "Alfa", "outorgado": "Pessoa Dois", "outorgante": "Alfa Holding S.A.",
+             "data_outorga": "2025-06-01", "data_vencimento": "2027-06-01", "poderes": "<b>tudo</b>",
+             "dias": 200, "status": "vigente", "documents": ["Procuração DP1.pdf"]},
+        ]}
 MANIFEST = {"generated_at": "2026-11-12T17:33:55-03:00", "charts": 3,
             "files": ["Organogramas Grupo.pdf", "1 Grupo/Grupo.png", "2 Por empresa/Alfa.png", "2 Por empresa/Beta.png"]}
 
@@ -91,6 +104,8 @@ def _abrir(cls, bot, secao=""):
             return route.fulfill(status=200, headers=cors, content_type="application/json", body=json.dumps(bot.resposta))
         if u.path == "/hub/dados":
             return route.fulfill(status=200, headers=cors, content_type="application/json", body=json.dumps(DADOS))
+        if u.path == "/hub/procuracoes":
+            return route.fulfill(status=200, headers=cors, content_type="application/json", body=json.dumps(PROC))
         if u.path == "/hub/organogramas":
             return route.fulfill(status=200, headers=cors, content_type="application/json", body=json.dumps(MANIFEST))
         if u.path == "/hub/organogramas/arquivo":
@@ -232,6 +247,50 @@ class TestAbaSocietario(unittest.TestCase):
         pg.fill("#v-investidores .so-busca", "um")
         self.assertEqual([t.split("\n")[0] for t in pg.locator("#v-investidores .so-lista button").all_inner_texts()],
                          ["Pessoa Um"])
+        self.assertEqual(erros, [])
+
+    def test_8_procuracoes_contadores_filtros_e_status(self):
+        bot = Bot()
+        pg, erros = _abrir(self, bot, "procuracoes")
+        pg.wait_for_selector("#v-procuracoes table")
+        self.assertEqual(pg.locator("#abas button").all_inner_texts()[:2], ["Chat", "Procurações"])
+        vals = pg.locator(".so-kpis .val").all_inner_texts()
+        self.assertEqual(vals, ["1", "1", "0", "1"])
+        linhas = pg.locator("#v-procuracoes tbody tr")
+        self.assertEqual(linhas.count(), 3)
+        primeira = linhas.first.inner_text()
+        for trecho in ("VENCIDA", "01/11/2026", "há 12 dias", "Beta", "Pessoa Três", "bancos e INSS",
+                       "Ata outorga.pdf, Ata outorga - REGISTRADA.pdf"):
+            self.assertIn(trecho, primeira)
+        self.assertIn("em 7 dias", linhas.nth(1).inner_text())
+        self.assertIn("<b>tudo</b>", linhas.nth(2).inner_text())          # texto do documento não vira HTML
+        self.assertIn("lendo documentos: 4 de 6", pg.inner_text("#v-procuracoes").lower())
+
+        pg.click(".so-kpis [data-st='vencida']")
+        self.assertEqual(pg.locator("#v-procuracoes tbody tr").count(), 1)
+        pg.click("#procTodas")
+        pg.select_option("#procEmpresa", "Alfa")
+        self.assertEqual(pg.locator("#v-procuracoes tbody tr").count(), 2)
+        pg.fill("#procBusca", "receita")
+        self.assertEqual(pg.locator("#v-procuracoes tbody tr").count(), 1)
+        pg.fill("#procBusca", "nada disso")
+        self.assertIn("Nenhuma procuração com esses filtros.", pg.inner_text("#v-procuracoes"))
+        self.assertEqual([c for m, c, _, _ in bot.pedidos].count("/hub/procuracoes"), 1)
+        self.assertEqual(erros, [])
+
+    def test_9_procuracao_leva_a_empresa_e_aparece_na_ficha(self):
+        bot = Bot()
+        pg, erros = _abrir(self, bot, "procuracoes")
+        pg.wait_for_selector("#v-procuracoes table")
+        pg.click("#v-procuracoes [data-empresa='beta']")
+        pg.wait_for_function("location.hash === '#empresas/beta'")
+        pg.wait_for_function("document.querySelector('#v-empresas .so-ficha h2') && "
+                             "document.querySelector('#v-empresas .so-ficha h2').textContent.startsWith('Beta')")
+        ficha = pg.inner_text("#v-empresas .so-ficha")
+        self.assertIn("Procurações", ficha)
+        self.assertIn("Pessoa Três", ficha)
+        self.assertNotIn("Pessoa Um", ficha)
+        self.assertEqual([c for m, c, _, _ in bot.pedidos].count("/hub/procuracoes"), 1)   # reaproveita o que baixou
         self.assertEqual(erros, [])
 
 

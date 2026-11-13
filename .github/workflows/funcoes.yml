@@ -97,7 +97,9 @@ jobs:
           for d in supabase/functions/*/; do
             nome=$(basename "$d")
             echo "::group::deploy $nome"
-            supabase functions deploy "$nome" --project-ref "$PROJETO"
+            # --yes: desde 11/2026 o CLI pede confirmação antes de publicar e, sem
+            # terminal, desiste com "Nothing was changed" — o deploy de 13/11 falhou assim
+            supabase functions deploy "$nome" --project-ref "$PROJETO" --yes
             echo "::endgroup::"
           done
 

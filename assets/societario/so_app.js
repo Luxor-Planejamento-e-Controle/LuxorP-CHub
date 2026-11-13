@@ -5,6 +5,7 @@
  *
  *   POST /hub/ask                      {question} → {company, text, image, files, sources}
  *   GET  /hub/dados                    {generated_at, companies, investors}
+ *   GET  /hub/procuracoes              {items, documents_total, documents_pending, ...}
  *   GET  /hub/organogramas             manifest {generated_at, charts, files}
  *   GET  /hub/organogramas/arquivo     ?path=<arquivo do manifest> → PNG/PDF
  *
@@ -87,7 +88,7 @@
   function abrirBlob(blob) { window.open(URL.createObjectURL(blob), '_blank', 'noopener'); }
 
   /* ---------- seções ---------- */
-  var SECOES = ['chat', 'organogramas', 'empresas', 'investidores'];
+  var SECOES = ['chat', 'procuracoes', 'organogramas', 'empresas', 'investidores'];
   var carregado = {};
   function secaoAtual() {
     var h = location.hash.replace(/^#/, '').split('/')[0];
@@ -98,6 +99,7 @@
     document.querySelectorAll('#abas button').forEach(function (b) { b.classList.toggle('on', b.dataset.v === s); });
     SECOES.forEach(function (x) { $('#v-' + x).hidden = x !== s; });
     if (s === 'chat') { $('#pergunta').focus(); return; }
+    if (s === 'procuracoes') return abrirProcuracoes();
     if (s === 'organogramas') return abrirOrganogramas();
     return abrirDados(s);
   }
@@ -181,6 +183,81 @@
   $('#pergunta').addEventListener('input', function () {
     this.style.height = ''; this.style.height = Math.min(this.scrollHeight, 180) + 'px';
   });
+
+  /* ---------- Procurações (GET /hub/procuracoes) ---------- */
+  var proc = null, procFiltro = { status: 'todas', empresa: '', busca: '' };
+  var ROTULO_ST = { vencida: 'Vencida', vence_7: 'Vence em até 7 dias', vence_30: 'Vence em até 30 dias', vigente: 'Vigente' };
+  async function carregarProc() {
+    if (!proc) proc = await (await bot('/hub/procuracoes')).json();
+    return proc;
+  }
+  function prazo(i) {
+    if (i.dias < 0) return 'há ' + (-i.dias) + (i.dias === -1 ? ' dia' : ' dias');
+    if (i.dias === 0) return 'hoje';
+    return 'em ' + i.dias + (i.dias === 1 ? ' dia' : ' dias');
+  }
+  function tabelaProc(itens, comEmpresa) {
+    return '<div class="tbl-wrap"><table class="so-tab"><thead><tr><th>Status</th><th class="num">Vencimento</th>' +
+      (comEmpresa ? '<th>Empresa</th>' : '') +
+      '<th>Outorgado</th><th>Outorgante</th><th class="num">Outorga</th><th>Poderes</th><th>Documento</th></tr></thead><tbody>' +
+      itens.map(function (i) {
+        var emp = i.company_key ? '<button class="so-link" data-empresa="' + esc(i.company_key) + '">' + esc(i.company) + '</button>' : esc(i.company);
+        return '<tr><td><span class="so-st ' + esc(i.status) + '">' + esc(ROTULO_ST[i.status] || i.status) + '</span></td>' +
+          '<td class="num">' + esc(dataBR(i.data_vencimento)) + '<span class="so-muted" style="display:block">' + esc(prazo(i)) + '</span></td>' +
+          (comEmpresa ? '<td>' + emp + '</td>' : '') +
+          '<td>' + esc(i.outorgado) + '</td><td>' + esc(i.outorgante || '') + '</td>' +
+          '<td class="num">' + esc(i.data_outorga ? dataBR(i.data_outorga) : '') + '</td>' +
+          '<td class="poderes">' + esc(i.poderes || '') + '</td><td>' + esc((i.documents || []).join(', ')) + '</td></tr>';
+      }).join('') + '</tbody></table></div>';
+  }
+  async function abrirProcuracoes() {
+    var v = $('#v-procuracoes');
+    if (!proc) {
+      v.innerHTML = '<div class="so-muted">Carregando as procurações…</div>';
+      try { await carregarProc(); } catch (e) { v.innerHTML = '<div class="so-erro">' + esc(e.message) + '</div>'; return; }
+    }
+    desenharProc();
+  }
+  function desenharProc() {
+    var v = $('#v-procuracoes'), itens = proc.items || [], f = procFiltro, b = sem(f.busca);
+    var conta = { vencida: 0, vence_7: 0, vence_30: 0, vigente: 0 };
+    var empresas = [];
+    itens.forEach(function (i) {
+      conta[i.status] = (conta[i.status] || 0) + 1;
+      if (empresas.indexOf(i.company) < 0) empresas.push(i.company);
+    });
+    empresas.sort(function (x, y) { return x.localeCompare(y, 'pt-BR'); });
+    var vis = itens.filter(function (i) {
+      if (f.status !== 'todas' && i.status !== f.status) return false;
+      if (f.empresa && i.company !== f.empresa) return false;
+      return !b || sem([i.outorgado, i.outorgante, i.poderes, (i.documents || []).join(' ')].join(' ')).indexOf(b) >= 0;
+    });
+    var kpi = function (st, rot) {
+      return '<div class="card kpi' + (f.status === st ? ' on' : '') + '" data-st="' + st + '"><div class="label">' + rot +
+        '</div><div class="val ' + st + '">' + conta[st] + '</div></div>';
+    };
+    var lendo = proc.documents_pending
+      ? '<span class="so-badge">lendo documentos: ' + (proc.documents_total - proc.documents_pending) + ' de ' + proc.documents_total + '</span>' : '';
+    v.innerHTML = '<div class="so-kpis">' + kpi('vencida', 'Vencidas') + kpi('vence_7', 'Vencem em até 7 dias') +
+      kpi('vence_30', 'Vencem em até 30 dias') + kpi('vigente', 'Vigentes') + '</div>' +
+      '<div class="so-topo"><select class="so-sel" id="procEmpresa"><option value="">Todas as empresas</option>' +
+      empresas.map(function (e) { return '<option value="' + esc(e) + '"' + (e === f.empresa ? ' selected' : '') + '>' + esc(e) + '</option>'; }).join('') +
+      '</select><input class="so-busca" id="procBusca" style="max-width:320px" placeholder="Buscar outorgado, poderes, documento" value="' + esc(f.busca) + '">' +
+      (f.status !== 'todas' ? '<button class="so-btn ghost" id="procTodas">Mostrar todas</button>' : '') + lendo + '</div>' +
+      (vis.length ? '<div class="card">' + tabelaProc(vis, true) + '</div>'
+        : '<div class="so-muted">' + (itens.length ? 'Nenhuma procuração com esses filtros.' : 'Nenhuma procuração encontrada nos documentos.') + '</div>');
+    v.querySelector('.so-kpis').onclick = function (e) {
+      var k = e.target.closest('[data-st]'); if (!k) return;
+      f.status = f.status === k.dataset.st ? 'todas' : k.dataset.st; desenharProc();
+    };
+    $('#procEmpresa').onchange = function () { f.empresa = this.value; desenharProc(); };
+    $('#procBusca').oninput = function () {
+      f.busca = this.value; var pos = this.selectionStart; desenharProc();
+      var i = $('#procBusca'); i.focus(); i.setSelectionRange(pos, pos);
+    };
+    if ($('#procTodas')) $('#procTodas').onclick = function () { f.status = 'todas'; desenharProc(); };
+    v.querySelectorAll('[data-empresa]').forEach(function (a) { a.onclick = function () { irPara('empresas', a.dataset.empresa); }; });
+  }
 
   /* ---------- Organogramas ---------- */
   var org = null, orgSecao = null, orgSel = null, orgBusca = '', orgImg = {};
@@ -276,10 +353,13 @@
     var v = $('#v-' + secao);
     if (!carregado.dados) {
       v.innerHTML = '<div class="so-muted">Carregando o quadro societário…</div>';
+      // as procurações entram na ficha da empresa; se falharem, a ficha sai sem elas
+      var pr = carregarProc().catch(function () { return null; });
       try {
         dados = await (await bot('/hub/dados')).json();
         indexar(); carregado.dados = true;
       } catch (e) { v.innerHTML = '<div class="so-erro">' + esc(e.message) + '</div>'; return; }
+      await pr;
     }
     if (secao === 'empresas') desenharEmpresas(); else desenharInvestidores();
   }
@@ -339,6 +419,10 @@
             '<td class="num">' + esc(s.shares || '') + '</td><td class="num">' + esc(pct(s.percent)) +
             (s.percent_calculated ? ' <span class="so-muted">(calculado)</span>' : '') + '</td></tr>';
         }).join('') + '</tbody></table></div></div>';
+    }
+    var procs = proc ? (proc.items || []).filter(function (i) { return i.company_key === c.key; }) : [];
+    if (procs.length) {
+      h += '<div class="card" style="margin-top:14px"><div class="card-title"><h2>Procurações</h2></div>' + tabelaProc(procs, false) + '</div>';
     }
     var ex = c.former_shareholders || [];
     if (ex.length) {
