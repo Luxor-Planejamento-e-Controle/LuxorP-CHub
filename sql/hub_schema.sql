@@ -37,7 +37,7 @@ create table if not exists user_dashboard_access (
   email      text not null references allowed_users(email) on update cascade on delete cascade,
   dashboard  text not null check (dashboard in
                ('indicadores','dre','inadimplencia','vendas','projetos','fluxo','participacoes','plantel',
-                'saldo_bancario','controle_pagamentos','tarituba','kanban','societario','comite_fo','board_fo')),
+                'saldo_bancario','controle_pagamentos','tarituba','kanban','societario','comite_fo','board_fo','carta')),
   granted_at timestamptz not null default now(),
   primary key (email, dashboard)
 );
@@ -54,7 +54,7 @@ alter table user_dashboard_access drop constraint if exists user_dashboard_acces
 alter table user_dashboard_access add constraint user_dashboard_access_dashboard_check
   check (dashboard in
           ('indicadores','dre','inadimplencia','vendas','projetos','fluxo','participacoes','plantel',
-           'saldo_bancario','controle_pagamentos','tarituba','kanban','societario','comite_fo','board_fo'));
+           'saldo_bancario','controle_pagamentos','tarituba','kanban','societario','comite_fo','board_fo','carta'));
 
 -- ---------------------------------------------------------------------
 -- 3) Helpers. SECURITY DEFINER para as policies não recursarem na própria
@@ -143,6 +143,7 @@ create policy hub_data_read on storage.objects
 --      id = 'saldo_bancario'       saldo de cada conta, entradas, provisões
 --      id = 'controle_pagamentos'  cadastro de fornecedores fixos
 --      id = 'tarituba'             cadastro de naturezas do Fluxo de Caixa Tarituba
+--      id = 'carta'                textos da Carta Trimestral (PT e EN) por trimestre
 --
 --    Mora AQUI, e não num arquivo por painel, porque a RLS é DA TABELA: as oito
 --    policies abaixo só fazem sentido lidas juntas. Enquanto estiveram em três
@@ -228,6 +229,20 @@ create policy hub_tarituba_update on app_state
   using      ( id = 'tarituba' and public.hub_can('tarituba') )
   with check ( id = 'tarituba' and public.hub_can('tarituba') );
 
+-- Carta Trimestral: os textos do CEO, a tradução e as leituras do trimestre, colados
+-- na aba pelo Arthur (decisão dele, 13/11/2026). Quem vê a aba LÊ (a carta montada
+-- precisa dos textos); só admin GRAVA.
+drop policy if exists hub_carta_select on app_state;
+create policy hub_carta_select on app_state
+  for select to authenticated
+  using ( id = 'carta' and public.hub_can('carta') );
+
+drop policy if exists hub_carta_update on app_state;
+create policy hub_carta_update on app_state
+  for update to authenticated
+  using      ( id = 'carta' and public.hub_is_admin() )
+  with check ( id = 'carta' and public.hub_is_admin() );
+
 -- Linha de cada painel, vazia. O conteúdo real vem do seed (sql/*.local.sql, não
 -- versionado: este repo é público e colchão de conta e fornecedor com valor são
 -- dado interno) e depois é mantido pela própria tela.
@@ -236,6 +251,8 @@ create policy hub_tarituba_update on app_state
 --   saldo_bancario      : { contas, entradas, provisoes }
 --   controle_pagamentos : { fornecedores }
 --   tarituba            : { versao, naturezas }  — ver assets/tarituba/tt_dados.js
+--   carta               : { versao, trimestres: {<AAAA-QN>: {pt, en, leituras}} }
+--                         — ver assets/apresentacoes/ap_deck.js (CONTEUDO)
 --
 -- Em tarituba, o documento vazio mantém o painel na estrutura da planilha: o job do
 -- Azure só passa a ler o cadastro quando ele tem naturezas. O seed (gerado por
@@ -253,7 +270,8 @@ insert into app_state (id, data) values
   ('projetos',            '[]'::jsonb),
   ('saldo_bancario',      '{}'::jsonb),
   ('controle_pagamentos', '{}'::jsonb),
-  ('tarituba',            '{}'::jsonb)
+  ('tarituba',            '{}'::jsonb),
+  ('carta',               '{}'::jsonb)
 on conflict (id) do nothing;
 
 -- Realtime: sem isto o app sobe e salva, mas os clientes não se sincronizam —

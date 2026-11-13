@@ -119,7 +119,7 @@ class TestRotas(unittest.TestCase):
     def test_7b_decks_do_comite_e_do_board(self):
         """Os dois decks (assets/apresentacoes, `painel: deck`) vão para o pc_apresentacoes,
         com o próprio par — e nenhum outro painel herda esse par."""
-        for painel in ("comite_fo", "board_fo"):
+        for painel in ("comite_fo", "board_fo", "carta"):
             self.assertEqual(self.destino(painel, CERTO),
                              {"url": f"{APP}/api/pc/apresentacoes", "chave": "chave-apresentacoes"}, painel)
         sem = {k: v for k, v in CERTO.items() if "APRESENTACOES" not in k}

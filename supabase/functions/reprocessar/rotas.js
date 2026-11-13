@@ -48,6 +48,7 @@ export const ROTAS = {
   vendas: VENDAS,
   comite_fo: APRESENTACOES,
   board_fo: APRESENTACOES,
+  carta: APRESENTACOES,
 }
 
 /* {url, chave} do destino do painel, ou {erro, status} dizendo o que falta.

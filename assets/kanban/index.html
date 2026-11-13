@@ -767,7 +767,49 @@ $('#board').addEventListener('dragend', () => {
   $$('.kcard.arrastando').forEach(c => c.classList.remove('arrastando'));
   if (ph.parentNode) ph.parentNode.removeChild(ph);
   arrastado = null;
+  pararRolagem();
 });
+
+/* Rolagem durante o arrasto. O navegador não rola sozinho uma área com barra própria
+   (o board rola de lado, cada coluna rola para baixo), então levar um card do Backlog
+   ao Done era impossível: a tela não acompanhava. Aqui, com o card na mão, encostar na
+   borda esquerda/direita do board rola o board, e no alto/pé de uma coluna rola a
+   coluna — mais rápido quanto mais perto da borda. */
+const BORDA_X = 110, VEL_X = 30, BORDA_Y = 70, VEL_Y = 20;
+let ponteiro = null, rafRolagem = 0;
+function velocidade(dist, borda, max) {
+  return dist >= borda ? 0 : Math.ceil(max * (1 - Math.max(0, dist) / borda));
+}
+function passoRolagem() {
+  rafRolagem = 0;
+  if (!arrastado || !ponteiro) return;
+  const board = $('#board'), r = board.getBoundingClientRect(), { x, y } = ponteiro;
+  const dx = velocidade(x - r.left, BORDA_X, VEL_X) ? -velocidade(x - r.left, BORDA_X, VEL_X)
+           : velocidade(r.right - x, BORDA_X, VEL_X);
+  if (dx) board.scrollLeft += dx;
+  const alvo = document.elementFromPoint(x, y);
+  const col = alvo && alvo.closest('.kcol') && $('.kcol-cards', alvo.closest('.kcol'));
+  if (col) {
+    const c = col.getBoundingClientRect();
+    const dy = velocidade(y - c.top, BORDA_Y, VEL_Y) ? -velocidade(y - c.top, BORDA_Y, VEL_Y)
+             : velocidade(c.bottom - y, BORDA_Y, VEL_Y);
+    if (dy) col.scrollTop += dy;
+  }
+  rafRolagem = requestAnimationFrame(passoRolagem);
+}
+function pararRolagem() {
+  ponteiro = null;
+  if (rafRolagem) cancelAnimationFrame(rafRolagem);
+  rafRolagem = 0;
+}
+// no documento inteiro, e não só nas colunas: a borda pode cair na barra de cima, no
+// espaço entre colunas ou no "Adicionar outra lista"
+document.addEventListener('dragover', ev => {
+  if (!arrastado) return;
+  ponteiro = { x: ev.clientX, y: ev.clientY };
+  if (!rafRolagem) rafRolagem = requestAnimationFrame(passoRolagem);
+});
+document.addEventListener('drop', pararRolagem);
 $('#board').addEventListener('dragover', ev => {
   if (!arrastado) return;
   const area = ev.target.closest('.kcol-cards') || (ev.target.closest('.kcol') && $('.kcol-cards', ev.target.closest('.kcol')));

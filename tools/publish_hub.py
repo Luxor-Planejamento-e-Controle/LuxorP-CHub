@@ -35,6 +35,8 @@ DATASETS = {
     # decks do Comitê FO e do Board (ex-Power BI), um JSON com todos os trimestres
     "comite_fo":     (ROOT / "assets/data/comite_fo.json",          "comite_fo.json",     "application/json"),
     "board_fo":      (ROOT / "assets/data/board_fo.json",           "board_fo.json",      "application/json"),
+    # carta trimestral: só os números e as imagens fixas; os textos ficam em app_state
+    "carta":         (ROOT / "assets/data/carta.json",              "carta.json",         "application/json"),
 }
 # Quem gera cada arquivo local, pra mensagem de erro apontar o build certo.
 GERADOR = {
@@ -42,6 +44,7 @@ GERADOR = {
     "vendas": "tools/build_vendas.py",
     "comite_fo": "tools/build_apresentacoes.py",
     "board_fo": "tools/build_apresentacoes.py",
+    "carta": "tools/build_apresentacoes.py",
 }
 # Datasets com PII: ficam fora do padrão e saem com aviso.
 COM_PII = ("inadimplencia", "vendas")

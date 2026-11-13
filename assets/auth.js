@@ -35,6 +35,8 @@ const HUB_DATASETS = {
   // decks do Comitê FO e do Board (ex-Power BI): o iframe baixa <deck>.json e relê
   // depois do "Atualizar agora" (assets/apresentacoes/ap_fonte.js)
   comite_fo: null, board_fo: null,
+  // carta trimestral: o deck vem do bucket e os textos de app_state ('carta'), no iframe
+  carta: null,
 };
 
 /* Erro devolvido pelo GoTrue vem na URL (hash no fluxo implícito, query no PKCE)

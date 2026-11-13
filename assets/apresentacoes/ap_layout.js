@@ -718,8 +718,10 @@
   S.carta_capa = (s, ctx) => {
     const P = [];
     if (s.logo) P.push(I(222, 372, 482, 229, s.logo));
+    // o SVG do logo traz "INVESTIMENTOS"; no PPTX original um retângulo da cor do fundo o cobre
+    P.push(R(141, 563, 642, 70, {fill: CARTA.fundo}));
     P.push(R(10, 839, 482, 206, {fill: CARTA.caixa}));
-    P.push(T(55, 846, 398, 117, rot(ctx, 'capa'), {pt: 32.6, al: 'c', va: 'm', fonte: FONTE_CARTA_T, sp: 3, wrap: 1}));
+    P.push(T(55, 846, 398, 117, rot(ctx, 'capa'), {pt: 32.6, al: 'c', va: 'm', fonte: FONTE_CARTA_T, sp: 3}));
     P.push(L(124, 963, 379, 963, {c: 'D9B54A', esp: 1}));
     P.push(T(89, 969, 329, 50, s.rotulo, {pt: 24.5, al: 'c', va: 'm', fonte: FONTE_CARTA_T, sp: 3}));
     rodapeCarta(P);

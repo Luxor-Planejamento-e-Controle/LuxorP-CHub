@@ -445,6 +445,34 @@ class TestKanban(unittest.TestCase):
         self.assertEqual(f, {"id": ultimo})
         self.assertEqual(c, {"pos": primeiro[1] / 2}, "metade do primeiro, e só a posição")
 
+    def test_16b_arrastar_ate_a_borda_rola_o_board(self):
+        pg = self.pg
+        self._fechar()
+        pg.set_viewport_size({"width": 620, "height": 700})   # board mais largo que a tela
+        try:
+            pg.evaluate("document.getElementById('board').scrollLeft = 0")
+            pg.evaluate("""() => {
+              window.__dt = new DataTransfer();
+              document.querySelector('.kcard').dispatchEvent(
+                new DragEvent('dragstart', {bubbles: true, dataTransfer: window.__dt}));
+              const r = document.getElementById('board').getBoundingClientRect();
+              document.dispatchEvent(new DragEvent('dragover', {bubbles: true, cancelable: true,
+                clientX: r.right - 8, clientY: r.top + 120, dataTransfer: window.__dt}));
+            }""")
+            pg.wait_for_timeout(500)
+            rolou = pg.evaluate("document.getElementById('board').scrollLeft")
+            self.assertGreater(rolou, 0, "card na borda direita rola o board para o lado")
+            pg.evaluate("""() => document.querySelector('.kcard.arrastando, .kcard').dispatchEvent(
+                new DragEvent('dragend', {bubbles: true, dataTransfer: window.__dt}))""")
+            pg.wait_for_timeout(100)
+            parado = pg.evaluate("document.getElementById('board').scrollLeft")
+            pg.wait_for_timeout(300)
+            self.assertEqual(pg.evaluate("document.getElementById('board').scrollLeft"), parado,
+                             "soltou o card, a rolagem para")
+        finally:
+            pg.set_viewport_size({"width": 1500, "height": 950})
+            pg.evaluate("document.getElementById('board').scrollLeft = 0")
+
     def test_17_busca_acha_item_de_checklist(self):
         pg = self.pg
         self._fechar()

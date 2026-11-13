@@ -10,6 +10,7 @@ Uso: python assets/societario/test_painel.py   (da raiz do repo do hub)
 """
 import base64
 import json
+from datetime import date, timedelta
 import pathlib
 import time
 import unittest
@@ -71,6 +72,19 @@ ADV = {"arquivo": "Listagem Advogados Parceiros.xlsx", "atualizado_em": "2026-11
             "processos": [], "advogados": [{"nome": "Pessoa Quatro", "telefone": "11 9999-0004", "email": None,
                                             "processo": None}]},
        ]}
+PROCS = {"arquivo": "Processos em andamento.xlsx", "atualizado_em": "2026-11-13T16:00:00-03:00",
+         "processos": [
+             {"numero": "0000001-00.2025.5.01.0001", "empresa": "Empresa Alfa", "polo": "Réu", "parte_contraria": "Pessoa X",
+              "area": "Trabalhista", "objeto": "Reclamação trabalhista", "tribunal": "1ª Vara do Trabalho RJ",
+              "escritorio": "BETA ADVOCACIA", "advogado": "Pessoa Três", "valor_causa": 150000.5, "risco": "Provável",
+              "fase": "Instrução", "ultima_movimentacao": "Audiência redesignada", "data_ultima_movimentacao": "2026-11-03",
+              "proximo_prazo": "Audiência de instrução", "data_proximo_prazo": (date.today() + timedelta(days=3)).isoformat(),
+              "linha": 2},
+             {"numero": None, "empresa": "Empresa Beta", "polo": "Autor", "parte_contraria": None, "area": "Tributário",
+              "objeto": "Recuperação de ICMS <b>x</b>", "tribunal": None, "escritorio": "ALFA ADVOGADOS", "advogado": None,
+              "valor_causa": None, "risco": "Remoto", "fase": None, "ultima_movimentacao": None,
+              "data_ultima_movimentacao": None, "proximo_prazo": None, "data_proximo_prazo": None, "linha": 3},
+         ]}
 MANIFEST = {"generated_at": "2026-11-12T17:33:55-03:00", "charts": 3,
             "files": ["Organogramas Grupo.pdf", "1 Grupo/Grupo.png", "2 Por empresa/Alfa.png", "2 Por empresa/Beta.png"]}
 
@@ -84,6 +98,7 @@ class Bot:
                          "files": [{"name": "Organogramas Grupo.pdf", "title": "Todos", "size": 4,
                                     "data": base64.b64encode(b"%PDF").decode()}]}
         self.status = 200
+        self.processos_ok = True    # o que hub_can('processos') responde no Supabase
         self.segurar = False     # True: guarda a rota do /hub/ask e só responde quando o teste mandar
         self.pendente = None
 
@@ -119,6 +134,8 @@ def _abrir(cls, bot, secao=""):
             return route.fulfill(status=200, headers=cors, content_type="application/json", body=json.dumps(DADOS))
         if u.path == "/hub/procuracoes":
             return route.fulfill(status=200, headers=cors, content_type="application/json", body=json.dumps(PROC))
+        if u.path == "/hub/processos":
+            return route.fulfill(status=200, headers=cors, content_type="application/json", body=json.dumps(PROCS))
         if u.path == "/hub/advogados":
             return route.fulfill(status=200, headers=cors, content_type="application/json", body=json.dumps(ADV))
         if u.path == "/hub/organogramas":
@@ -132,6 +149,14 @@ def _abrir(cls, bot, secao=""):
         return route.fulfill(status=404, headers=cors, body="")
 
     pg.route("**/*.azurecontainerapps.io/**", rota)
+
+    def supa(route, request):
+        if "/rest/v1/rpc/hub_can" in request.url:
+            dash = json.loads(request.post_data or "{}").get("dash")
+            ok = bot.processos_ok if dash == "processos" else True
+            return route.fulfill(status=200, headers=cors, content_type="application/json", body=json.dumps(ok))
+        return route.fulfill(status=404, headers=cors, body="")
+    pg.route("**/*.supabase.co/**", supa)
     sessao = {"access_token": TOKEN, "refresh_token": "r", "token_type": "bearer", "expires_in": 3600,
               "expires_at": int(time.time()) + 3600, "user": {"id": "u1", "email": "teste@exemplo.com", "aud": "authenticated"}}
     pg.add_init_script(f"localStorage.setItem('sb-hjducsxcolbspbkpflom-auth-token', {json.dumps(json.dumps(sessao))});")
@@ -312,7 +337,7 @@ class TestAbaSocietario(unittest.TestCase):
         bot = Bot()
         pg, erros = _abrir(self, bot, "advogados")
         pg.wait_for_selector("#v-advogados .so-ficha h2")
-        self.assertEqual(pg.locator("#abas button").all_inner_texts()[-1], "Advogados")
+        self.assertIn("Advogados", pg.locator("#abas button").all_inner_texts())
         ficha = pg.inner_text("#v-advogados .so-ficha")
         for trecho in ("ALFA ADVOGADOS", "00.000.000/0001-00", "Trabalhista", "Reclamação X", "Pessoa Dois",
                        "21 9999-0002", "Listagem Advogados Parceiros.xlsx · atualizada em 13/11/2026 15:00"):
@@ -331,6 +356,49 @@ class TestAbaSocietario(unittest.TestCase):
         pg.fill("#advBusca", "pessoa um")
         self.assertEqual([t.split("\n")[0] for t in pg.locator("#v-advogados .so-lista button").all_inner_texts()],
                          ["ALFA ADVOGADOS"])
+        self.assertEqual(erros, [])
+
+    def test_11_processos_so_com_permissao(self):
+        bot = Bot()
+        bot.processos_ok = False
+        pg, erros = _abrir(self, bot)
+        pg.wait_for_timeout(500)
+        self.assertFalse(pg.is_visible("#btnProcessos"))
+        self.assertEqual(erros, [])
+
+    def test_12_processos_contadores_filtros_ficha_e_escritorio(self):
+        bot = Bot()
+        pg, erros = _abrir(self, bot)
+        pg.wait_for_selector("#btnProcessos", state="visible")
+        pg.click("#btnProcessos")
+        pg.wait_for_selector("#v-processos .so-ficha h2")
+        self.assertEqual(pg.locator("#v-processos .so-kpis .val").all_inner_texts(), ["2", "1", "0", "1", "1"])
+        ficha = pg.inner_text("#v-processos .so-ficha").replace(" ", " ")
+        for trecho in ("Reclamação trabalhista", "0000001-00.2025.5.01.0001", "Empresa Alfa", "Réu", "Pessoa X",
+                       "1ª Vara do Trabalho RJ", "R$ 150.000,50", "Instrução", "03/11/2026 — Audiência redesignada",
+                       "Audiência de instrução", "Processos em andamento.xlsx"):
+            self.assertIn(trecho, ficha)
+        self.assertIn("em 3 dias", ficha.lower())
+        self.assertIn("RISCO PROVÁVEL", ficha.upper())
+
+        pg.click("#v-processos .so-kpis [data-k='remoto']")
+        self.assertEqual(pg.locator("#v-processos .so-lista button").count(), 1)
+        self.assertIn("<b>x</b>", pg.inner_text("#v-processos .so-lista"))            # texto da planilha não vira HTML
+        pg.click("#v-processos .so-kpis [data-k='remoto']")
+        pg.select_option("#pcArea", "Trabalhista")
+        self.assertEqual(pg.locator("#v-processos .so-lista button").count(), 1)
+        pg.select_option("#pcArea", "")
+        pg.fill("#pcBusca", "icms")
+        self.assertEqual(pg.locator("#v-processos .so-lista button").count(), 1)
+
+        pg.fill("#pcBusca", "")
+        pg.click("#v-processos .so-lista button:has-text('Reclamação')")
+        pg.wait_for_selector("#pcEscr")
+        pg.click("#pcEscr")                                                             # BETA ADVOCACIA → ficha em Advogados
+        pg.wait_for_function("location.hash === '#advogados/1'")
+        pg.wait_for_function("document.querySelector('#v-advogados .so-ficha') && "
+                             "document.querySelector('#v-advogados .so-ficha').innerText.includes('BETA ADVOCACIA')")
+        self.assertTrue(any(c == "/hub/processos" for _, c, a, _ in bot.pedidos if a == f"Bearer {TOKEN}"))
         self.assertEqual(erros, [])
 
 

@@ -7,6 +7,7 @@
  *   GET  /hub/dados                    {generated_at, companies, investors}
  *   GET  /hub/procuracoes              {items, documents_total, documents_pending, ...}
  *   GET  /hub/advogados                {arquivo, atualizado_em, escritorios}
+ *   GET  /hub/processos                {arquivo, atualizado_em, processos}  (só hub_can('processos'))
  *   GET  /hub/organogramas             manifest {generated_at, charts, files}
  *   GET  /hub/organogramas/arquivo     ?path=<arquivo do manifest> → PNG/PDF
  *
@@ -89,7 +90,7 @@
   function abrirBlob(blob) { window.open(URL.createObjectURL(blob), '_blank', 'noopener'); }
 
   /* ---------- seções ---------- */
-  var SECOES = ['chat', 'procuracoes', 'organogramas', 'empresas', 'investidores', 'advogados'];
+  var SECOES = ['chat', 'procuracoes', 'organogramas', 'empresas', 'investidores', 'advogados', 'processos'];
   var carregado = {};
   function secaoAtual() {
     var h = location.hash.replace(/^#/, '').split('/')[0];
@@ -103,6 +104,7 @@
     if (s === 'procuracoes') return abrirProcuracoes();
     if (s === 'organogramas') return abrirOrganogramas();
     if (s === 'advogados') return abrirAdvogados();
+    if (s === 'processos') return abrirProcessos();
     return abrirDados(s);
   }
   $('#abas').addEventListener('click', function (e) {
@@ -310,6 +312,119 @@
       var bt = e.target.closest('button[data-i]'); if (bt) irPara('advogados', bt.dataset.i);
     };
   }
+
+  /* ---------- Processos (GET /hub/processos; só para hub_can('processos')) ---------- */
+  var processosData = null, procsFiltro = { kpi: 'todos', area: '', escritorio: '', empresa: '', busca: '' };
+  function riscoClasse(r) {
+    var k = sem(r);
+    return k.indexOf('provav') === 0 ? 'provavel' : k.indexOf('possiv') === 0 ? 'possivel' : k.indexOf('remot') === 0 ? 'remoto' : 'sem';
+  }
+  function diasAte(iso) {
+    if (!iso) return null;
+    var hoje = new Date(); hoje.setHours(0, 0, 0, 0);
+    return Math.round((new Date(iso + 'T00:00:00') - hoje) / 864e5);
+  }
+  function reais(v) {
+    if (v == null || v === '') return '';
+    return typeof v === 'number' ? v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : String(v);
+  }
+  async function abrirProcessos() {
+    var v = $('#v-processos');
+    if (!processosData) {
+      v.innerHTML = '<div class="so-muted">Carregando os processos…</div>';
+      try { processosData = await (await bot('/hub/processos')).json(); }
+      catch (e) { v.innerHTML = '<div class="so-erro">' + esc(e.message) + '</div>'; return; }
+    }
+    desenharProcessos();
+  }
+  function desenharProcessos() {
+    var v = $('#v-processos'), todos = processosData.processos || [], f = procsFiltro, b = sem(f.busca);
+    if (!todos.length) { v.innerHTML = '<div class="so-muted">Nenhum processo na planilha.</div>'; return; }
+    var prazo7 = function (p) { var d = diasAte(p.data_proximo_prazo); return d != null && d >= 0 && d <= 7; };
+    var conta = { todos: todos.length, provavel: 0, possivel: 0, remoto: 0, prazo: 0 };
+    todos.forEach(function (p) { var c = riscoClasse(p.risco); if (conta[c] != null) conta[c]++; if (prazo7(p)) conta.prazo++; });
+    var opcoes = function (campo) {
+      var vs = [];
+      todos.forEach(function (p) { if (p[campo] && vs.indexOf(p[campo]) < 0) vs.push(p[campo]); });
+      return vs.sort(function (x, y) { return String(x).localeCompare(String(y), 'pt-BR'); });
+    };
+    var vis = todos.map(function (p, i) { return { p: p, i: i }; }).filter(function (x) {
+      var p = x.p;
+      if (f.kpi === 'prazo' && !prazo7(p)) return false;
+      if (['provavel', 'possivel', 'remoto'].indexOf(f.kpi) >= 0 && riscoClasse(p.risco) !== f.kpi) return false;
+      if (f.area && p.area !== f.area) return false;
+      if (f.escritorio && p.escritorio !== f.escritorio) return false;
+      if (f.empresa && p.empresa !== f.empresa) return false;
+      return !b || sem([p.objeto, p.numero, p.empresa, p.parte_contraria, p.escritorio, p.advogado, p.fase].join(' ')).indexOf(b) >= 0;
+    });
+    var sel = todos[+idDoHash()] || (vis[0] && vis[0].p) || todos[0];
+    var kpi = function (k, rot, cls) {
+      return '<div class="card kpi' + (f.kpi === k ? ' on' : '') + '" data-k="' + k + '"><div class="label">' + rot +
+        '</div><div class="val ' + (cls || '') + '">' + conta[k] + '</div></div>';
+    };
+    var sel_ = function (id, campo, rot) {
+      return '<select class="so-sel" id="' + id + '"><option value="">' + rot + '</option>' + opcoes(campo).map(function (o) {
+        return '<option value="' + esc(o) + '"' + (o === f[campo] ? ' selected' : '') + '>' + esc(o) + '</option>';
+      }).join('') + '</select>';
+    };
+    var h = '<div class="so-kpis cinco">' + kpi('todos', 'Processos') + kpi('provavel', 'Risco provável', 'provavel') +
+      kpi('possivel', 'Risco possível', 'possivel') + kpi('remoto', 'Risco remoto') + kpi('prazo', 'Prazo em até 7 dias', 'prazo') + '</div>' +
+      '<div class="so-topo">' + sel_('pcArea', 'area', 'Todas as áreas') + sel_('pcEscritorio', 'escritorio', 'Todos os escritórios') +
+      sel_('pcEmpresa', 'empresa', 'Todas as empresas') +
+      '<input class="so-busca" id="pcBusca" style="max-width:300px" placeholder="Buscar processo, parte, advogado" value="' + esc(f.busca) + '"></div>';
+    h += '<div class="so-duas"><div class="so-lista">' + (vis.length ? vis.map(function (x) {
+      var sub = [x.p.empresa, x.p.escritorio].filter(Boolean).join(' · ');
+      return '<button class="so-item' + (x.p === sel ? ' on' : '') + '" data-i="' + x.i + '">' + esc(x.p.objeto || x.p.numero || '(sem objeto)') +
+        (sub ? '<span class="so-muted">' + esc(sub) + '</span>' : '') + '</button>';
+    }).join('') : '<div class="so-muted" style="padding:8px">Nenhum processo com esses filtros.</div>') + '</div><div class="so-ficha">';
+    var dProx = diasAte(sel.data_proximo_prazo);
+    h += '<div class="card"><h2>' + esc(sel.objeto || sel.numero || '(sem objeto)') +
+      (sel.risco ? '<span class="so-st ' + riscoClasse(sel.risco) + '" style="margin-left:10px">Risco ' + esc(sel.risco) + '</span>' : '') + '</h2>' +
+      kv([['Nº do processo', sel.numero], ['Empresa / pessoa do grupo', sel.empresa], ['Polo', sel.polo],
+          ['Parte contrária', sel.parte_contraria], ['Área', sel.area], ['Tribunal / vara', sel.tribunal],
+          ['Valor da causa', reais(sel.valor_causa)], ['Fase', sel.fase], ['Advogado responsável', sel.advogado]]);
+    if (sel.escritorio) {
+      h += '<div class="so-kv"><div><div class="k">Escritório</div><div class="v"><button class="so-link" id="pcEscr">' +
+        esc(sel.escritorio) + '</button></div></div></div>';
+    }
+    h += '</div>';
+    if (sel.ultima_movimentacao || sel.data_ultima_movimentacao || sel.proximo_prazo || sel.data_proximo_prazo) {
+      h += '<div class="card" style="margin-top:14px"><div class="card-title"><h2>Andamento</h2></div>' +
+        kv([['Última movimentação', [sel.data_ultima_movimentacao ? dataBR(sel.data_ultima_movimentacao) : '', sel.ultima_movimentacao || ''].filter(Boolean).join(' — ')],
+            ['Próximo prazo / audiência', [sel.data_proximo_prazo ? dataBR(sel.data_proximo_prazo) : '', sel.proximo_prazo || ''].filter(Boolean).join(' — ')]]) +
+        (dProx != null && dProx >= 0 && dProx <= 7 ? '<span class="so-st vence_7">' + (dProx === 0 ? 'hoje' : 'em ' + dProx + (dProx === 1 ? ' dia' : ' dias')) + '</span>' : '') +
+        '</div>';
+    }
+    h += '<div class="so-muted" style="margin-top:10px">' + esc(processosData.arquivo + ' · atualizada em ' + dataBR(processosData.atualizado_em)) + '</div>';
+    v.innerHTML = h + '</div></div>';
+
+    v.querySelector('.so-kpis').onclick = function (e) {
+      var k = e.target.closest('[data-k]'); if (!k) return;
+      f.kpi = f.kpi === k.dataset.k ? 'todos' : k.dataset.k; desenharProcessos();
+    };
+    [['pcArea', 'area'], ['pcEscritorio', 'escritorio'], ['pcEmpresa', 'empresa']].forEach(function (x) {
+      $('#' + x[0]).onchange = function () { f[x[1]] = this.value; desenharProcessos(); };
+    });
+    $('#pcBusca').oninput = function () {
+      f.busca = this.value; var pos = this.selectionStart; desenharProcessos();
+      var i = $('#pcBusca'); i.focus(); i.setSelectionRange(pos, pos);
+    };
+    v.querySelector('.so-lista').onclick = function (e) {
+      var bt = e.target.closest('button[data-i]'); if (bt) irPara('processos', bt.dataset.i);
+    };
+    if ($('#pcEscr')) $('#pcEscr').onclick = async function () {
+      try { if (!adv) adv = await (await bot('/hub/advogados')).json(); } catch (e) { return; }
+      var alvo = sem(sel.escritorio), i = (adv.escritorios || []).findIndex(function (x) { return sem(x.nome) === alvo; });
+      irPara('advogados', i >= 0 ? String(i) : null);
+    };
+  }
+  // O botão só aparece para quem tem hub_can('processos') — o bot confere de novo a cada pedido.
+  (async function () {
+    try {
+      var r = await sb().rpc('hub_can', { dash: 'processos' });
+      if (r && r.data === true) $('#btnProcessos').hidden = false;
+    } catch (e) { /* sem acesso: o botão fica escondido */ }
+  })();
 
   /* ---------- Organogramas ---------- */
   var org = null, orgSecao = null, orgSel = null, orgBusca = '', orgImg = {};
