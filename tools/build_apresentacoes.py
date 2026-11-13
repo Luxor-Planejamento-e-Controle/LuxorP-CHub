@@ -47,8 +47,8 @@ CONTAINER = "luxor-planejamento-e-controle"
 PREFIXO = "LuxorControlDatabase/"
 BUCKET = "hub-data"
 
-DECKS = ("comite_fo", "board_fo")
-TITULO_DECK = {"comite_fo": "Comitê de Resultados FO", "board_fo": "Board"}
+DECKS = ("comite_fo", "board_fo", "carta")
+TITULO_DECK = {"comite_fo": "Comitê de Resultados FO", "board_fo": "Board", "carta": "Carta Trimestral"}
 
 # --------------------------------------------------------------------------
 # cores do relatório (as do PBI)
@@ -679,7 +679,9 @@ def s_nav_crescimento(b, d, m):
             v = x[x.Category == cat]["Value_RS_mi"].sum()
             if v:
                 partes.append({"s": cat, "v": float(v), "cor": CORES_NAV.get(cat, "8C8C8C")})
-        barras.append({"r": _rotulo_mes_en(bl), "partes": partes, "total": float(x["Value_RS_mi"].sum())})
+        # r = rótulo em inglês (board); rp = o da base, em português (carta em PT)
+        barras.append({"r": _rotulo_mes_en(bl), "rp": str(bl), "partes": partes,
+                       "total": float(x["Value_RS_mi"].sum())})
     return {"t": "pilhas", "titulo": "New Asset Value", "destaque": "| Growth",
             "legenda": [{"s": c, "cor": CORES_NAV.get(c, "8C8C8C")} for c in ordem],
             "barras": barras}
@@ -857,6 +859,69 @@ def s_receita_manga(b, d, m):
             "nota_centro": "We refund the management fee to the employees."}
 
 
+# ---------------- Carta Trimestral (PT e EN) ----------------
+# A carta tem 6 páginas em retrato. Os NÚMEROS saem daqui (os mesmos gráficos do
+# Comitê/Board e o do PBI "Carta trimestral"); os TEXTOS do CEO, a seção de leituras e a
+# tradução são colados na própria aba (app_state 'carta') e entram no navegador.
+# As imagens fixas (logo da capa, Propósito e Valores em PT e EN) ficam no Blob, em
+# LuxorControlDatabase/apresentacoes/carta/, e vão uma vez só no JSON (spec["imagens"]).
+IMAGENS_CARTA = {
+    "carta_logo": ("apresentacoes/carta/logo_luxor.svg", "image/svg+xml"),
+    "carta_proposito_pt": ("apresentacoes/carta/proposito_pt.png", "image/png"),
+    "carta_valores_pt": ("apresentacoes/carta/valores_pt.png", "image/png"),
+    "carta_proposito_en": ("apresentacoes/carta/proposito_en.png", "image/png"),
+    "carta_valores_en": ("apresentacoes/carta/valores_en.png", "image/png"),
+}
+
+
+def _imagem(b, chave):
+    if chave not in b.imagens:
+        rel, mime = IMAGENS_CARTA[chave]
+        dado = b.binario(rel)
+        b.imagens[chave] = f"data:{mime};base64,{base64.b64encode(dado).decode()}" if dado else None
+    return chave if b.imagens[chave] else None
+
+
+def s_carta_capa(b, d, m):
+    return {"t": "carta_capa", "rotulo": f"Q{(d.month - 1) // 3 + 1} {d.year}", "logo": _imagem(b, "carta_logo")}
+
+
+def s_carta_proposito(b, d, m):
+    return {"t": "carta_proposito", "img": {k.rsplit("_", 1)[0].replace("carta_", "") + "_" + k.rsplit("_", 1)[1]:
+                                             _imagem(b, k) for k in IMAGENS_CARTA if k != "carta_logo"}}
+
+
+def s_carta_retornos(b, d, m):
+    """Página 4: Retorno do Grupo Luxor vs IPCA (PBI "Carta trimestral",
+    Categorias_FO_IPCA) e Retorno por Portfolio (o Total Return by Portfolio do Comitê)."""
+    sr = b.excel("excel/hist_report_data.xlsx", "segment_returns")
+    x = sr[(pd.to_datetime(sr.Ref_Date) == d) & (sr.Segment.map(chave) == chave("Resultado_Patrimonial"))]["36M"]
+    if x.empty or pd.isna(x.iloc[0]):
+        raise SemDado("hist_report_data/segment_returns sem o 36M do Resultado_Patrimonial")
+    fo36 = float(x.iloc[0])
+    paineis = [
+        [m.seg("Resultado_FO", "%_Quarter"), m.kr("IPCA", "QTR")],
+        [m.seg("Resultado_FO", "%_YTD"), m.kr("IPCA", "YTD")],
+        [fo36, m.kr("IPCA", "36 Meses")],
+    ]
+    retorno = s_retorno_portfolio(b, d, m)["linhas"][0]
+    return {"t": "carta_retornos", "q": rot_q(d), "ytd": rot_ytd(d), "ipca": paineis,
+            "portfolio": [[{"r": x["r"], "v": x["v"], "cor": x["cor"]} for x in p["barras"]] for p in retorno]}
+
+
+def s_carta_patrimonio(b, d, m):
+    """Página 5: Evolução do Patrimônio (NAV_Board) e Alocação por Portfolio (cartões)."""
+    nav = s_nav_crescimento(b, d, m)
+    port = s_portfolio(b, d, m)
+    return {"t": "carta_patrimonio", "barras": nav["barras"], "legenda": nav["legenda"], "cartoes": port["cartoes"]}
+
+
+def s_carta_texto(slot):
+    def f(b, d, m):
+        return {"t": "carta_texto", "slot": slot}
+    return f
+
+
 ROTEIRO = {
     "comite_fo": [
         ("kr_fo", s_kr_fo), ("pl_portfolio", s_pl_portfolio), ("retorno_portfolio", s_retorno_portfolio),
@@ -877,7 +942,15 @@ ROTEIRO = {
         ("investidores", s_investidores), ("capa_budget", s_capa_budget), ("budget_fc", s_budget_fc),
         ("highlights", s_highlights), ("receita_segmento", s_receita_segmento), ("receita_manga", s_receita_manga),
     ],
+    "carta": [
+        ("capa", s_carta_capa), ("proposito", s_carta_proposito), ("destaques", s_carta_texto("destaques")),
+        ("retornos", s_carta_retornos), ("patrimonio", s_carta_patrimonio),
+        ("atualizacoes", s_carta_texto("atualizacoes")),
+    ],
 }
+# página do deck em px a 96 dpi (o PPTX sai no mesmo tamanho): os slides do PBI eram
+# 1280×720; a carta é retrato, 9,25×11,81 pol, como o PPTX dela
+PAGINA = {"carta": {"w": 888, "h": 1134}}
 
 
 def monta_deck(b: Bases, deck: str, d: pd.Timestamp) -> tuple[list, list]:
@@ -965,6 +1038,8 @@ def main():
         base = None if a.sem_publicado else publicado(deck)
         spec = base or {"deck": deck, "titulo": TITULO_DECK[deck], "decks": {}, "labels": {},
                         "gerado_por_periodo": {}, "fontes": {}}
+        spec["pagina"] = PAGINA.get(deck, {"w": 1280, "h": 720})
+        b.imagens = {}          # só as imagens que ESTE deck usa vão no JSON dele
         ja = sorted(spec.get("decks", {}))
         mais_recente = ja[-1] if ja else None
         for d in alvos:
