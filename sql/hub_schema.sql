@@ -1099,3 +1099,34 @@ begin
     end if;
   end loop;
 end $$;
+
+
+-- ---------------------------------------------------------------------
+-- 9) Foto de cada pessoa: a do perfil do Slack (pedido do Arthur, 13/11/2026).
+--    Vale para o avatar do topo do hub e para os do Kanban.
+--
+--    O login do hub é por link no e-mail, sem Google: não há foto no login para
+--    pegar. Quem preenche é o Function App (luxor-planejamento-functions,
+--    pc_hub_fotos), de hora em hora em dia útil, com o bot do Kanban achando cada
+--    pessoa da allowlist pelo e-mail no Slack. Quem não pôs foto no Slack fica sem
+--    linha aqui, e a tela mostra as iniciais.
+--
+--    Quem está liberado no hub lê todas (o Kanban mostra a foto dos colegas);
+--    só a service_role grava.
+-- ---------------------------------------------------------------------
+create table if not exists hub_fotos (
+  email          text primary key,
+  foto_url       text not null check (foto_url ~ '^https://'),
+  atualizado_em  timestamptz not null default now()
+);
+
+alter table hub_fotos enable row level security;
+
+drop policy if exists hub_fotos_select on hub_fotos;
+create policy hub_fotos_select on hub_fotos
+  for select to authenticated using ( (select public.hub_is_allowed()) );
+
+grant select on hub_fotos to authenticated;
+grant all on hub_fotos to service_role;
+revoke all on hub_fotos from anon;
+grant execute on function public.hub_is_allowed() to authenticated;
