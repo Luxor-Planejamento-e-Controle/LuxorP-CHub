@@ -17,6 +17,7 @@ import json
 import pathlib
 import threading
 import unittest
+import urllib.parse
 import zipfile
 
 AQUI = pathlib.Path(__file__).resolve().parent
@@ -92,10 +93,36 @@ def _spec(deck="comite_fo"):
             "gerado_em": "2026-10-10T12:00:00+00:00", "gerado_por_periodo": {"2026-Q3": "2026-10-10T12:00:00+00:00"}}
 
 
+def _spec_carta():
+    pix = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+    barras = [{"r": "Dec-24", "rp": "Dez-24", "total": 30.0, "partes": [{"s": "A", "v": 30.0, "cor": "FFC866"}]}]
+    cart = [{"nome": "Um", "cor": "1D6E79", "linhas": ["BRL 5 mm", "50% of NAV"]}]
+    slides = [
+        {"id": "capa", "t": "carta_capa", "rotulo": "Q3 2026", "logo": "carta_logo"},
+        {"id": "proposito", "t": "carta_proposito", "img": {"proposito_pt": "carta_proposito_pt", "valores_pt": None,
+                                                           "proposito_en": None, "valores_en": None}},
+        {"id": "destaques", "t": "carta_texto", "slot": "destaques"},
+        {"id": "retornos", "t": "carta_retornos", "q": "2026 Q3", "ytd": "2026 YTD",
+         "ipca": [[0.011, 0.006], [-0.037, 0.04], [0.179, 0.149]],
+         "portfolio": [[{"r": "Mangalarga", "v": 0.02, "cor": "FFA400"}], [{"r": "Mangalarga", "v": -0.04, "cor": "FF0000"}]]},
+        {"id": "patrimonio", "t": "carta_patrimonio", "barras": barras, "legenda": [{"s": "A", "cor": "FFC866"}], "cartoes": cart},
+        {"id": "atualizacoes", "t": "carta_texto", "slot": "atualizacoes"},
+    ]
+    return {"deck": "carta", "titulo": "Carta Trimestral", "periodos": ["2026-Q3"], "padrao": "2026-Q3",
+            "labels": {"2026-Q3": "2026 Q3"}, "decks": {"2026-Q3": slides}, "pagina": {"w": 888, "h": 1134},
+            "imagens": {"carta_logo": pix, "carta_proposito_pt": pix}, "gerado_em": "2026-10-10T12:00:00+00:00"}
+
+
 class Estado:
     def __init__(self, spec=True):
         self.spec = _spec() if spec is True else spec
         self.pedidos = []
+        self.app_state = {"data": {"versao": 1, "trimestres": {"2026-Q3": {
+            "pt": {"destaques": "Primeiro parágrafo com **negrito**.\nSegundo parágrafo.", "atualizacoes": "Atualização."},
+            "en": {"destaques": "First paragraph.", "atualizacoes": ""},
+            "leituras": [{"img": None, "pt": "Livro um.", "en": "Book one."}]}}},
+            "updated_at": "2026-11-13T10:00:00+00:00"}
+        self.gravacoes = []
 
 
 class _Silencioso(http.server.SimpleHTTPRequestHandler):
@@ -103,8 +130,11 @@ class _Silencioso(http.server.SimpleHTTPRequestHandler):
         pass
 
 
-def _abrir(caso, estado, deck="comite_fo", hash_=""):
+def _abrir(caso, estado, deck="comite_fo", hash_="", admin=False):
     pg = caso._b.new_page(viewport={"width": 1400, "height": 900}, accept_downloads=True)
+    if admin:
+        # no hub o iframe lê o papel em window.parent.HUB; aqui a página é o topo
+        pg.add_init_script("window.HUB = {role: 'admin'};")
     erros = []
     pg.on("pageerror", lambda e: erros.append(str(e)))
     pg.on("console", lambda m: erros.append(m.text) if m.type == "error" and "Failed to load resource" not in m.text else None)
@@ -119,6 +149,18 @@ def _abrir(caso, estado, deck="comite_fo", hash_=""):
                 return route.fulfill(status=400, content_type="application/json",
                                      body=json.dumps({"statusCode": "404", "error": "not_found", "message": "Object not found"}))
             return route.fulfill(status=200, content_type="application/json", body=json.dumps(estado.spec))
+        if "/rest/v1/app_state" in url:
+            if route.request.method == "PATCH":
+                corpo = json.loads(route.request.post_data or "{}")
+                estado.gravacoes.append(corpo)
+                # a guarda de concorrência: só grava se o updated_at bater
+                if f"updated_at=eq.{urllib.parse.quote(estado.app_state['updated_at'])}" not in url and \
+                   f"updated_at=eq.{estado.app_state['updated_at']}" not in urllib.parse.unquote(url):
+                    return route.fulfill(status=200, content_type="application/json", body="[]")
+                estado.app_state = {"data": corpo["data"], "updated_at": corpo["updated_at"]}
+                return route.fulfill(status=200, content_type="application/json",
+                                     body=json.dumps([{"id": "carta", "updated_at": corpo["updated_at"]}]))
+            return route.fulfill(status=200, content_type="application/json", body=json.dumps(estado.app_state))
         if "/auth/v1/" in url:
             return route.fulfill(status=200, content_type="application/json", body="{}")
         return route.fulfill(status=404, body="")
@@ -198,6 +240,58 @@ class TestApresentacoes(unittest.TestCase):
     def test_6_deck_desconhecido(self):
         pg, _ = _abrir(self, Estado(), deck="outro")
         self.assertIn("Deck desconhecido", pg.text_content("#stage"))
+        pg.close()
+
+    def test_8_carta_em_pt_e_en_com_os_textos_do_banco(self):
+        est = Estado(spec=_spec_carta())
+        pg, erros = _abrir(self, est, deck="carta", hash_="#2026-Q3/3")
+        self.assertEqual(pg.text_content("#pos"), "3 / 6")
+        self.assertIn("Destaques e Prioridades", pg.text_content("#slide"))
+        self.assertIn("Primeiro parágrafo com", pg.text_content("#slide"))
+        self.assertEqual(pg.locator("#slide .ppar b, #slide .ppar span[style*='700']").count(), 1)
+        pg.select_option("#lang", "en")
+        self.assertIn("Highlights and Priorities", pg.text_content("#slide"))
+        self.assertIn("First paragraph.", pg.text_content("#slide"))
+        # sem papel de admin, não há editor
+        self.assertTrue(pg.locator("#btn-editar").is_hidden())
+        for _ in range(6):
+            self.assertGreater(pg.locator("#slide .pt, #slide .pr, #slide .ppar").count(), 0)
+            pg.keyboard.press("ArrowRight")
+        self.assertEqual(erros, [])
+        pg.close()
+
+    def test_9_carta_editor_grava_com_a_guarda_de_versao(self):
+        est = Estado(spec=_spec_carta())
+        pg, erros = _abrir(self, est, deck="carta", hash_="#2026-Q3/3", admin=True)
+        pg.click("#btn-editar")
+        pg.fill('textarea[data-l="pt"][data-k="destaques"]', "Texto novo colado.")
+        pg.wait_for_timeout(400)
+        self.assertIn("Texto novo colado.", pg.text_content("#slide"))
+        pg.click("#ed-grava")
+        pg.wait_for_timeout(600)
+        self.assertIn("gravado", pg.text_content("#ed-msg"))
+        self.assertEqual(est.app_state["data"]["trimestres"]["2026-Q3"]["pt"]["destaques"], "Texto novo colado.")
+        # leitura e EN preservados
+        self.assertEqual(est.app_state["data"]["trimestres"]["2026-Q3"]["leituras"][0]["en"], "Book one.")
+        # outra pessoa gravou no meio: recusa sem sobrescrever
+        est.app_state["updated_at"] = "2026-11-13T11:00:00+00:00"
+        pg.fill('textarea[data-l="pt"][data-k="destaques"]', "Outra versão.")
+        pg.click("#ed-grava")
+        pg.wait_for_timeout(600)
+        self.assertIn("outra pessoa gravou", pg.text_content("#ed-msg"))
+        self.assertEqual(est.app_state["data"]["trimestres"]["2026-Q3"]["pt"]["destaques"], "Texto novo colado.")
+        self.assertEqual(erros, [])
+        pg.close()
+
+    def test_10_carta_exporta_pptx_com_nome_da_carta(self):
+        pg, erros = _abrir(self, Estado(spec=_spec_carta()), deck="carta")
+        pg.select_option("#lang", "en")
+        with pg.expect_download(timeout=60000) as d:
+            pg.click("#pptx")
+        self.assertEqual(d.value.suggested_filename, "Carta_Trimestral_English_3Q2026.pptx")
+        z = zipfile.ZipFile(io.BytesIO(pathlib.Path(d.value.path()).read_bytes()))
+        self.assertEqual(len([n for n in z.namelist() if n.startswith("ppt/slides/slide") and n.endswith(".xml")]), 6)
+        self.assertEqual(erros, [])
         pg.close()
 
     def test_7_atualizar_agora_pede_o_deck_certo(self):
