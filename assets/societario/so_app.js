@@ -6,6 +6,7 @@
  *   POST /hub/ask                      {question} → {company, text, image, files, sources}
  *   GET  /hub/dados                    {generated_at, companies, investors}
  *   GET  /hub/procuracoes              {items, documents_total, documents_pending, ...}
+ *   GET  /hub/advogados                {arquivo, atualizado_em, escritorios}
  *   GET  /hub/organogramas             manifest {generated_at, charts, files}
  *   GET  /hub/organogramas/arquivo     ?path=<arquivo do manifest> → PNG/PDF
  *
@@ -88,7 +89,7 @@
   function abrirBlob(blob) { window.open(URL.createObjectURL(blob), '_blank', 'noopener'); }
 
   /* ---------- seções ---------- */
-  var SECOES = ['chat', 'procuracoes', 'organogramas', 'empresas', 'investidores'];
+  var SECOES = ['chat', 'procuracoes', 'organogramas', 'empresas', 'investidores', 'advogados'];
   var carregado = {};
   function secaoAtual() {
     var h = location.hash.replace(/^#/, '').split('/')[0];
@@ -101,6 +102,7 @@
     if (s === 'chat') { $('#pergunta').focus(); return; }
     if (s === 'procuracoes') return abrirProcuracoes();
     if (s === 'organogramas') return abrirOrganogramas();
+    if (s === 'advogados') return abrirAdvogados();
     return abrirDados(s);
   }
   $('#abas').addEventListener('click', function (e) {
@@ -257,6 +259,56 @@
     };
     if ($('#procTodas')) $('#procTodas').onclick = function () { f.status = 'todas'; desenharProc(); };
     v.querySelectorAll('[data-empresa]').forEach(function (a) { a.onclick = function () { irPara('empresas', a.dataset.empresa); }; });
+  }
+
+  /* ---------- Advogados (GET /hub/advogados) ---------- */
+  var adv = null, buscaAdv = '';
+  async function abrirAdvogados() {
+    var v = $('#v-advogados');
+    if (!adv) {
+      v.innerHTML = '<div class="so-muted">Carregando os advogados…</div>';
+      try { adv = await (await bot('/hub/advogados')).json(); }
+      catch (e) { v.innerHTML = '<div class="so-erro">' + esc(e.message) + '</div>'; return; }
+    }
+    desenharAdvogados();
+  }
+  function desenharAdvogados() {
+    var v = $('#v-advogados'), firmas = adv.escritorios || [], b = sem(buscaAdv);
+    if (!firmas.length) { v.innerHTML = '<div class="so-muted">Nenhum escritório na planilha.</div>'; return; }
+    var sel = firmas[+idDoHash()] || firmas[0];
+    var vis = firmas.map(function (f, i) { return { f: f, i: i }; }).filter(function (x) {
+      return !b || sem([x.f.nome, x.f.area, x.f.advogados.map(function (a) { return a.nome; }).join(' ')].join(' ')).indexOf(b) >= 0;
+    });
+    var h = '<div class="so-duas"><div class="so-lista"><input class="so-busca" id="advBusca" placeholder="Buscar escritório, área, advogado" value="' + esc(buscaAdv) + '">' +
+      vis.map(function (x) {
+        return '<button class="so-item' + (x.f === sel ? ' on' : '') + '" data-i="' + x.i + '">' + esc(x.f.nome) +
+          (x.f.area ? '<span class="so-muted">' + esc(x.f.area) + '</span>' : '') + '</button>';
+      }).join('') + '</div><div class="so-ficha">';
+    h += '<div class="card"><h2>' + esc(sel.nome) + '</h2>' + kv([['CPF / CNPJ', sel.documento], ['Área de atuação', sel.area]]) + '</div>';
+    if (sel.indicacao) {
+      h += '<div class="card" style="margin-top:14px"><div class="card-title"><h2>Indicação ou referência</h2></div><p class="so-texto">' + esc(sel.indicacao) + '</p></div>';
+    }
+    if (sel.processos.length) {
+      h += '<div class="card" style="margin-top:14px"><div class="card-title"><h2>Processos em curso</h2></div><ul class="so-lista-proc">' +
+        sel.processos.map(function (p) { return '<li>' + esc(p) + '</li>'; }).join('') + '</ul></div>';
+    }
+    var comProc = sel.advogados.some(function (a) { return a.processo; });
+    h += '<div class="card" style="margin-top:14px"><div class="card-title"><h2>Advogados</h2></div><div class="tbl-wrap"><table class="so-tab">' +
+      '<thead><tr><th>Advogado</th><th>Telefone</th><th>E-mail</th>' + (comProc ? '<th>Processo em curso</th>' : '') + '</tr></thead><tbody>' +
+      sel.advogados.map(function (a) {
+        return '<tr><td>' + esc(a.nome || '') + '</td><td>' + esc(a.telefone || '') + '</td><td>' +
+          (a.email ? '<a class="so-link" href="mailto:' + esc(a.email) + '">' + esc(a.email) + '</a>' : '') + '</td>' +
+          (comProc ? '<td>' + esc(a.processo || '') + '</td>' : '') + '</tr>';
+      }).join('') + '</tbody></table></div></div>';
+    h += '<div class="so-muted" style="margin-top:10px">' + esc(adv.arquivo + ' · atualizada em ' + dataBR(adv.atualizado_em)) + '</div>';
+    v.innerHTML = h + '</div></div>';
+    $('#advBusca').oninput = function () {
+      buscaAdv = this.value; var pos = this.selectionStart; desenharAdvogados();
+      var i = $('#advBusca'); i.focus(); i.setSelectionRange(pos, pos);
+    };
+    v.querySelector('.so-lista').onclick = function (e) {
+      var bt = e.target.closest('button[data-i]'); if (bt) irPara('advogados', bt.dataset.i);
+    };
   }
 
   /* ---------- Organogramas ---------- */

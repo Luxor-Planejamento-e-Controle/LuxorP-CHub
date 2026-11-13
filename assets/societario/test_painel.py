@@ -58,6 +58,19 @@ PROC = {"documents_total": 6, "documents_pending": 2, "documents_failed": 0, "re
              "data_outorga": "2025-06-01", "data_vencimento": "2027-06-01", "poderes": "<b>tudo</b>",
              "dias": 200, "status": "vigente", "documents": ["Procuração DP1.pdf"]},
         ]}
+ADV = {"arquivo": "Listagem Advogados Parceiros.xlsx", "atualizado_em": "2026-11-13T15:00:00-03:00",
+       "escritorios": [
+           {"nome": "ALFA ADVOGADOS", "documento": "00.000.000/0001-00", "area": "Trabalhista",
+            "indicacao": "Indicação <img src=x onerror=window.pwned=3>", "processos": ["Reclamação X"],
+            "advogados": [{"nome": "Pessoa Um", "telefone": "21 9999-0001", "email": "um@alfa.adv.br", "processo": None},
+                          {"nome": "Pessoa Dois", "telefone": "21 9999-0002", "email": "dois@alfa.adv.br", "processo": None}]},
+           {"nome": "BETA ADVOCACIA", "documento": "11.111.111/0001-11", "area": "Tributário Rio", "indicacao": None,
+            "processos": [], "advogados": [{"nome": "Pessoa Três", "telefone": None, "email": "tres@beta.adv.br",
+                                            "processo": "ITBI imóvel A"}]},
+           {"nome": "BETA ADVOCACIA", "documento": "11.111.111/0001-11", "area": "Tributário SP", "indicacao": None,
+            "processos": [], "advogados": [{"nome": "Pessoa Quatro", "telefone": "11 9999-0004", "email": None,
+                                            "processo": None}]},
+       ]}
 MANIFEST = {"generated_at": "2026-11-12T17:33:55-03:00", "charts": 3,
             "files": ["Organogramas Grupo.pdf", "1 Grupo/Grupo.png", "2 Por empresa/Alfa.png", "2 Por empresa/Beta.png"]}
 
@@ -106,6 +119,8 @@ def _abrir(cls, bot, secao=""):
             return route.fulfill(status=200, headers=cors, content_type="application/json", body=json.dumps(DADOS))
         if u.path == "/hub/procuracoes":
             return route.fulfill(status=200, headers=cors, content_type="application/json", body=json.dumps(PROC))
+        if u.path == "/hub/advogados":
+            return route.fulfill(status=200, headers=cors, content_type="application/json", body=json.dumps(ADV))
         if u.path == "/hub/organogramas":
             return route.fulfill(status=200, headers=cors, content_type="application/json", body=json.dumps(MANIFEST))
         if u.path == "/hub/organogramas/arquivo":
@@ -291,6 +306,31 @@ class TestAbaSocietario(unittest.TestCase):
         self.assertIn("Pessoa Três", ficha)
         self.assertNotIn("Pessoa Um", ficha)
         self.assertEqual([c for m, c, _, _ in bot.pedidos].count("/hub/procuracoes"), 1)   # reaproveita o que baixou
+        self.assertEqual(erros, [])
+
+    def test_10_advogados_lista_ficha_e_busca(self):
+        bot = Bot()
+        pg, erros = _abrir(self, bot, "advogados")
+        pg.wait_for_selector("#v-advogados .so-ficha h2")
+        self.assertEqual(pg.locator("#abas button").all_inner_texts()[-1], "Advogados")
+        ficha = pg.inner_text("#v-advogados .so-ficha")
+        for trecho in ("ALFA ADVOGADOS", "00.000.000/0001-00", "Trabalhista", "Reclamação X", "Pessoa Dois",
+                       "21 9999-0002", "Listagem Advogados Parceiros.xlsx · atualizada em 13/11/2026 15:00"):
+            self.assertIn(trecho, ficha)
+        self.assertEqual(pg.get_attribute("#v-advogados a[href^='mailto:']", "href"), "mailto:um@alfa.adv.br")
+        self.assertIsNone(pg.evaluate("window.pwned"))
+        self.assertIn("<img src=x", ficha)
+        self.assertEqual(pg.locator("#v-advogados thead th").all_inner_texts()[-1].upper(), "E-MAIL")   # sem coluna de processo
+
+        pg.click("#v-advogados .so-lista button:has-text('Tributário SP')")               # mesmo nome, outra área
+        pg.wait_for_function("location.hash === '#advogados/2'")
+        pg.wait_for_function("document.querySelector('#v-advogados .so-ficha').innerText.includes('Pessoa Quatro')")
+        pg.click("#v-advogados .so-lista button:has-text('Tributário Rio')")
+        pg.wait_for_function("document.querySelector('#v-advogados .so-ficha').innerText.includes('ITBI imóvel A')")
+        self.assertEqual(pg.locator("#v-advogados thead th").all_inner_texts()[-1].upper(), "PROCESSO EM CURSO")
+        pg.fill("#advBusca", "pessoa um")
+        self.assertEqual([t.split("\n")[0] for t in pg.locator("#v-advogados .so-lista button").all_inner_texts()],
+                         ["ALFA ADVOGADOS"])
         self.assertEqual(erros, [])
 
 

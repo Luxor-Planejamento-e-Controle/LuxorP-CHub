@@ -91,6 +91,8 @@ body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--font-sans)
 .so-sel{height:var(--ctl-h);background:var(--surface);border:1px solid var(--line);border-radius:var(--r-sm);
   color:var(--ink);padding:0 10px;font:inherit;font-size:13px}
 .so-tab td.poderes{min-width:220px;color:var(--ink-2)}
+.so-texto{font-size:14px;line-height:1.55;color:var(--ink-2);margin:0}
+.so-lista-proc{margin:0;padding-left:18px;font-size:14px;line-height:1.6}
 @media (max-width:860px){
   .so-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}
 }
@@ -111,6 +113,7 @@ body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--font-sans)
     <button data-v="organogramas">Organogramas</button>
     <button data-v="empresas">Empresas</button>
     <button data-v="investidores">Investidores</button>
+    <button data-v="advogados">Advogados</button>
   </nav>
 
   <section class="so-view" id="v-chat">
@@ -126,6 +129,7 @@ body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--font-sans)
   <section class="so-view" id="v-organogramas" hidden></section>
   <section class="so-view" id="v-empresas" hidden></section>
   <section class="so-view" id="v-investidores" hidden></section>
+  <section class="so-view" id="v-advogados" hidden></section>
 </div>
 
 <script src="../vendor/supabase.min.js"></script>
