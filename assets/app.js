@@ -71,7 +71,11 @@ const ICON = {
   // três colunas de cards de alturas diferentes: o board, e não o checklist de `proj`
   kanban:'M4 4h4.5v16H4zM9.75 4h4.5v10h-4.5zM15.5 4H20v13h-4.5z',
   // organograma: uma caixa no topo ligada a duas embaixo
-  org:'M9 2.5h6v5H9zM12 7.5v4M5.5 11.5h13M5.5 11.5v4M18.5 11.5v4M2.5 15.5h6v5h-6zM15.5 15.5h6v5h-6z'
+  org:'M9 2.5h6v5H9zM12 7.5v4M5.5 11.5h13M5.5 11.5v4M18.5 11.5v4M2.5 15.5h6v5h-6zM15.5 15.5h6v5h-6z',
+  // tela de projeção com um gráfico (Comitê FO) e mesa com cadeiras (Board): dois
+  // decks, dois ícones — o menu não pode ter duas entradas iguais
+  deck:'M3 4h18M4 4v11h16V4M12 15v3M8 21l4-3 4 3M7.5 12l3-3 2 2 4-4',
+  board:'M3 9h18v4H3zM6 13v6M18 13v6M8 5.5a2 2 0 104 0 2 2 0 00-4 0M12 5.5a2 2 0 104 0 2 2 0 00-4 0'
 };
 const ROUTES = [
   {id:'', title:'Início', sub:'Hub de Planejamento & Controle', icon:'home', render:renderHome},
@@ -86,6 +90,8 @@ const ROUTES = [
   {id:'tarituba', title:'Fluxo de Caixa — Tarituba', sub:'Orçado × realizado do imóvel, mês a mês', icon:'imovel', render:renderTarituba},
   {id:'kanban', title:'Kanban Planejamento, Controle e Concierge', sub:'Tarefas do time: a fazer, em andamento, bloqueadas e feitas', icon:'kanban', render:renderKanban},
   {id:'societario', title:'Estruturas Societárias', sub:'Chat, organogramas e quadro societário do Grupo Luxor', icon:'org', render:renderSocietario},
+  {id:'comite_fo', title:'Comitê de Resultados FO', sub:'Deck trimestral do Family Office', icon:'deck', render:el=>renderApresentacao(el,'comite_fo','Comitê de Resultados FO')},
+  {id:'board_fo', title:'Board', sub:'Deck trimestral do Board', icon:'board', render:el=>renderApresentacao(el,'board_fo','Board')},
 ];
 // Rotas que o usuário logado pode abrir (Início sempre). Fora da allowlist a
 // aba nem aparece — e o dado dela nem foi baixado (ver assets/auth.js).
@@ -103,6 +109,7 @@ function temDado(id, hub){
   if(id==='tarituba') return true;                // idem
   if(id==='kanban') return true;                  // tabelas kanban_* direto do Postgres
   if(id==='societario') return true;              // fala direto com o bot das estruturas societárias
+  if(id==='comite_fo' || id==='board_fo') return true;  // o iframe baixa o próprio <deck>.json
   return true;                                    // Projetos lê direto do Postgres
 }
 function allowed(){
@@ -962,6 +969,15 @@ function renderKanban(el, params){
 function renderSocietario(el){
   el.classList.add('flush');
   el.innerHTML=`<iframe class="embed" src="assets/societario/index.html" title="Estruturas Societárias"></iframe>`;
+}
+
+/* ---- Comitê de Resultados FO e Board (os decks que saíram do Power BI) ----
+   Uma página só (assets/apresentacoes/) para os dois, escolhida por ?deck=. Iframe com
+   src local pelo mesmo motivo do Tarituba: o "Atualizar agora" precisa da sessão. Cada
+   deck é uma aba com permissão própria — dá para liberar só o Board para alguém. */
+function renderApresentacao(el, deck, titulo){
+  el.classList.add('flush');
+  el.innerHTML=`<iframe class="embed" src="assets/apresentacoes/index.html?deck=${deck}" title="${titulo}" allowfullscreen></iframe>`;
 }
 
 /* ---- sidebar: desktop colapsa pra ícone, mobile vira drawer ----

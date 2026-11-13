@@ -32,11 +32,16 @@ DATASETS = {
     "inadimplencia": (ROOT / "assets/inadimplencia/dashboard.html", "inadimplencia.html", "text/html; charset=utf-8"),
     # PII tambem (nome de cliente na tabela de detalhe das vendas).
     "vendas":        (ROOT / "assets/vendas/dashboard.html",        "vendas.html",        "text/html; charset=utf-8"),
+    # decks do Comitê FO e do Board (ex-Power BI), um JSON com todos os trimestres
+    "comite_fo":     (ROOT / "assets/data/comite_fo.json",          "comite_fo.json",     "application/json"),
+    "board_fo":      (ROOT / "assets/data/board_fo.json",           "board_fo.json",      "application/json"),
 }
 # Quem gera cada arquivo local, pra mensagem de erro apontar o build certo.
 GERADOR = {
     "inadimplencia": "tools/build_inadimplencia.py",
     "vendas": "tools/build_vendas.py",
+    "comite_fo": "tools/build_apresentacoes.py",
+    "board_fo": "tools/build_apresentacoes.py",
 }
 # Datasets com PII: ficam fora do padrão e saem com aviso.
 COM_PII = ("inadimplencia", "vendas")

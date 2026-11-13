@@ -32,6 +32,9 @@ const HUB_DATASETS = {
   kanban: null,
   // chat, organogramas e quadro societário vêm do bot (assets/societario/so_app.js)
   societario: null,
+  // decks do Comitê FO e do Board (ex-Power BI): o iframe baixa <deck>.json e relê
+  // depois do "Atualizar agora" (assets/apresentacoes/ap_fonte.js)
+  comite_fo: null, board_fo: null,
 };
 
 /* Erro devolvido pelo GoTrue vem na URL (hash no fluxo implícito, query no PKCE)

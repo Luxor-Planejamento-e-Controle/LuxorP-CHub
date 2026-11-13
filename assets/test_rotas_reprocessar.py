@@ -27,6 +27,8 @@ CERTO = {
     "AZURE_INADIMPLENCIA_KEY": "chave-inadimplencia",
     "AZURE_VENDAS_URL": f"{APP}/api/pc/vendas",
     "AZURE_VENDAS_KEY": "chave-vendas",
+    "AZURE_APRESENTACOES_URL": f"{APP}/api/pc/apresentacoes",
+    "AZURE_APRESENTACOES_KEY": "chave-apresentacoes",
 }
 
 
@@ -113,6 +115,16 @@ class TestRotas(unittest.TestCase):
         r = self.destino("tarituba", dict(CERTO, AZURE_AUTOMACOES_URL="api/reprocessar"))
         self.assertEqual(r["status"], 500)
         self.assertIn("não é uma URL válida", r["erro"])
+
+    def test_7b_decks_do_comite_e_do_board(self):
+        """Os dois decks (assets/apresentacoes, `painel: deck`) vão para o pc_apresentacoes,
+        com o próprio par — e nenhum outro painel herda esse par."""
+        for painel in ("comite_fo", "board_fo"):
+            self.assertEqual(self.destino(painel, CERTO),
+                             {"url": f"{APP}/api/pc/apresentacoes", "chave": "chave-apresentacoes"}, painel)
+        sem = {k: v for k, v in CERTO.items() if "APRESENTACOES" not in k}
+        self.assertIn("AZURE_APRESENTACOES_URL", self.destino("board_fo", sem)["erro"])
+        self.assertEqual(self.destino("vendas", sem)["chave"], "chave-vendas")
 
     def test_8_todo_botao_do_hub_tem_destino(self):
         """Painel que liga o botão (`painel: '<id>'`) sem estar na tabela clicaria e

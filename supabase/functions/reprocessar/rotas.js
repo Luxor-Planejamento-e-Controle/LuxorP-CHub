@@ -33,12 +33,21 @@ const VENDAS = {
   rota: '/api/pc/vendas',              // pc_vendas, luxor-planejamento-functions (Arthur)
 }
 
+// Decks do Comitê FO e do Board (11/2026, saíram do Power BI): os dois vão para a mesma
+// função, que lê o `painel` do pedido para saber qual deck refazer.
+const APRESENTACOES = {
+  url: 'AZURE_APRESENTACOES_URL', chave: 'AZURE_APRESENTACOES_KEY',
+  rota: '/api/pc/apresentacoes',       // pc_apresentacoes, luxor-planejamento-functions (Arthur)
+}
+
 export const ROTAS = {
   saldo_bancario: AUTOMACOES,
   controle_pagamentos: AUTOMACOES,
   tarituba: AUTOMACOES,
   inadimplencia: INADIMPLENCIA,
   vendas: VENDAS,
+  comite_fo: APRESENTACOES,
+  board_fo: APRESENTACOES,
 }
 
 /* {url, chave} do destino do painel, ou {erro, status} dizendo o que falta.
