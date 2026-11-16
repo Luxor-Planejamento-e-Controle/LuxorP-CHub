@@ -181,6 +181,8 @@ window.AP_DECK = (function () {
       var p = new window.PptxGenJS();
       p.defineLayout({name: 'HUB', width: +(t.W / 96).toFixed(4), height: +(t.H / 96).toFixed(4)});
       p.layout = 'HUB';
+      // tema com Calibri no corpo: o texto dos slides aponta pra ela (+mn-lt)
+      p.theme = {headFontFace: 'Calibri Light', bodyFontFace: 'Calibri'};
       p.title = SPEC.titulo + ' — ' + (SPEC.labels[periodo] || periodo);
       var listas = slides.map(function (s) { return LAY.prims(s, ctxDe(false)); });
       // toda imagem usada: logo SVG e SVGs viram PNG; as outras guardam o tamanho (encaixe)

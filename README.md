@@ -165,9 +165,14 @@ python tools/import_trello_kanban.py --gravar   # grava e confere banco × Trell
 Precisa de `TRELLO_API_KEY`/`TRELLO_TOKEN` (no `.env` daqui ou no da pasta de cima) além
 da service_role. Os anexos baixados ficam em `~/.cache/hub_kanban`, fora do repo.
 
-Rodar de novo atualiza em vez de duplicar, então dá para importar agora e de novo no
-dia da virada. Depois que o time começa a usar o hub, a gravação recusa (desfaria o
-que foi feito aqui), a não ser com `--forcar`.
+**Importação aposentada em 16/11/2026**: o time largou o Trello e o board vive só aqui.
+Gravar recusa sem `--forcar` (desfaria o que foi feito no hub). Para ver se alguém ainda
+mexeu no Trello, sem gravar nada:
+
+```bash
+python tools/import_trello_kanban.py --mudancas              # hoje
+python tools/import_trello_kanban.py --mudancas 2026-11-13   # desde a data
+```
 
 ### Dashboard novo no hub, o que precisa mexer
 

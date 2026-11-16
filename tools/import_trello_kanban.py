@@ -17,6 +17,10 @@ Destino: as tabelas `kanban_*` da seção 8 do sql/hub_schema.sql — rodar o sc
     --mapa ARQ    JSON {"usuario_do_trello": "email@..."} para casar alguém que o
                   nome não casou. Fica fora do repo, como o .env.
     --forcar      grava mesmo com o board já em uso no hub (ver abaixo)
+    --mudancas [AAAA-MM-DD]
+                  só lista o que foi feito no Trello desde a data (padrão: hoje), uma
+                  linha por ação, e sai — não baixa o board, não lê nem grava o hub.
+                  Para trazer pro hub: --atualizar (prévia) e --atualizar --gravar.
 
 Credenciais (variável de ambiente ou .env da raiz do repo; o Trello também é procurado
 no .env da pasta de cima, onde as rotinas do P&C já guardam o token):
@@ -24,7 +28,11 @@ no .env da pasta de cima, onde as rotinas do P&C já guardam o token):
     SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY     a service_role ignora a RLS
     TRELLO_API_KEY, TRELLO_TOKEN                leitura do board e download dos anexos
 
-RODAR DE NOVO É SEGURO enquanto o time ainda usa o Trello: cada linha importada é
+APOSENTADO EM 16/11/2026: o time largou o Trello e o board vive só no hub. Gravar
+(--gravar, com ou sem --atualizar) recusa sem --forcar; --mudancas segue valendo para
+ver se alguém ainda mexeu lá. O que vem abaixo é como a virada foi feita.
+
+RODAR DE NOVO ERA SEGURO enquanto o time ainda usava o Trello: cada linha importada é
 chaveada pelo id do Trello (`trello_id`), então a segunda rodada atualiza em vez de
 duplicar, e o que foi apagado no Trello entre as rodadas sai do hub. É assim que se faz
 a virada: importar agora para conferir, importar de novo no dia em que o time passa a
@@ -804,6 +812,96 @@ def juntar(base, novo, sb):
 
 
 # --------------------------------------------------------------------------
+BRT = dt.timezone(dt.timedelta(hours=-3))      # sem horário de verão desde 2019
+# Virada: depois da última importação (16/11/2026 09:47), ninguém mais mexeu no Trello e o
+# Arthur aposentou a importação. Gravar volta a exigir --forcar.
+APOSENTADO = dt.date(2026, 11, 16)
+
+
+def _frase_acao(a: dict) -> str | None:
+    """Uma ação do Trello em português; None para o que é só ruído (reordenar)."""
+    t, d = a["type"], a.get("data") or {}
+    card = f"“{(d.get('card') or {}).get('name', '?')}”"
+    lista = (d.get("list") or {}).get("name")
+    em = f" em {lista}" if lista else ""
+    if t == "updateCard":
+        old, novo = d.get("old") or {}, d.get("card") or {}
+        if "idList" in old:
+            return f"moveu {card} de {(d.get('listBefore') or {}).get('name', '?')} → " \
+                   f"{(d.get('listAfter') or {}).get('name', '?')}"
+        if "closed" in old:
+            return f"{'arquivou' if novo.get('closed') else 'restaurou'} {card}"
+        if "name" in old:
+            return f"renomeou “{old['name']}” → {card}"
+        if "desc" in old:
+            return f"editou a descrição de {card}"
+        if "due" in old:
+            due = novo.get("due")
+            if not due:
+                return f"tirou o prazo de {card}"
+            quando = dt.datetime.fromisoformat(due.replace("Z", "+00:00")).astimezone(BRT)
+            return f"pôs o prazo de {card} em {quando:%d/%m %H:%M}"
+        if "dueComplete" in old:
+            return f"{'concluiu' if novo.get('dueComplete') else 'reabriu'} o prazo de {card}"
+        if "start" in old:
+            return f"mudou a data de início de {card}"
+        if "idLabels" in old:
+            return f"mudou as etiquetas de {card}"
+        if set(old) <= {"pos"}:
+            return None
+        return f"mudou {', '.join(sorted(old))} de {card}"
+    nome = lambda chave: (d.get(chave) or {}).get("name", "?")
+    pessoa = (a.get("member") or {}).get("fullName") or nome("member")
+    frases = {
+        "createCard": f"criou {card}{em}",
+        "copyCard": f"copiou {card}{em}",
+        "deleteCard": f"apagou o card #{(d.get('card') or {}).get('idShort', '?')}",
+        "commentCard": f"comentou em {card}: {' '.join((d.get('text') or '').split())[:140]}",
+        "updateComment": f"editou um comentário em {card}",
+        "deleteComment": f"apagou um comentário em {card}",
+        "addMemberToCard": f"incluiu {pessoa} em {card}",
+        "removeMemberFromCard": f"tirou {pessoa} de {card}",
+        "addAttachmentToCard": f"anexou “{nome('attachment')}” em {card}",
+        "deleteAttachmentFromCard": f"tirou o anexo “{nome('attachment')}” de {card}",
+        "addChecklistToCard": f"criou a checklist “{nome('checklist')}” em {card}",
+        "removeChecklistFromCard": f"apagou a checklist “{nome('checklist')}” de {card}",
+        "updateCheckItemStateOnCard": f"{'marcou' if (d.get('checkItem') or {}).get('state') == 'complete' else 'desmarcou'} "
+                                      f"“{nome('checkItem')}” em {card}",
+        "addLabelToCard": f"pôs a etiqueta “{(d.get('label') or {}).get('name') or (d.get('label') or {}).get('color', '?')}” em {card}",
+        "removeLabelFromCard": f"tirou a etiqueta “{(d.get('label') or {}).get('name') or (d.get('label') or {}).get('color', '?')}” de {card}",
+        "moveCardToBoard": f"trouxe {card} de outro board",
+        "moveCardFromBoard": f"levou {card} para outro board",
+        "createList": f"criou a lista “{nome('list')}”",
+        "updateList": f"mudou a lista “{nome('list')}”",
+    }
+    return frases.get(t, f"{t} {card}")
+
+
+def mudancas(tr: "Trello", desde: dt.date) -> None:
+    """Lista, em ordem, as ações do board no Trello desde 00:00 (Brasília) de `desde`."""
+    inicio = dt.datetime.combine(desde, dt.time(), BRT)
+    acoes, antes = [], None
+    while True:
+        p = dict(filter="all", limit=1000, since=inicio.astimezone(dt.timezone.utc).isoformat(),
+                 memberCreator_fields="fullName", member_fields="fullName")
+        if antes:
+            p["before"] = antes
+        pagina = tr.get(f"boards/{BOARD_ID}/actions", **p)
+        acoes += pagina
+        if len(pagina) < 1000:
+            break
+        antes = pagina[-1]["id"]
+    linhas = []
+    for a in reversed(acoes):                       # a API devolve do mais novo pro mais velho
+        frase = _frase_acao(a)
+        if frase:
+            quando = dt.datetime.fromisoformat(a["date"].replace("Z", "+00:00")).astimezone(BRT)
+            quem = (a.get("memberCreator") or {}).get("fullName", "?")
+            linhas.append(f"{quando:%d/%m %H:%M}  {quem}: {frase}")
+    print(f"Trello desde {desde:%d/%m/%Y}: {len(linhas)} mudança(s)")
+    print("\n".join(linhas) if linhas else "  nada")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--gravar", action="store_true")
@@ -814,6 +912,8 @@ def main():
     ap.add_argument("--atualizar", action="store_true",
                     help="junta com o hub em uso: traz do Trello só o que o hub não mexeu")
     ap.add_argument("--base", help="export da última importação (padrão: o que ela deixou no bucket)")
+    ap.add_argument("--mudancas", nargs="?", const=dt.datetime.now(BRT).date().isoformat(),
+                    metavar="AAAA-MM-DD", help="só lista o que foi feito no Trello desde a data (padrão: hoje)")
     args = ap.parse_args()
     # nome de pessoa e de arquivo com acento: no PowerShell redirecionado para arquivo a
     # saída seria cp1252 e um caractere fora dele derrubaria a rodada no meio
@@ -822,6 +922,13 @@ def main():
 
     cfg = credenciais()
     tr = Trello(cfg["TRELLO_API_KEY"], cfg["TRELLO_TOKEN"])
+    if args.mudancas:
+        mudancas(tr, dt.date.fromisoformat(args.mudancas))
+        return
+    if args.gravar and not args.forcar:
+        sys.exit(f"Kanban aposentado do Trello em {APOSENTADO:%d/%m/%Y}: o board vive no hub e "
+                 "importação nenhuma grava mais (desfaria o que o time fez lá). --mudancas só "
+                 "lista o que alguém fez no Trello; gravar mesmo assim só com --forcar.")
     sb = Supabase(cfg["SUPABASE_URL"], cfg["SUPABASE_SERVICE_ROLE_KEY"])
     cache = Path(args.cache)
 

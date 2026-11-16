@@ -37,7 +37,7 @@ create table if not exists user_dashboard_access (
   email      text not null references allowed_users(email) on update cascade on delete cascade,
   dashboard  text not null check (dashboard in
                ('indicadores','dre','inadimplencia','vendas','projetos','fluxo','participacoes','plantel',
-                'saldo_bancario','controle_pagamentos','tarituba','kanban','societario','comite_fo','board_fo','carta','processos','societario_envio')),
+                'saldo_bancario','controle_pagamentos','tarituba','kanban','societario','comite_fo','board_fo','carta','processos','societario_envio','senhas')),
   granted_at timestamptz not null default now(),
   primary key (email, dashboard)
 );
@@ -54,7 +54,7 @@ alter table user_dashboard_access drop constraint if exists user_dashboard_acces
 alter table user_dashboard_access add constraint user_dashboard_access_dashboard_check
   check (dashboard in
           ('indicadores','dre','inadimplencia','vendas','projetos','fluxo','participacoes','plantel',
-           'saldo_bancario','controle_pagamentos','tarituba','kanban','societario','comite_fo','board_fo','carta','processos','societario_envio'));
+           'saldo_bancario','controle_pagamentos','tarituba','kanban','societario','comite_fo','board_fo','carta','processos','societario_envio','senhas'));
 
 -- ---------------------------------------------------------------------
 -- 3) Helpers. SECURITY DEFINER para as policies não recursarem na própria
@@ -1293,3 +1293,133 @@ grant select on hub_fotos to authenticated;
 grant all on hub_fotos to service_role;
 revoke all on hub_fotos from anon;
 grant execute on function public.hub_is_allowed() to authenticated;
+
+-- ---------------------------------------------------------------------
+-- 10) Senhas P&C — o board "Listagem de Senhas P&C" do Trello (pedido do
+--     Arthur, 16/11/2026), trazido por tools/import_trello_senhas.py. Aba
+--     própria (pasta "Kanban e Projetos"), separada do Kanban.
+--
+--     CIFRADO: título, conteúdo, nome de lista, comentário, nome e arquivo de
+--     anexo chegam aqui como "v1:<base64(iv||cifra)>" (AES-256-GCM). A chave sai
+--     da senha mestra no NAVEGADOR (PBKDF2-SHA256, sal e iterações em
+--     senhas_cofre) e nunca vem para o banco. Quem tem a service_role, o painel
+--     do Supabase ou um backup vê só texto embaralhado. Esquecer a senha mestra
+--     = perder o conteúdo: não há recuperação aqui.
+--
+--     Acesso: login + hub_can('senhas'), e sem a senha mestra a tela não abre o
+--     conteúdo. Sem aviso no Slack e sem realtime.
+-- ---------------------------------------------------------------------
+create table if not exists senhas_cofre (
+  id           int primary key default 1 check (id = 1),
+  sal          text not null,          -- base64, 16 bytes
+  iteracoes    int  not null check (iteracoes >= 100000),
+  verificador  text not null,          -- "senhas-pc" cifrado: confere a senha mestra
+  criado_em    timestamptz not null default now()
+);
+
+create table if not exists senhas_listas (
+  id         uuid primary key default gen_random_uuid(),
+  nome       text not null,
+  pos        double precision not null default 0,
+  arquivada  boolean not null default false,
+  trello_id  text unique
+);
+
+create table if not exists senhas_itens (
+  id              uuid primary key default gen_random_uuid(),
+  lista_id        uuid not null references senhas_listas(id) on delete cascade,
+  titulo          text not null,
+  conteudo        text not null,
+  pos             double precision not null default 0,
+  arquivado       boolean not null default false,
+  criado_em       timestamptz not null default now(),
+  criado_por      text default public.hub_email(),
+  atualizado_em   timestamptz not null default now(),
+  atualizado_por  text default public.hub_email(),
+  trello_id       text unique
+);
+create index if not exists senhas_itens_lista on senhas_itens (lista_id);
+
+create table if not exists senhas_comentarios (
+  id          uuid primary key default gen_random_uuid(),
+  item_id     uuid not null references senhas_itens(id) on delete cascade,
+  texto       text not null,
+  autor       text default public.hub_email(),
+  criado_em   timestamptz not null default now(),
+  trello_id   text unique
+);
+create index if not exists senhas_comentarios_item on senhas_comentarios (item_id);
+
+create table if not exists senhas_anexos (
+  id          uuid primary key default gen_random_uuid(),
+  item_id     uuid not null references senhas_itens(id) on delete cascade,
+  nome        text not null,
+  caminho     text not null,           -- objeto no bucket `senhas` (o arquivo cifrado)
+  tamanho     bigint,
+  criado_em   timestamptz not null default now(),
+  criado_por  text default public.hub_email(),
+  trello_id   text unique
+);
+create index if not exists senhas_anexos_item on senhas_anexos (item_id);
+
+-- quem mexeu por último (o import, pela service_role, não tem e-mail: fica o que ele pôs)
+create or replace function public.senhas_tocar() returns trigger
+language plpgsql set search_path = public as $$
+begin
+  new.atualizado_em := now();
+  if public.hub_email() is not null then
+    new.atualizado_por := public.hub_email();
+  end if;
+  return new;
+end $$;
+drop trigger if exists senhas_itens_tocar on senhas_itens;
+create trigger senhas_itens_tocar before update on senhas_itens
+  for each row execute function public.senhas_tocar();
+
+alter table senhas_cofre        enable row level security;
+alter table senhas_listas       enable row level security;
+alter table senhas_itens        enable row level security;
+alter table senhas_comentarios  enable row level security;
+alter table senhas_anexos       enable row level security;
+
+-- o cofre só é lido pela tela (o import cria pela service_role)
+drop policy if exists senhas_cofre_select on senhas_cofre;
+create policy senhas_cofre_select on senhas_cofre
+  for select to authenticated using ( (select public.hub_can('senhas')) );
+
+do $$
+declare t text;
+begin
+  foreach t in array array['senhas_listas','senhas_itens','senhas_comentarios','senhas_anexos'] loop
+    execute format('drop policy if exists %I on %I', t || '_tudo', t);
+    execute format('create policy %I on %I for all to authenticated '
+                   'using ( (select public.hub_can(''senhas'')) ) '
+                   'with check ( (select public.hub_can(''senhas'')) )', t || '_tudo', t);
+  end loop;
+end $$;
+
+grant select on senhas_cofre to authenticated;
+grant select, insert, update, delete on senhas_listas, senhas_itens, senhas_comentarios, senhas_anexos
+  to authenticated;
+grant all on senhas_cofre, senhas_listas, senhas_itens, senhas_comentarios, senhas_anexos to service_role;
+revoke all on senhas_cofre, senhas_listas, senhas_itens, senhas_comentarios, senhas_anexos from anon;
+
+-- anexos: bucket PRÓPRIO, privado; o arquivo já sobe cifrado
+insert into storage.buckets (id, name, public, file_size_limit)
+values ('senhas', 'senhas', false, 52428800)
+on conflict (id) do update set public = false;
+
+drop policy if exists senhas_arquivos_ler on storage.objects;
+create policy senhas_arquivos_ler on storage.objects
+  for select to authenticated
+  using ( bucket_id = 'senhas' and (select public.hub_can('senhas')) );
+
+drop policy if exists senhas_arquivos_enviar on storage.objects;
+create policy senhas_arquivos_enviar on storage.objects
+  for insert to authenticated
+  with check ( bucket_id = 'senhas' and (select public.hub_can('senhas')) );
+
+drop policy if exists senhas_arquivos_apagar on storage.objects;
+create policy senhas_arquivos_apagar on storage.objects
+  for delete to authenticated
+  using ( bucket_id = 'senhas' and (select public.hub_can('senhas')) );

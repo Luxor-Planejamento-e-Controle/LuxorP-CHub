@@ -1,7 +1,8 @@
 /* Desenho dos slides do Comitê FO e do Board — a geometria dos relatórios do Power BI.
 
    Os dois relatórios (Comitê_FO.pbip e Board_FO.pbip) tinham página de 1280×720 px,
-   fundo #103E44, Segoe UI Semibold e títulos de 36pt com sublinhado laranja. Cada
+   fundo #103E44 e títulos de 36pt com sublinhado laranja. A fonte é Calibri, a do
+   corpo do tema (no PPTX sai como "Calibri (Corpo)"; o PBI usava Segoe UI Semibold). Cada
    tipo de slide aqui vira uma lista de primitivas (retângulo, texto, linha, imagem)
    nessas coordenadas, e a MESMA lista é desenhada no HTML e no PPTX — tela, PDF e
    PowerPoint não têm como divergir entre si.
@@ -19,8 +20,8 @@
   // tamanho da página: 1280×720 nos decks do PBI; a carta é retrato (pagina() troca)
   let W = 1280, H = 720;
   const pagina = p => { W = (p && p.w) || 1280; H = (p && p.h) || 720; };
-  const FONTE = 'Segoe UI Semibold';
-  const FONTE_TAB = 'Calibri';                    // a planilha do fluxo de caixa (Budget FO)
+  const FONTE = 'Calibri';                        // fonte do corpo do tema, nos dois decks
+  const FONTE_TAB = FONTE;                        // a planilha do fluxo de caixa (Budget FO)
   const FONTE_CARTA = 'Aptos';                    // corpo e títulos da carta (tema do PPTX dela)
   const FONTE_CARTA_T = 'Roboto Medium';          // capa e títulos verticais da carta
   const COR = {
@@ -38,7 +39,7 @@
     const px = pt * PT;
     try {
       if (!_ctx) _ctx = document.createElement('canvas').getContext('2d');
-      _ctx.font = `${fonte && fonte !== FONTE ? 400 : 600} ${px}px "${fonte || FONTE}", "Segoe UI", Arial, sans-serif`;
+      _ctx.font = `400 ${px}px "${fonte || FONTE}", Carlito, Arial, sans-serif`;
       return _ctx.measureText(String(txt)).width;
     } catch (e) {
       return String(txt).length * px * 0.55;
@@ -852,10 +853,9 @@
   /* aspas SIMPLES: isto vai dentro de style="…" — aspas duplas fechavam o atributo e
      tudo depois da fonte (alinhamento inclusive) sumia */
   function fonteCSS(p) {
-    if (p.fonte === FONTE_TAB) return `font-family:Calibri,Carlito,Arial,sans-serif;font-weight:${p.b ? 700 : 400}`;
     if (p.fonte === FONTE_CARTA) return `font-family:Aptos,'Segoe UI',Arial,sans-serif;font-weight:${p.b ? 700 : 400}`;
     if (p.fonte === FONTE_CARTA_T) return `font-family:'Roboto Medium',Roboto,'Segoe UI',Arial,sans-serif;font-weight:500`;
-    return `font-family:'Segoe UI Semibold','Segoe UI',system-ui,sans-serif;font-weight:600`;
+    return `font-family:Calibri,Carlito,Arial,sans-serif;font-weight:${p.b ? 700 : 400}`;
   }
   const runHTML = r => {
     const st = (r.b ? 'font-weight:700;' : '') + (r.i ? 'font-style:italic;' : '');
@@ -953,8 +953,9 @@
           align: 'justify', valign: 'top', margin: 0, lineSpacingMultiple: ENTRE, fit: 'none'}));
         continue;
       }
-      const base = {fontFace: p.fonte || FONTE, fontSize: +p.pt.toFixed(2),
-        bold: p.fonte && p.fonte !== FONTE ? !!p.b : false, italic: !!p.i, color: p.c || COR.branco,
+      // '+mn-lt' é a fonte do corpo do tema (Calibri): o PowerPoint mostra "Calibri (Corpo)"
+      const base = {fontFace: (p.fonte || FONTE) === FONTE ? '+mn-lt' : p.fonte, fontSize: +p.pt.toFixed(2),
+        bold: !!p.b, italic: !!p.i, color: p.c || COR.branco,
         align: AL[p.al || 'l'], valign: VA[p.va || 'm'], margin: 0, wrap: !!p.wrap, fit: 'none'};
       if (p.sp) base.charSpacing = p.sp;
       if (p.alfa != null) base.transparency = Math.round((1 - p.alfa) * 100);
