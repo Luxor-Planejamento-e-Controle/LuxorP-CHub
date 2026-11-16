@@ -8,9 +8,12 @@
 # ligada, logada e sem ninguém fechar a janela do console. Em 13/08, 17/08 e
 # 01/09/2026 essa tarefa morreu com CTRL+C e o painel ficou com dado velho.
 #
-# Roda 30 min depois de cada horário do job de índices, nos mesmos dias (1-3 e
-# 5-16): 12:30 e 18:30 BRT. Ver FinancialIndicators/DEPLOY.md, seção 3, para o
-# porquê dos horários (até 14/10/2026 rodava antes do IPCA/CPI do dia sair).
+# Roda 30 min depois de cada horário do job de índices: 12:30 e 18:30 BRT. Ver
+# FinancialIndicators/DEPLOY.md, seção 3, para o porquê dos horários (até
+# 14/10/2026 rodava antes do IPCA/CPI do dia sair). Até 16/11/2026 eram só os dias
+# do job de índices (1-3 e 5-16); desde então é TODO dia útil, porque a série
+# "Resultado FO diário (Mangalarga)" anda com a cota da CVM do dia. Feriado o
+# dia_util.py do CMD barra.
 #
 # Credenciais: lidas dos .env locais na hora de rodar; nada fica no repo. São
 # gravadas como secret do job e referenciadas por secretref.
@@ -30,7 +33,7 @@ RG=rg-luxor
 ENV_NOME=luxor-env
 JOB_IRMAO=financial-indicators-job   # de onde sai o ID do environment
 IMAGE=luxoracr.azurecr.io/hub-indicadores:latest
-CRON="30 15,21 1-3,5-16 * *"
+CRON="30 15,21 * * 1-5"
 
 # Sem isso o az CLI no Windows quebra com UnicodeEncodeError (cp1252) ao imprimir
 # log/erro com acento, e o erro real se perde.
@@ -72,8 +75,10 @@ le_env() {   # le_env <arquivo> <chave>
 CONN="$(le_env "$FIN_ENV" AZURE_STORAGE_CONNECTION_STRING)"
 SUPA_URL="$(le_env "$HUB_DIR/.env" SUPABASE_URL)"
 SUPA_KEY="$(le_env "$HUB_DIR/.env" SUPABASE_SERVICE_ROLE_KEY)"
+# CNPJs dos Mangalargas para a prévia diária do FO (fora do repo, que é público).
+CNPJS="$(le_env "$HUB_DIR/.env" CNPJS_MANGALARGA)"
 
-for par in "CONN:$CONN" "SUPA_URL:$SUPA_URL" "SUPA_KEY:$SUPA_KEY"; do
+for par in "CONN:$CONN" "SUPA_URL:$SUPA_URL" "SUPA_KEY:$SUPA_KEY" "CNPJS:$CNPJS"; do
   [ -n "${par#*:}" ] || { echo "!! Falta ${par%%:*} nos .env. Abortado." >&2; exit 1; }
 done
 echo ">>> Credenciais lidas (conn ${#CONN}, url ${#SUPA_URL}, key ${#SUPA_KEY} chars)."
@@ -97,9 +102,11 @@ fi
 if az containerapp job show -n "$JOB" -g "$RG" >/dev/null 2>&1; then
   echo ">>> Job existe: atualizando imagem, cron e secrets."
   az_try containerapp job secret set -n "$JOB" -g "$RG" \
-    --secrets azure-conn="$CONN" supa-url="$SUPA_URL" supa-key="$SUPA_KEY" -o none
+    --secrets azure-conn="$CONN" supa-url="$SUPA_URL" supa-key="$SUPA_KEY" \
+              cnpjs-manga="$CNPJS" -o none
   az_try containerapp job update -n "$JOB" -g "$RG" \
-    --image "$IMAGE" --cron-expression "$CRON" -o none
+    --image "$IMAGE" --cron-expression "$CRON" \
+    --set-env-vars CNPJS_MANGALARGA=secretref:cnpjs-manga -o none
 else
   echo ">>> Criando o job."
   # --parallelism/--replica-completion-count explícitos: sem eles esta versão do
@@ -118,10 +125,12 @@ else
     --registry-username luxoracr \
     --registry-password "$ACR_PW" \
     --secrets azure-conn="$CONN" supa-url="$SUPA_URL" supa-key="$SUPA_KEY" \
+              cnpjs-manga="$CNPJS" \
     --env-vars \
       AZURE_STORAGE_CONNECTION_STRING=secretref:azure-conn \
       SUPABASE_URL=secretref:supa-url \
       SUPABASE_SERVICE_ROLE_KEY=secretref:supa-key \
+      CNPJS_MANGALARGA=secretref:cnpjs-manga \
     -o none
 fi
 

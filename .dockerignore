@@ -4,5 +4,6 @@
 *
 !tools/build_data.py
 !tools/publish_hub.py
+!tools/dia_util.py
 !tools/requirements-job.txt
 !tools/Dockerfile

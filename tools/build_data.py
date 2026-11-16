@@ -63,6 +63,19 @@ FUNDOS_COTA = [(n, n) for n in (
 # Índices do parquet de indicadores que agora vêm da CVM e devem ser ignorados lá.
 PREFIXOS_VIA_CVM = ("Mangalarga", "Lipizzaner")
 
+# Prévia diária do Resultado FO dentro do mês, antes do fechamento: o Manga anda
+# todo dia pela cota da CVM e o resto do FO fica congelado no último fechamento
+# divulgado. Manga é ~50% do PL do FO, então o grosso da variação do mês aparece.
+# (segmento do group_hist_data, fundo na CVM) — os dois Mangalargas separados, cada
+# um com o próprio peso no PL do FO.
+FO_DIARIO = "Resultado FO diário (Mangalarga)"
+FO_DIARIO_MANGA = [("Luxor_Mangalarga_I", "Mangalarga I"),
+                   ("Luxor_Mangalarga_Ii", "Mangalarga II")]
+# O cache das cotas (cvm.py) só fecha mês; os dias do mês corrente vêm direto do
+# informe diário da CVM. CNPJs fora do repo (público): "cnpj=Fundo;cnpj=Fundo"
+# em CNPJS_MANGALARGA, no ambiente (job) ou no .env da raiz.
+CVM_INF_DIARIO = "https://dados.cvm.gov.br/dados/FI/DOC/INF_DIARIO/DADOS/inf_diario_fi_{:%Y%m}.zip"
+
 # Séries sem preço viram índice sintético compondo a "Variação Diária". A taxa é
 # diária-CALENDÁRIO na maioria (13,07%, IPCA+2%...), mas o CDI é taxa de DIA
 # ÚTIL: compor por dias corridos multiplica o fim de semana e infla a série.
@@ -163,14 +176,12 @@ def build_segmento(gdf, segmento):
     return rows, len(g)
 
 
-def build_cotas(bsc):
-    """Cotas de fundos publicadas pelo cvm.py no Blob. Já vêm com cota real e as
-    variações prontas (VAR_DIA/MTD/QTD/YTD/36M em fração), com a mesma semântica
-    do parquet de indicadores — então NÃO recalcula nada, só reempacota.
-    Devolve {rótulo: rows} no formato [data, px, dia, mtd, qtr, ytd, m36].
+def build_cotas(df):
+    """Cotas de fundos publicadas pelo cvm.py no Blob (QUOTAS_BLOB, já lido). Já
+    vêm com cota real e as variações prontas (VAR_DIA/MTD/QTD/YTD/36M em fração),
+    com a mesma semântica do parquet de indicadores — então NÃO recalcula nada,
+    só reempacota. Devolve {rótulo: rows} no formato [data, px, dia, mtd, qtr, ytd, m36].
     """
-    df = read_blob(bsc, QUOTAS_BLOB)
-    df["DATA"] = pd.to_datetime(df["DATA"])
     out = {}
     for fundo, label in FUNDOS_COTA:
         g = (df[df["FUNDO"] == fundo].dropna(subset=["DATA", "COTA"])
@@ -184,6 +195,145 @@ def build_cotas(bsc):
         print(f"[indicadores] {label}: {len(out[label])} pontos "
               f"({out[label][0][0]} a {out[label][-1][0]})")
     return out
+
+
+def _cnpjs_manga():
+    """{cnpj: fundo} dos Mangalargas, de CNPJS_MANGALARGA (ambiente ou .env da raiz)."""
+    txt = os.environ.get("CNPJS_MANGALARGA")
+    if not txt and (ROOT / ".env").exists():
+        from dotenv import dotenv_values
+        txt = dotenv_values(ROOT / ".env").get("CNPJS_MANGALARGA")
+    pares = (p.split("=", 1) for p in (txt or "").split(";") if "=" in p)
+    return {c.strip(): f.strip() for c, f in pares}
+
+
+def cotas_cvm_recentes(desde):
+    """Cotas diárias dos Mangalargas depois de `desde` (último dia do cache), direto
+    do informe diário da CVM — o cache do cvm.py só fecha mês. Sem CNPJs ou sem
+    rede devolve vazio e a série para no cache, com aviso no log."""
+    vazio = pd.DataFrame(columns=["DATA", "FUNDO", "COTA"])
+    cnpjs = _cnpjs_manga()
+    if not cnpjs:
+        print(f"[indicadores] {FO_DIARIO}: sem CNPJS_MANGALARGA, para no cache "
+              f"({desde:%d/%m/%Y})", file=sys.stderr)
+        return vazio
+    import requests, zipfile
+    # Cache terminando no último dia útil do mês = mês completo, começa no seguinte.
+    mes = desde.to_period("M")
+    if desde >= pd.offsets.BMonthEnd().rollforward(desde):
+        mes += 1
+    frames = []
+    while mes <= pd.Timestamp.today().to_period("M"):
+        url = CVM_INF_DIARIO.format(mes.to_timestamp())
+        try:
+            r = requests.get(url, timeout=300)
+            r.raise_for_status()
+            with zipfile.ZipFile(io.BytesIO(r.content)) as zf:
+                for nome in (n for n in zf.namelist() if n.lower().endswith(".csv")):
+                    df = pd.read_csv(zf.open(nome), sep=";", dtype=str, encoding="latin1")
+                    col = next(c for c in df.columns if "CNPJ" in c.upper())
+                    df = df[df[col].isin(cnpjs)]
+                    frames.append(pd.DataFrame({"DATA": pd.to_datetime(df["DT_COMPTC"]),
+                                                "FUNDO": df[col].map(cnpjs),
+                                                "COTA": pd.to_numeric(df["VL_QUOTA"])}))
+        except Exception as e:
+            print(f"[indicadores] {FO_DIARIO}: CVM {mes} indisponível: {e}", file=sys.stderr)
+        mes += 1
+    if not frames:
+        return vazio
+    novas = pd.concat(frames, ignore_index=True)
+    return novas[novas["DATA"] > desde]
+
+
+def build_fo_diario(gdf, qdf):
+    """Resultado FO dia a dia, com o Manga andando e o resto congelado.
+
+    Entre um fechamento c do FO e o seguinte, cada dia d com cota na CVM vale
+        nível(d) = nível_FO(c) × (1 + Σ peso_i(c) × (cota_i(d) / cota_i(c) − 1))
+    com peso_i = PL do Mangalarga i no group_hist_data ÷ PL do Resultado FO, os
+    dois no fechamento c — o resto do FO não se mexe até o próximo fechamento.
+    Fechamento divulgado entra com o número do FO (mesmos pontos e métricas da
+    série "Resultado FO"), então o salto no fim do mês é o que o resto do FO andou.
+    Depois do último fechamento é a prévia do mês em curso.
+
+    Métricas do dia estimado medem o nível contra o fim do mês/trimestre/ano
+    anterior (fechamento quando há; senão o último dia estimado). Devolve
+    (rows, meses) — meses > 0 quando a última linha ainda não tem 36 meses e a
+    coluna m36 é o acumulado desde o início, como no Resultado FO.
+    """
+    from bisect import bisect_right
+    fo_rows, _ = build_segmento(gdf, "Resultado_FO")
+    fonte = {r[0]: r for r in fo_rows}           # fechamentos + âncora da base
+
+    def pl(seg):
+        alvo = _sem_acento(seg)
+        g = gdf[gdf["Segment"].map(_sem_acento) == alvo].dropna(subset=["Date", "PL"])
+        g = g.sort_values("Date").drop_duplicates("Date", keep="last")
+        return {pd.Timestamp(d).strftime("%Y-%m-%d"): float(v) for d, v in zip(g["Date"], g["PL"])}
+
+    pl_fo = pl("Resultado_FO")
+    pl_manga = {fundo: pl(seg) for seg, fundo in FO_DIARIO_MANGA}
+    fundos = [f for _, f in FO_DIARIO_MANGA]
+
+    q = qdf.loc[qdf["FUNDO"].isin(fundos), ["DATA", "FUNDO", "COTA"]]
+    q = pd.concat([q, cotas_cvm_recentes(q["DATA"].max())], ignore_index=True)
+    q = (q.drop_duplicates(["DATA", "FUNDO"], keep="last")
+          .pivot(index="DATA", columns="FUNDO", values="COTA")[fundos]
+          .dropna().sort_index())
+    # Dia em que a CVM repete a cota anterior nos dois fundos é cota que ainda não
+    # chegou (o informe do mês corrente vem assim), não variação zero de um FIA.
+    q = q[(q != q.shift()).any(axis=1)]
+
+    fech = sorted(d for d in pl_fo if d in fonte)
+    serie = {d: r[1] for d, r in fonte.items()}
+    for i, c in enumerate(fech):
+        tc = pd.Timestamp(c)
+        antes = q[q.index <= tc]
+        if not pl_fo[c] or antes.empty or any(c not in pl_manga[f] for f in fundos):
+            continue
+        q0, pesos = antes.iloc[-1], {f: pl_manga[f][c] / pl_fo[c] for f in fundos}
+        dias = q[q.index > tc]
+        if i + 1 < len(fech):
+            dias = dias[dias.index < pd.Timestamp(fech[i + 1])]
+        for d, cota in dias.iterrows():
+            r = sum(pesos[f] * (cota[f] / q0[f] - 1) for f in fundos)
+            serie.setdefault(d.strftime("%Y-%m-%d"), fonte[c][1] * (1 + r))
+
+    datas = sorted(serie)
+    ini, base = pd.Timestamp(datas[0]), serie[datas[0]]
+
+    def nivel_em(ts):                             # último ponto <= ts
+        k = bisect_right(datas, ts.strftime("%Y-%m-%d")) - 1
+        return serie[datas[k]] if k >= 0 else None
+
+    rows = []
+    for i, d in enumerate(datas):
+        t, n = pd.Timestamp(d), serie[d]
+        # % Dia só entre pontos diários; do fechamento anterior para cá sem nada
+        # no meio (início da série) é o mês, não o dia.
+        dia = pc(n / serie[datas[i - 1]] - 1) if i and (t - pd.Timestamp(datas[i - 1])).days <= 7 else None
+        if d in fonte:
+            rows.append([d, n, dia if i else None, *fonte[d][3:]])
+            continue
+        var = lambda ts: pc(n / nivel_em(ts) - 1) if nivel_em(ts) else None
+        ult = fech[bisect_right(fech, d) - 1] if fech and fech[0] < d else None
+
+        def acum(periodo, col):
+            # Fechamento divulgado dentro do período: compõe o QTD/YTD DELE (a
+            # fonte não é razão de cotas — difere ~0,03 pp) com o que andou desde então.
+            fim_ant = t.to_period(periodo).start_time - pd.Timedelta(days=1)
+            if ult and pd.Timestamp(ult) > fim_ant and fonte[ult][col] is not None:
+                return pc((1 + fonte[ult][col] / 100) * (n / serie[ult]) - 1)
+            return var(fim_ant)
+
+        t36 = t - pd.DateOffset(months=36)
+        rows.append([d, round(n, 4), dia,
+                     var(t.to_period("M").start_time - pd.Timedelta(days=1)),
+                     acum("Q", 4), acum("Y", 5),
+                     var(t36) if t36 >= ini else pc(n / base - 1)])
+    t_fim = pd.Timestamp(rows[-1][0])
+    meses = _meses_hist(rows) if t_fim - pd.DateOffset(months=36) < ini else 0
+    return rows, meses
 
 
 def listar_segmentos():
@@ -272,6 +422,7 @@ def build_indicadores():
     # Cotas do group_hist_data entram na mesma lista (outra fonte, série mensal).
     # Falha num segmento não derruba o resto — o painel sobe sem ele.
     monthly = []
+    gdf = qdf = None
     try:
         gdf = read_blob(b, GROUP_BLOB)
         for seg, label in SEGMENTOS:
@@ -293,9 +444,25 @@ def build_indicadores():
     # Cotas de fundos (CVM). Cota real e série diária, então não entram em
     # fantasy nem em monthly. Falha aqui também não derruba o resto.
     try:
-        out.update(build_cotas(b))
+        qdf = read_blob(b, QUOTAS_BLOB)
+        qdf["DATA"] = pd.to_datetime(qdf["DATA"])
+        out.update(build_cotas(qdf))
     except Exception as e:
         print("[indicadores] cotas de fundos indisponíveis:", e, file=sys.stderr)
+
+    # Prévia diária do FO (precisa das duas fontes acima). Diária e sintética:
+    # fantasy sim, monthly não.
+    if gdf is not None and qdf is not None:
+        try:
+            rows, meses = build_fo_diario(gdf, qdf)
+            out[FO_DIARIO] = rows
+            fantasy.append(FO_DIARIO)
+            if meses:
+                parcial36[FO_DIARIO] = meses
+            print(f"[indicadores] {FO_DIARIO}: {len(rows)} pontos "
+                  f"({rows[0][0]} a {rows[-1][0]}), último MTD {rows[-1][3]}%")
+        except Exception as e:
+            print(f"[indicadores] {FO_DIARIO} ignorado:", e, file=sys.stderr)
 
     indices = sorted(out.keys())
     payload = {"indices": indices, "rows": out, "fantasy": sorted(fantasy),
