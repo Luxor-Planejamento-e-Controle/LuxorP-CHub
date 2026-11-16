@@ -595,6 +595,35 @@ end $$;
 create or replace function public.kanban_copiando() returns boolean
 language sql stable as $$ select coalesce(current_setting('kanban.copia', true), '') <> '' $$;
 
+-- Quem acompanha o card, como no Trello: os membros (que no Trello já seguem o card
+-- sozinhos) e quem clicou em Seguir. É quem recebe os avisos de "mexeram no card".
+create or replace function public.kanban_participantes(p_card uuid) returns text[]
+language sql stable security definer set search_path = public as $$
+  select coalesce(array_agg(distinct mb.email), '{}')
+    from kanban_membros mb
+   where mb.email is not null
+     and (mb.id in (select membro_id from kanban_card_membros where card_id = p_card)
+          or mb.id in (select membro_id from kanban_seguidores where card_id = p_card))
+$$;
+
+-- O Trello passa a seguir o card de quem comenta ou põe prazo nele (quem já é membro
+-- já acompanha). Daí em diante essa pessoa recebe os avisos do card; tira no "Seguir".
+create or replace function public.kanban_seguir_eu(p_card uuid) returns void
+language plpgsql security definer set search_path = public as $$
+declare m uuid;
+begin
+  if public.hub_email() is null or public.kanban_copiando() then return; end if;
+  select id into m from kanban_membros where email = public.hub_email();
+  if m is null or not exists (select 1 from kanban_cards where id = p_card)
+     or exists (select 1 from kanban_card_membros where card_id = p_card and membro_id = m) then
+    return;
+  end if;
+  insert into kanban_seguidores (card_id, membro_id) values (p_card, m) on conflict do nothing;
+end $$;
+
+create or replace function public.kanban_hora(t timestamptz) returns text
+language sql stable as $$ select to_char(t at time zone 'America/Sao_Paulo', 'DD/MM HH24:MI') $$;
+
 create or replace function public.kanban_nome_lista(p uuid) returns text
 language sql stable security definer set search_path = public as $$
   select nome from kanban_listas where id = p
@@ -646,12 +675,19 @@ begin
       perform public.kanban_log(new.id, 'criou', jsonb_build_object('lista', public.kanban_nome_lista(new.lista_id)));
     end if;
   elsif tg_op = 'UPDATE' then
+    -- Avisos a quem acompanha o card: os mesmos do Trello (moveu, arquivou/restaurou,
+    -- prazo posto/mudado/tirado, prazo concluído). Renomear, descrição e etiqueta o
+    -- Trello não avisa, e aqui também não.
     if new.lista_id is distinct from old.lista_id then
       perform public.kanban_log(new.id, 'moveu', jsonb_build_object(
         'de', public.kanban_nome_lista(old.lista_id), 'para', public.kanban_nome_lista(new.lista_id)));
+      perform public.kanban_avisar(public.kanban_participantes(new.id), 'moveu', new.id,
+        public.kanban_nome_lista(old.lista_id) || ' → ' || public.kanban_nome_lista(new.lista_id));
     end if;
     if new.arquivado is distinct from old.arquivado then
       perform public.kanban_log(new.id, case when new.arquivado then 'arquivou' else 'restaurou' end, '{}');
+      perform public.kanban_avisar(public.kanban_participantes(new.id),
+        case when new.arquivado then 'arquivou' else 'restaurou' end, new.id, null);
     end if;
     if new.nome is distinct from old.nome then
       perform public.kanban_log(new.id, 'renomeou', jsonb_build_object('de', old.nome, 'para', new.nome));
@@ -661,9 +697,16 @@ begin
     end if;
     if new.prazo is distinct from old.prazo then
       perform public.kanban_log(new.id, 'prazo', jsonb_build_object('de', old.prazo, 'para', new.prazo));
+      if new.prazo is not null then
+        perform public.kanban_seguir_eu(new.id);
+      end if;
+      perform public.kanban_avisar(public.kanban_participantes(new.id), 'prazo_mudou', new.id,
+                                   public.kanban_hora(new.prazo));
     end if;
     if new.prazo_concluido is distinct from old.prazo_concluido then
       perform public.kanban_log(new.id, 'prazo_concluido', jsonb_build_object('valor', new.prazo_concluido));
+      perform public.kanban_avisar(public.kanban_participantes(new.id), 'prazo_concluido', new.id,
+                                   case when new.prazo_concluido then 'sim' else 'não' end);
     end if;
   else
     perform public.kanban_log(null, 'excluiu', jsonb_build_object(
@@ -709,6 +752,11 @@ begin
   else
     perform public.kanban_log(old.card_id, 'membro_saiu', jsonb_build_object(
       'membro', (select nome from kanban_membros where id = old.membro_id)));
+    -- "tirou você do card" (o Trello avisa); card sendo excluído não avisa
+    if exists (select 1 from kanban_cards where id = old.card_id) then
+      perform public.kanban_avisar(array(select email from kanban_membros where id = old.membro_id),
+                                   'membro_saiu', old.card_id, null);
+    end if;
   end if;
   return null;
 end $$;
@@ -801,6 +849,7 @@ begin
   if public.kanban_copiando() then return null; end if;
   if tg_op = 'INSERT' then
     perform public.kanban_log(new.card_id, 'anexo_incluiu', jsonb_build_object('anexo', new.nome));
+    perform public.kanban_avisar(public.kanban_participantes(new.card_id), 'anexo', new.card_id, new.nome);
   else
     perform public.kanban_log(old.card_id, 'anexo_excluiu', jsonb_build_object('anexo', old.nome));
   end if;
@@ -861,6 +910,7 @@ begin
           or mb.id in (select membro_id from kanban_seguidores where card_id = new.card_id));
   perform public.kanban_avisar(mencionados, 'mencao', new.card_id, new.texto);
   perform public.kanban_avisar(participantes, 'comentario', new.card_id, new.texto);
+  perform public.kanban_seguir_eu(new.card_id);       -- quem comenta passa a seguir (Trello)
   return null;
 end $$;
 
@@ -1032,6 +1082,8 @@ revoke execute on function public.kanban_copiar_card(uuid, text, uuid, double pr
 revoke execute on function public.kanban_buscar(text, integer) from public, anon;
 revoke execute on function public.kanban_avisos_de_prazo() from public, anon, authenticated;
 revoke execute on function public.kanban_avisar(text[], text, uuid, text) from public, anon, authenticated;
+revoke execute on function public.kanban_participantes(uuid) from public, anon, authenticated;
+revoke execute on function public.kanban_seguir_eu(uuid) from public, anon, authenticated;
 grant  execute on function public.kanban_entrar() to authenticated;
 grant  execute on function public.kanban_copiar_card(uuid, text, uuid, double precision, boolean, boolean, boolean, boolean, boolean) to authenticated, service_role;
 grant  execute on function public.kanban_buscar(text, integer) to authenticated;

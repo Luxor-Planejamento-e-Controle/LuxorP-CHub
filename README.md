@@ -133,11 +133,19 @@ comentário e anexo, e o histórico, são carimbados pelo banco a partir do logi
 
 Link de um card: `#/kanban?card=<id>` (botão "Copiar link" ou botão direito no card).
 
-Avisos no Slack, por mensagem direta: os gatilhos do banco enfileiram em
-`kanban_notificacoes` (menção, `@card`, inclusão em card, comentário em card que a pessoa
-é membro ou segue, item atribuído, prazo) e quem entrega é o `pc_kanban` do repo
+Avisos no Slack, por mensagem direta, nas mesmas regras do Trello: os gatilhos do banco
+enfileiram em `kanban_notificacoes` e quem entrega é o `pc_kanban` do repo
 `luxor-planejamento-functions`, em dia útil. Precisa de `KANBAN_SLACK_BOT_TOKEN` nas App
 Settings do Function App.
+
+- para a pessoa: menção (`@fulano`, `@card`), incluída ou tirada de um card, item de
+  checklist atribuído, reação a comentário seu;
+- para quem acompanha o card (membro ou seguindo): comentário, card movido de lista,
+  arquivado ou restaurado, prazo posto/mudado/tirado, prazo concluído, anexo novo, lembrete
+  e vencimento do prazo;
+- não avisam (o Trello também não): renomear, descrição, etiqueta, item marcado;
+- quem comenta ou põe prazo num card passa a segui-lo, como no Trello; quem fez a ação
+  nunca é avisado dela.
 
 Fotos dos avatares (topo do hub e Kanban): a do perfil do Slack de cada pessoa, copiada
 para a tabela `hub_fotos` (seção 9 do `sql/hub_schema.sql`) pelo `pc_hub_fotos`, de hora em
