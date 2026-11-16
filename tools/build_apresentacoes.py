@@ -768,9 +768,12 @@ def s_investidores(b, d, m):
     for moeda, x in c.groupby("Currency"):
         x = x.sort_values("Order")
         asset = float(x[x.Item_Name == "Luxor Group Asset"]["AUM"].sum())
+        membros = [[r.Members_Breakdown if isinstance(r.Members_Breakdown, str) else r.Item_Name, int(r.Members)]
+                   for r in x.itertuples() if pd.notna(r.Members) and int(r.Members) != 0]
         moedas[moeda] = {
-            "membros": [[r.Members_Breakdown if isinstance(r.Members_Breakdown, str) else r.Item_Name, int(r.Members)]
-                        for r in x.itertuples() if pd.notna(r.Members) and int(r.Members) != 0],
+            # a tabela do PBI ordena o Members_Breakdown em ordem decrescente, com os
+            # espaços do recuo: Equity, Fund B, Lipizzaner, Total Co-Investors e os filhos
+            "membros": sorted(membros, key=lambda mb: mb[0], reverse=True),
             "barras": [{"r": r.Item_Name, "v": float(r.AUM) / 1e6, "k": "fim" if r.Item_Name in TOTAIS_INVEST else "d"}
                        for r in x.itertuples()],
             # Calculations[Luxor_Group_AUM]: "#,## Mi" em USD, "#,##0.00 Bi" em BRL (pt-BR)

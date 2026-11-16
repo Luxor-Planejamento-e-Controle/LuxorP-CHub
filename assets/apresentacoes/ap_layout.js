@@ -511,25 +511,30 @@
     titulo(P, s);
     const moeda = (ctx && ctx.moeda && s.moedas[ctx.moeda]) ? ctx.moeda : s.padrao;
     const m = s.moedas[moeda];
-    // data e moeda, como o slicer e os botões do PBI
-    P.push(R(48, 120, 130, 30, {line: COR.branco, espL: 1}));
-    P.push(T(56, 120, 120, 30, s.data, {pt: 11, va: 'm'}));
+    // data e moeda, como o slicer e os botões do PBI (geometria medida no Board_FO)
+    P.push(R(153, 143, 152, 33, {line: COR.branco, espL: 1}));
+    P.push(T(160, 143, 120, 33, s.data, {pt: 13, va: 'm'}));
+    P.push(T(282, 143, 20, 33, '⌵', {pt: 11, al: 'c', va: 'm'}));
     ['BRL', 'USD'].filter(k => s.moedas[k]).forEach((k, i) => {
-      P.push(R(190 + i * 64, 120, 60, 30, {fill: k === moeda ? COR.laranja : COR.fundo, line: COR.branco, espL: 1}));
-      P.push(T(190 + i * 64, 120, 60, 30, k, {pt: 11, al: 'c', va: 'm', c: k === moeda ? COR.fundo : COR.branco}));
+      P.push(R(328 + i * 96, 145, 94, 35, {fill: k === moeda ? '333333' : COR.fundo, line: COR.branco, espL: 0.75}));
+      P.push(T(328 + i * 96, 145, 94, 35, k, {pt: 8, al: 'c', va: 'm'}));
     });
-    // tabela de membros
-    P.push(R(48, 168, 270, 26, {fill: COR.tealEsc}));
-    P.push(T(56, 168, 200, 26, 'Luxor Investors', {pt: 10, va: 'm'}));
-    P.push(T(256, 168, 54, 26, '#', {pt: 10, al: 'r', va: 'm'}));
+    // tabela de membros: cabeçalho branco, linhas em negrito pequeno, recuo pelos espaços
+    const tx = 177, tw = 193, cn = tx + tw - 36;
+    P.push(R(tx, 200, tw, 30, {fill: 'FFFFFF'}));
+    P.push(T(tx + 3, 212, 10, 16, '▾', {pt: 7, va: 'm', c: '252423'}));
+    P.push(T(tx + 27, 200, 130, 30, 'Luxor Investors', {pt: 9, va: 'm', c: '252423'}));
+    P.push(T(cn, 200, 30, 30, '#', {pt: 9, al: 'c', va: 'm', c: '252423'}));
+    P.push(L(tx + 136, 200, tx + 136, 230, {c: 'D9D9D9', esp: 0.75}));
     m.membros.forEach(([r, n], i) => {
-      const y = 196 + i * 22;
-      P.push(T(56 + Math.min(String(r).length - String(r).trimStart().length, 8) * 2, y, 200, 22, String(r).trim(), {pt: 9, va: 'm'}));
-      P.push(T(256, y, 54, 22, String(n), {pt: 9, al: 'r', va: 'm'}));
-      P.push(L(48, y + 22, 318, y + 22, {c: COR.teal, esp: 0.75}));
+      const y = 232 + i * 21.4;
+      const recuo = (String(r).length - String(r).trimStart().length) * 2.8;
+      P.push(T(tx + 5 + recuo, y, 150, 21.4, String(r).trim(), {pt: 7, b: 1, va: 'm'}));
+      P.push(T(cn, y, 30, 21.4, String(n), {pt: 7, b: 1, al: 'c', va: 'm'}));
+      P.push(L(tx, y + 21.4, tx + tw, y + 21.4, {c: 'D9D9D9', esp: 0.5}));
     });
-    // cascata: itens laranja, totais teal
-    const x = 340, w = 900, y = 170, h = 400;
+    // cascata: itens laranja, totais teal; ocupa a largura toda, por baixo da tabela
+    const x = 160, w = 1018, y = 200, h = 371;
     const bs = m.barras;
     let acc = 0, max = 0;
     const seg = bs.map(b => {
@@ -539,18 +544,23 @@
       max = Math.max(max, a, z);
       return [a, z];
     });
-    max *= 1.06;
-    const slot = w / bs.length, bw = slot * 0.7;
+    max *= 1.04;
+    const slot = w / bs.length, bw = slot * 0.8;
+    // rótulo do eixo como no PBI, que mostrava "Total Co-Investor"
+    const eixo = {'Total Co-Investors': 'Total Co-Investor'};
     bs.forEach((b, i) => {
       const cx = x + slot * (i + 0.5);
       const [a, z] = seg[i];
       const top = y + h * (1 - Math.max(a, z) / max), bot = y + h * (1 - Math.min(a, z) / max);
       P.push(R(cx - bw / 2, top, bw, Math.max(bot - top, 1.5), {fill: b.k === 'fim' ? COR.teal : COR.laranja}));
-      P.push(T(cx - slot / 2, top - 18, slot, 16, nf(b.v, 0) + 'M', {pt: 8, al: 'c', va: 'm'}));
-      P.push(T(cx - slot / 2, y + h + 6, slot, 34, b.r, {pt: encaixa(b.r, 8, slot * 2, 6), al: 'c', va: 't', wrap: 1}));
+      // valor sem separador de milhar, como o PBI ("1053M")
+      P.push(T(cx - slot / 2, top - 18, slot, 16, Math.round(b.v) + 'M', {pt: 8, b: 1, al: 'c', va: 'm'}));
+      const r = eixo[b.r] || b.r;
+      P.push(T(cx - slot / 2 + 2, y + h + 8, slot - 4, 40, r, {pt: encaixa(r, 8, (slot - 4) * 2, 6), b: 1, al: 'c', va: 't', wrap: 1}));
+      if (i) P.push(L(x + slot * i, y + h, x + slot * i, y + h + 50, {c: COR.branco, esp: 0.5}));
     });
     P.push(L(x, y + h, x + w, y + h, {c: COR.branco, esp: 1}));
-    P.push(T(0, 640, W, 34, m.frase, {pt: 16, al: 'c', va: 'm'}));
+    P.push(T(0, 652, W, 38, m.frase, {pt: 16, b: 1, al: 'c', va: 'm'}));
     logo(P);
     return P;
   };
@@ -574,8 +584,14 @@
     const larg = [262, 92, 92, 62, 92, 92, 62, 62, 112, 112];
     const xs = [];
     larg.reduce((acc, l) => { xs.push(acc); return acc + l; }, x);
-    const n = s.linhas.length;
-    const hl = Math.min(17.5, (700 - y0 - 40) / (n + 2));
+    // linha separadora (vazia na planilha) é só um respiro: um terço da altura
+    const SEP = 0.3;
+    const alt = s.linhas.map(l => (l.sep ? SEP : 1));
+    const unid = alt.reduce((a, b) => a + b, 0) + 2;
+    const hl = Math.min(17.5, (700 - y0 - 40) / unid);
+    const ys = [];
+    alt.reduce((acc, a) => { ys.push(acc); return acc + a * hl; }, y0 + 2 * hl);
+    const n = unid - 2;
     P.push(R(x, y0, w, hl * (n + 2), {fill: 'FFFFFF'}));
     // cabeçalho em duas linhas
     P.push(R(x, y0, w, hl * 2, {fill: '1A3C34'}));
@@ -591,7 +607,7 @@
     const f = [v => nf(v, 0), v => nf(v, 0), v => nf(v, 0), v => nf(v, 0), v => nf(v, 0), v => nf(v, 0),
                v => pct(v, 1), v => nf(v, 0), v => nf(v, 0)];
     s.linhas.forEach((l, i) => {
-      const y = y0 + hl * (i + 2);
+      const y = ys[i];
       if (l.sep) return;
       const escuro = l.fill && parseInt(l.fill.slice(0, 2), 16) + parseInt(l.fill.slice(2, 4), 16) + parseInt(l.fill.slice(4, 6), 16) < 300;
       const ct = escuro ? 'FFFFFF' : '000000';
@@ -612,7 +628,8 @@
   S.highlights = s => {
     const P = [];
     titulo(P, s);
-    const pos = [[176, 163], [624, 163], [176, 510], [624, 510]];
+    // coluna da direita afastada da linha vertical (608): em 624 o título encostava nela
+    const pos = [[176, 163], [652, 163], [176, 510], [652, 510]];
     P.push(L(608, 150, 608, 660, {c: COR.laranja, esp: 1}));
     P.push(L(140, 460, 1140, 460, {c: COR.laranja, esp: 1}));
     s.quadrantes.slice(0, 4).forEach((q, i) => {
