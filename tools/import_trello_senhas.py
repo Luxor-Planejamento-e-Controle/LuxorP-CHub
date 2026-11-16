@@ -131,7 +131,9 @@ def ler_board(tr: Trello, bid: str) -> dict:
     cards = tr.get(f"boards/{bid}/cards", filter="all", fields="name,desc,closed,idList,pos,badges")
     comentarios, antes = [], None
     while True:
-        p = dict(filter="commentCard", limit=1000, fields="data,date", memberCreator_fields="fullName")
+        # copyCommentCard: comentário que veio junto de card copiado (a maioria aqui)
+        p = dict(filter="commentCard,copyCommentCard", limit=1000, fields="data,date",
+                 memberCreator_fields="fullName")
         if antes:
             p["before"] = antes
         lote = tr.get(f"boards/{bid}/actions", **p)
