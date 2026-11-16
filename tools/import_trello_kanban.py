@@ -621,15 +621,20 @@ CAMPOS = {
     "kanban_anexos": ("card_id", "nome", "pos"),
 }
 JUNCOES = {"kanban_card_etiquetas": "etiqueta_id", "kanban_card_membros": "membro_id"}
+# campo que anda junto com outro: quando o valor do hub fica, o par dele fica também
+PARES = {"kanban_cards": {"arquivado": "arquivado_em"}}
+# mexida nos dois lados que não é conflito: a posição dentro da lista (fica a do hub)
+SEM_CONFLITO = {"pos"}
 
 
 def _norm(v):
     """Valor comparável: o banco devolve '2026-11-13T12:00:00+00:00' onde o Trello
-    manda '2026-11-13T12:00:00.000Z'; número vem int ou float."""
+    manda '2026-11-13T12:00:00.000Z'; número vem int ou float, e a posição volta do
+    banco com menos casas (11353747.468605518 -> 11353747.4686055)."""
     if isinstance(v, bool) or v is None:
         return v
     if isinstance(v, (int, float)):
-        return round(float(v), 6)
+        return float(f"{float(v):.12g}")
     if isinstance(v, str) and re.match(r"^\d{4}-\d\d-\d\dT\d\d:\d\d", v):
         try:
             return int(dt.datetime.fromisoformat(v.replace("Z", "+00:00")).timestamp())
@@ -643,19 +648,23 @@ def _assinatura(linha, campos):
 
 
 def juntar(base, novo, sb):
-    """Três pontas, linha a linha (chave = id do Trello):
+    """Três pontas, linha a linha (chave = id do Trello) e, dentro da linha, campo a campo:
 
         só no NOVO (nem na base nem no hub)  -> nasceu no Trello: entra
         na base e no novo, fora do hub       -> foi apagado no hub: NÃO volta
-        no hub igual à base                  -> ninguém mexeu no hub: vale o Trello
-        no hub diferente da base             -> mexeram no hub: o hub fica
-                                                (se o Trello também mudou: conflito)
+        campo do hub igual ao da base        -> ninguém mexeu no hub: vale o do Trello
+        campo do hub diferente da base       -> mexeram no hub: fica o do hub (se o Trello
+                                                pôs outro valor no mesmo campo: conflito)
         no hub, fora do novo                 -> apagado no Trello: sai, se o hub não mexeu
 
+    Assim o card movido para o Done no hub E no Trello, e arquivado só no Trello, sai
+    arquivado no Done — sem conflito. Etiquetas e membros: o que o Trello pôs ou tirou
+    desde a base é aplicado sobre o conjunto do hub.
+
     O histórico (atividade) só ganha o que é novo; seguidores, só o que foi seguido no
-    Trello depois da base. Devolve (o que gravar, o que apagar, relatório)."""
+    Trello depois da base. Devolve (o que gravar, o que apagar, relatório, conflitos)."""
     gravar, apagar, rel = defaultdict(list), defaultdict(list), defaultdict(Counter)
-    conflitos = set()
+    conflitos = defaultdict(set)                   # card -> campos em choque
     nome_card = {c["id"]: c["nome"] for c in novo["kanban_cards"]}
     nome_card.update({c["id"]: c["nome"] for c in base["kanban_cards"] if c["id"] not in nome_card})
     card_de = {}                                   # linha filha -> card, para o relatório
@@ -682,20 +691,43 @@ def juntar(base, novo, sb):
         com_filho_do_hub |= {x[col] for x in sb.select(tab, col, "trello_id=is.null")}
 
     for tab, campos in CAMPOS.items():
+        pares = PARES.get(tab, {})
         b = {l["trello_id"]: l for l in base[tab]}
         n = {l["trello_id"]: l for l in novo[tab]}
-        h = {l["trello_id"]: l for l in sb.select(tab, "id,trello_id," + ",".join(campos), "trello_id=not.is.null")}
+        h = {l["trello_id"]: l for l in sb.select(tab, "id,trello_id," + ",".join(campos + tuple(pares.values())),
+                                                 "trello_id=not.is.null")}
+        if tab == "kanban_cards":                  # no relatório, o nome que o time vê no hub
+            nome_card.update({l["id"]: l["nome"] for l in h.values()})
         for tid, linha in n.items():
             if tid in h:
-                mexeu_hub = tid in b and _assinatura(h[tid], campos) != _assinatura(b[tid], campos)
-                mexeu_trello = tid not in b or _assinatura(linha, campos) != _assinatura(b[tid], campos)
-                if mexeu_hub:
-                    rel[tab]["mantido (mexido no hub)"] += 1
-                    if mexeu_trello:
-                        conflitos.add(card_da_linha(tab, linha))
-                elif mexeu_trello:
+                if tid not in b:                   # fora da base: a linha do Trello vale
+                    if _assinatura(h[tid], campos) != _assinatura(linha, campos):
+                        gravar[tab].append(linha)
+                        rel[tab]["atualizado do Trello"] += 1
+                    continue
+                mh = {c for c in campos if _norm(h[tid].get(c)) != _norm(b[tid].get(c))}
+                mt = {c for c in campos if _norm(linha.get(c)) != _norm(b[tid].get(c))}
+                choque = {c for c in mh & mt if _norm(h[tid].get(c)) != _norm(linha.get(c))} - SEM_CONFLITO
+                if choque:
+                    conflitos[card_da_linha(tab, linha)] |= choque
+                if not mt:
+                    if mh:
+                        rel[tab]["mantido (mexido só no hub)"] += 1
+                    continue
+                if not mh:
                     gravar[tab].append(linha)
                     rel[tab]["atualizado do Trello"] += 1
+                    continue
+                if not mt - mh:                    # o Trello só mexeu no que o hub também mexeu
+                    rel[tab]["mantido (o Trello repetiu o que o hub fez)"] += 1
+                    continue
+                junta = dict(linha)
+                for c in mh:
+                    junta[c] = h[tid].get(c)
+                    if c in pares:
+                        junta[pares[c]] = h[tid].get(pares[c])
+                gravar[tab].append(junta)
+                rel[tab]["juntado (campo do hub + campo do Trello)"] += 1
             elif tid in b:
                 rel[tab]["apagado no hub, não volta"] += 1
             else:
@@ -710,7 +742,8 @@ def juntar(base, novo, sb):
                 rel[tab]["apagado no Trello, sai"] += 1
             else:
                 rel[tab]["apagado no Trello, mas mexido no hub: fica"] += 1
-                conflitos.add(card_da_linha(tab, linha))
+                conflitos[card_da_linha(tab, linha)].add("apagado no Trello" if tab == "kanban_cards"
+                                                         else tab.replace("kanban_", "") + " apagado no Trello")
 
     # etiquetas e membros de cada card: o conjunto inteiro, nas mesmas três pontas
     cards_hub = {c["id"] for c in sb.select("kanban_cards", "id", "trello_id=not.is.null")}
@@ -728,16 +761,14 @@ def juntar(base, novo, sb):
                 if jn[card]:
                     gravar[tab] += [{"card_id": card, col: v} for v in jn[card]]
                 continue
-            if card not in cards_hub:
+            if card not in cards_hub or jn[card] == jb[card]:
                 continue
-            if jh[card] != jb[card]:
-                if jn[card] != jb[card]:
-                    conflitos.add(card)
-                continue
-            if jn[card] != jb[card]:
+            # o que o Trello tirou sai do conjunto do hub; o que pôs entra
+            fica = (jh[card] - (jb[card] - jn[card])) | (jn[card] - jb[card])
+            if fica != jh[card]:
                 apagar[tab + ":card"].append(card)
-                gravar[tab] += [{"card_id": card, col: v} for v in jn[card]]
-                rel[tab]["cards com etiquetas/membros do Trello"] += 1
+                gravar[tab] += [{"card_id": card, col: v} for v in fica]
+                rel[tab]["cards com mudança do Trello"] += 1
 
     # seguidores: só o que passou a ser seguido no Trello depois da base
     base_seg = {(s["card_id"], s["membro_id"]) for s in base["kanban_seguidores"]}
@@ -767,8 +798,9 @@ def juntar(base, novo, sb):
     for a in gravar["kanban_atividade"]:
         if a["card_id"] and a["card_id"] not in cards_ok:
             a["card_id"] = None                   # evento de card que não está no hub: fica no board
-    conflitos.discard(None)
-    return gravar, apagar, rel, sorted(nome_card.get(c, c) for c in conflitos)
+    conflitos.pop(None, None)
+    return gravar, apagar, rel, sorted(f"{nome_card.get(c, c)} [{', '.join(sorted(v))}]"
+                                       for c, v in conflitos.items())
 
 
 # --------------------------------------------------------------------------
@@ -801,9 +833,16 @@ def main():
             base_exp = json.loads(Path(args.base).read_text(encoding="utf-8"))
         else:
             ptr = sb.baixar("_trello/ultima.json")
-            if ptr:
-                corpo = sb.baixar("_trello/" + json.loads(ptr)["arquivo"])
+            # sem o ponteiro (importação feita antes dele existir): o export mais recente
+            # do bucket — o nome tem a data, e "AAAA-MM-DD.json" ordena antes de
+            # "AAAA-MM-DDTHHMM.json" do mesmo dia. O cache local fica por último porque
+            # uma prévia sem --dump o sobrescreve com o board de agora.
+            arq = json.loads(ptr)["arquivo"] if ptr else max(
+                (n for n in sb.arquivos("_trello/") if re.fullmatch(r"export-[\dT-]+\.json", n)), default=None)
+            if arq:
+                corpo = sb.baixar("_trello/" + arq)
                 base_exp = json.loads(corpo) if corpo else None
+                print(f"base lida do bucket: _trello/{arq}")
             elif (cache / "export.json").exists():
                 base_exp = json.loads((cache / "export.json").read_text(encoding="utf-8"))
         if not base_exp:
@@ -965,6 +1004,7 @@ def main():
 
     if args.atualizar:
         # 8') só o que a junção decidiu, na ordem das chaves estrangeiras
+        ja_no_hub = {x["id"] for x in sb.select("kanban_cards", "id")}
         for tab in ("kanban_listas", "kanban_etiquetas", "kanban_cards", "kanban_checklists",
                     "kanban_checkitens", "kanban_comentarios", "kanban_reacoes", "kanban_anexos",
                     "kanban_atividade"):
@@ -979,6 +1019,11 @@ def main():
                 print(f"  {tab}: {len(gravar[tab])} gravadas")
         if gravar["kanban_seguidores"]:
             sb.inserir("kanban_seguidores", gravar["kanban_seguidores"])
+        # capa dos cards que chegaram agora (depois dos anexos, para os quais ela aponta)
+        entraram = {c["id"] for c in gravar["kanban_cards"]} - ja_no_hub
+        for c in t["_capas"]:
+            if c["id"] in entraram:
+                sb.patch("kanban_cards", f"id=eq.{c['id']}", {"capa_anexo_id": c["capa_anexo_id"]})
         for tab in ("kanban_anexos", "kanban_reacoes", "kanban_comentarios", "kanban_checkitens",
                     "kanban_checklists", "kanban_cards", "kanban_etiquetas", "kanban_listas"):
             if apagar[tab]:
