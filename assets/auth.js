@@ -30,6 +30,8 @@ const HUB_DATASETS = {
   tarituba: null,
   // tabelas kanban_* (ver sql/hub_schema.sql, seção 8), lidas e gravadas pelo iframe
   kanban: null,
+  // tabelas senhas_* (seção 10), cifradas; a senha mestra é pedida no iframe
+  senhas: null,
   // chat, organogramas e quadro societário vêm do bot (assets/societario/so_app.js)
   societario: null,
   // decks do Comitê FO e do Board (ex-Power BI): o iframe baixa <deck>.json e relê

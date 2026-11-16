@@ -174,6 +174,27 @@ python tools/import_trello_kanban.py --mudancas              # hoje
 python tools/import_trello_kanban.py --mudancas 2026-11-13   # desde a data
 ```
 
+## Senhas P&C
+
+O board "Listagem de Senhas P&C" do Trello, na pasta Kanban e Projetos. Tabelas `senhas_*`
+e bucket privado `senhas` (seção 10 do `sql/hub_schema.sql`), atrás de `hub_can('senhas')`
+— e **cifrado**: título, conteúdo, lista, comentário e anexo chegam ao banco como
+`v1:<base64>` (AES-256-GCM). A chave sai da senha mestra dentro da página
+(`assets/senhas/sh_cripto.js`, PBKDF2-SHA256 com o sal de `senhas_cofre`) e só vive na
+memória dela; "Bloquear" ou 15 min parado jogam fora. Service_role, painel do Supabase e
+backup só veem texto embaralhado. Esquecer a senha mestra = perder o conteúdo.
+
+Sem aviso no Slack e sem realtime.
+
+```bash
+python tools/import_trello_senhas.py            # prévia: lê o Trello, confere a senha mestra
+python tools/import_trello_senhas.py --gravar   # cifra e grava (cria o cofre na 1ª vez)
+python assets/senhas/test_painel.py             # a tela, com a rede interceptada
+```
+
+A senha mestra vem de `senha_mestra` no `.env` da pasta de cima do repo (ou
+`SENHA_MESTRA`). O import não imprime nem grava em disco nada do conteúdo do board.
+
 ### Dashboard novo no hub, o que precisa mexer
 
 1. `tools/build_<nome>.py` — re-skin → `assets/<nome>/dashboard.html`

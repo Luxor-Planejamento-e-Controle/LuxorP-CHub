@@ -1,0 +1,500 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>Senhas P&amp;C · Luxor P&amp;C</title>
+<link rel="stylesheet" href="../fonts.css">
+<style>
+/* Mesmos tokens do Kanban, declarados aqui para a página abrir sozinha. */
+:root{
+  --bg:#0D2126; --bg-2:#113036;
+  --surface:#143840; --surface-2:#1B4650; --surface-3:#22525D;
+  --ink:#EAF4F4; --ink-2:#A7C3C5; --ink-3:#6E8C90;
+  --orange:#FFA400; --orange-deep:#E08E00; --orange-soft:rgba(255,164,0,.14);
+  --pos:#46B678; --neg:#E5674E; --neg-soft:rgba(229,103,78,.16);
+  --line:rgba(255,255,255,.13); --line-strong:rgba(255,255,255,.24);
+  --r:14px; --r-sm:9px; --ctl-h:34px;
+  --font-sans:"Fakt Pro",system-ui,-apple-system,"Segoe UI",Arial,sans-serif;
+  --font-serif:"Fakt Slab Pro","Fakt Pro",Georgia,serif;
+  --mono:ui-monospace,"Cascadia Mono",Consolas,monospace;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%}
+body{font-family:var(--font-sans);background:var(--bg);color:var(--ink);font-size:14px;line-height:1.45}
+::-webkit-scrollbar{width:10px;height:10px}
+::-webkit-scrollbar-thumb{background:var(--surface-2);border-radius:8px}
+::-webkit-scrollbar-track,::-webkit-scrollbar-corner{background:transparent}
+[hidden]{display:none!important}
+input,textarea,select{font:inherit;color:var(--ink);background:var(--bg-2);border:1px solid var(--line);
+  border-radius:var(--r-sm);padding:7px 10px;outline:none}
+input:focus,textarea:focus,select:focus{border-color:var(--orange)}
+.btn,.btn-acao,.btn-perigo{height:var(--ctl-h);padding:0 14px;border-radius:var(--r-sm);cursor:pointer;
+  font:inherit;font-size:13px;display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
+.btn{background:transparent;border:1px solid var(--line);color:var(--ink-2)}
+.btn:hover{border-color:var(--orange);color:var(--orange)}
+.btn.on{background:var(--orange-soft);border-color:rgba(255,164,0,.55);color:var(--orange)}
+.btn-acao{background:var(--orange);border:1px solid var(--orange);color:#201700;font-weight:600}
+.btn-acao:hover{background:var(--orange-deep)}
+.btn-perigo{background:transparent;border:1px solid rgba(229,103,78,.55);color:var(--neg)}
+.btn-perigo:hover{background:var(--neg-soft)}
+.btn:disabled,.btn-acao:disabled{opacity:.5;cursor:default}
+.msg{min-height:20px;font-size:13px;color:var(--neg);margin-top:10px}
+.muted{color:var(--ink-3);font-size:12px}
+
+/* trava */
+#trava{height:100%;display:flex;align-items:center;justify-content:center;padding:20px}
+.caixa{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:28px;width:min(380px,100%)}
+.caixa h1{font-family:var(--font-serif);font-weight:600;font-size:22px;margin:0 0 6px}
+.caixa p{color:var(--ink-2);margin:0 0 16px}
+.caixa form{display:flex;gap:8px}
+.caixa input{flex:1;min-width:0}
+
+/* lista e painel lado a lado, abaixo da barra (o painel não cobre o "Bloquear") */
+#app{height:100%;display:flex;flex-direction:column}
+.barra{display:flex;gap:8px;align-items:center;padding:16px 20px;border-bottom:1px solid var(--line);
+  background:var(--bg);flex-wrap:wrap}
+.barra input{width:min(320px,100%)}
+.cresce{flex:1}
+.corpo{flex:1;display:flex;min-height:0}
+main{flex:1;min-width:0;overflow:auto;padding:12px 20px 40px}
+.grupo{margin:14px 0 22px}
+.grupo h2{font-size:13px;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-3);margin:0 0 8px;
+  display:flex;align-items:center;gap:8px}
+.grupo h2 button{background:none;border:0;color:var(--ink-3);cursor:pointer;font-size:12px;padding:0}
+.grupo h2 button:hover{color:var(--orange)}
+.item{display:flex;align-items:center;gap:12px;width:100%;text-align:left;background:var(--surface);
+  border:1px solid var(--line);border-radius:var(--r-sm);padding:10px 14px;margin-bottom:6px;color:var(--ink);
+  cursor:pointer;font:inherit}
+.item:hover{border-color:var(--line-strong)}
+.item.ativo{border-color:var(--orange)}
+.item .t{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.vazio{color:var(--ink-3);padding:30px 0;text-align:center}
+
+/* painel do item */
+#painel{width:min(560px,100%);flex:none;background:var(--surface);border-left:1px solid var(--line-strong);
+  overflow:auto;padding:18px 20px 30px}
+@media (max-width:760px){
+  #painel{position:fixed;inset:0;width:auto;z-index:5}
+}
+.pcab{display:flex;gap:8px;align-items:center;margin-bottom:12px}
+.pcab select{flex:1;min-width:0}
+#pTitulo{width:100%;font-size:17px;font-weight:600;margin-bottom:12px}
+.rot{font-size:12px;color:var(--ink-3);letter-spacing:.04em;text-transform:uppercase;margin:16px 0 6px;
+  display:flex;align-items:center;gap:8px}
+.rot .cresce{flex:1}
+#pConteudo{width:100%;min-height:200px;font-family:var(--mono);font-size:13px;resize:vertical;white-space:pre-wrap}
+.oculto #pConteudo{filter:blur(6px);-webkit-user-select:none;user-select:none}
+.acoes{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+.coment{background:var(--bg-2);border:1px solid var(--line);border-radius:var(--r-sm);padding:8px 10px;margin-bottom:6px}
+.coment .txt{white-space:pre-wrap;word-break:break-word;font-family:var(--mono);font-size:12.5px}
+#pNovoComent{width:100%;min-height:60px;resize:vertical}
+.anexo{display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--line)}
+.anexo .n{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+</style>
+</head>
+<body>
+
+<div id="trava">
+  <div class="caixa">
+    <h1>Senhas P&amp;C</h1>
+    <p>Digite a senha mestra para abrir.</p>
+    <form id="fTrava" autocomplete="off">
+      <input type="password" id="mestra" placeholder="Senha mestra" autocomplete="current-password" aria-label="Senha mestra">
+      <button class="btn-acao" type="submit" id="bAbrir">Abrir</button>
+    </form>
+    <div class="msg" id="msgTrava"></div>
+  </div>
+</div>
+
+<div id="app" hidden>
+  <div class="barra">
+    <input type="search" id="busca" placeholder="Buscar no título e no conteúdo" aria-label="Buscar">
+    <button class="btn-acao" id="bNovo" type="button">Novo item</button>
+    <button class="btn" id="bLista" type="button">Nova lista</button>
+    <button class="btn" id="bArq" type="button">Arquivados</button>
+    <span class="cresce"></span>
+    <span class="muted" id="status"></span>
+    <button class="btn" id="bBloq" type="button">Bloquear</button>
+  </div>
+  <div class="corpo">
+    <main id="lista"></main>
+    <aside id="painel" hidden aria-label="Item"></aside>
+  </div>
+</div>
+
+<script src="../vendor/supabase.min.js"></script>
+<script src="config.js"></script>
+<script src="sh_cripto.js"></script>
+<script>
+'use strict';
+/* Senhas P&C: as tabelas senhas_* e o bucket `senhas` (seção 10 do sql/hub_schema.sql).
+ * Tudo chega cifrado; a chave sai da senha mestra aqui e só vive na memória desta página
+ * (não vai para storage nenhum). Bloquear, ou 15 min parado, joga fora a chave e o que
+ * foi decifrado. Nada daqui manda aviso para o Slack. */
+const CR = SH_CRIPTO;
+const BUCKET = 'senhas';
+const OCIOSO_MS = 15 * 60 * 1000;
+const PASSO = 65536;
+const $ = s => document.querySelector(s);
+const esc = s => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;')
+  .replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+const normal = s => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+const data = iso => iso ? new Date(iso).toLocaleDateString('pt-BR') : '';
+const dataHora = iso => iso ? new Date(iso).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }) : '';
+
+let _sb = null;
+const sb = () => _sb || (_sb = window.supabase.createClient(window.SUPABASE_URL, window.SUPABASE_ANON_KEY));
+function ok(r, oque) { if (r.error) throw new Error(oque + ': ' + r.error.message); return r.data; }
+async function tudo(montar, oque) {
+  let out = [], ini = 0;
+  for (;;) {
+    const lote = ok(await montar().range(ini, ini + 999), oque) || [];
+    out = out.concat(lote);
+    if (lote.length < 1000) return out;
+    ini += 1000;
+  }
+}
+
+const S = { k: null, listas: [], itens: [], arquivados: false, busca: '', aberto: null };
+
+/* ---------- trava ---------- */
+async function abrir(ev) {
+  ev.preventDefault();
+  const senha = $('#mestra').value;
+  if (!senha) return;
+  $('#bAbrir').disabled = true;
+  $('#msgTrava').textContent = '';
+  try {
+    const cofre = ok(await sb().from('senhas_cofre').select('sal,iteracoes,verificador').maybeSingle(), 'ler o cofre');
+    if (!cofre) { $('#msgTrava').textContent = 'Cofre não encontrado (ou sem permissão para a aba).'; return; }
+    const k = await CR.abrir(senha, cofre);
+    if (!k) { $('#msgTrava').textContent = 'Senha mestra não confere.'; return; }
+    S.k = k;
+    $('#mestra').value = '';
+    await carregar();
+    $('#trava').hidden = true; $('#app').hidden = false;
+    $('#busca').focus();
+    mexeu();
+  } catch (e) {
+    $('#msgTrava').textContent = e.message;
+  } finally {
+    $('#bAbrir').disabled = false;
+  }
+}
+
+function bloquear() {
+  S.k = null; S.listas = []; S.itens = []; S.aberto = null; S.busca = '';
+  fecharPainel();
+  $('#busca').value = ''; $('#lista').innerHTML = '';
+  $('#app').hidden = true; $('#trava').hidden = false; $('#mestra').focus();
+}
+let _ocioso = null;
+function mexeu() {
+  clearTimeout(_ocioso);
+  if (S.k) _ocioso = setTimeout(bloquear, OCIOSO_MS);
+}
+
+/* ---------- dados ---------- */
+async function dec(s) { try { return await CR.decifrar(S.k, s); } catch (e) { return '⚠ não decifrou'; } }
+
+async function carregar() {
+  const [listas, itens] = await Promise.all([
+    tudo(() => sb().from('senhas_listas').select('id,nome,pos,arquivada').order('pos'), 'ler as listas'),
+    tudo(() => sb().from('senhas_itens').select('id,lista_id,titulo,conteudo,pos,arquivado,atualizado_em').order('pos'), 'ler os itens'),
+  ]);
+  S.listas = await Promise.all(listas.map(async l => ({ ...l, nome: await dec(l.nome) })));
+  S.itens = await Promise.all(itens.map(async i => ({ ...i, titulo: await dec(i.titulo), conteudo: await dec(i.conteudo) })));
+  desenhar();
+}
+
+const listaDe = id => S.listas.find(l => l.id === id);
+const listasAbertas = () => S.listas.filter(l => !l.arquivada).sort((a, b) => a.pos - b.pos);
+const proxPos = arr => (arr.length ? Math.max(...arr.map(x => x.pos || 0)) : 0) + PASSO;
+
+/* ---------- lista ---------- */
+function visiveis() {
+  const q = normal(S.busca);
+  return S.itens.filter(i => {
+    const l = listaDe(i.lista_id);
+    const arquivado = i.arquivado || (l && l.arquivada);
+    if (S.arquivados !== !!arquivado) return false;
+    return !q || normal(i.titulo).includes(q) || normal(i.conteudo).includes(q);
+  });
+}
+
+function desenhar() {
+  const itens = visiveis();
+  $('#bArq').classList.toggle('on', S.arquivados);
+  $('#bNovo').disabled = S.arquivados || !listasAbertas().length;
+  $('#status').textContent = `${itens.length} ${itens.length === 1 ? 'item' : 'itens'}`;
+  const grupos = (S.arquivados ? [...S.listas].sort((a, b) => a.pos - b.pos) : listasAbertas())
+    .map(l => ({ l, itens: itens.filter(i => i.lista_id === l.id).sort((a, b) => a.pos - b.pos) }))
+    .filter(g => g.itens.length || (!S.arquivados && !S.busca));
+  if (!grupos.length) {
+    $('#lista').innerHTML = `<div class="vazio">${S.busca ? 'Nada encontrado.' : S.arquivados ? 'Nada arquivado.' : 'Nenhum item.'}</div>`;
+    return;
+  }
+  $('#lista').innerHTML = grupos.map(g => `
+    <section class="grupo">
+      <h2>${esc(g.l.nome)}${g.l.arquivada ? ' (lista arquivada)' : ''} <span>· ${g.itens.length}</span>
+        ${!S.arquivados ? `<button type="button" data-renomear="${g.l.id}">renomear</button>` : ''}</h2>
+      ${g.itens.map(i => `<button type="button" class="item${S.aberto && S.aberto.id === i.id ? ' ativo' : ''}" data-item="${i.id}">
+          <span class="t">${esc(i.titulo) || '<span class="muted">(sem título)</span>'}</span>
+          <span class="muted">${data(i.atualizado_em)}</span></button>`).join('')}
+    </section>`).join('');
+}
+
+/* ---------- painel do item ---------- */
+function fecharPainel() { S.aberto = null; $('#painel').hidden = true; $('#painel').innerHTML = ''; desenhar(); }
+
+async function abrirItem(id) {
+  const i = S.itens.find(x => x.id === id);
+  if (!i) return;
+  S.aberto = { id, comentarios: [], anexos: [] };
+  desenharPainel(i);
+  desenhar();
+  const [coms, anx] = await Promise.all([
+    tudo(() => sb().from('senhas_comentarios').select('id,texto,autor,criado_em').eq('item_id', id).order('criado_em'), 'ler os comentários'),
+    tudo(() => sb().from('senhas_anexos').select('id,nome,caminho,tamanho,criado_em').eq('item_id', id).order('criado_em'), 'ler os anexos'),
+  ]);
+  if (!S.aberto || S.aberto.id !== id) return;
+  S.aberto.comentarios = await Promise.all(coms.map(async c => ({ ...c, texto: await dec(c.texto) })));
+  S.aberto.anexos = await Promise.all(anx.map(async a => ({ ...a, nome: await dec(a.nome) })));
+  desenharExtras();
+}
+
+function desenharPainel(i) {
+  const l = listaDe(i.lista_id);
+  const arquivado = i.arquivado || (l && l.arquivada);
+  const p = $('#painel');
+  p.hidden = false;
+  p.innerHTML = `
+    <div class="pcab">
+      <select id="pLista" aria-label="Lista">${S.listas.filter(x => !x.arquivada || x.id === i.lista_id).sort((a, b) => a.pos - b.pos)
+        .map(x => `<option value="${x.id}"${x.id === i.lista_id ? ' selected' : ''}>${esc(x.nome)}</option>`).join('')}</select>
+      <button class="btn" type="button" id="pFechar">Fechar</button>
+    </div>
+    <input id="pTitulo" value="${esc(i.titulo)}" aria-label="Título">
+    <div class="rot">Conteúdo <span class="cresce"></span>
+      <button class="btn" type="button" id="pMostrar">Mostrar</button>
+      <button class="btn" type="button" id="pCopiar">Copiar</button></div>
+    <div id="pCaixa" class="oculto"><textarea id="pConteudo" readonly spellcheck="false" aria-label="Conteúdo">${esc(i.conteudo)}</textarea></div>
+    <div class="acoes">
+      <button class="btn-acao" type="button" id="pSalvar" disabled>Salvar</button>
+      ${arquivado ? '<button class="btn" type="button" id="pRestaurar">Restaurar</button><button class="btn-perigo" type="button" id="pExcluir">Excluir</button>'
+                  : '<button class="btn" type="button" id="pArquivar">Arquivar</button>'}
+      <span class="muted" style="align-self:center">${i.atualizado_em ? 'atualizado em ' + esc(dataHora(i.atualizado_em)) : ''}</span>
+    </div>
+    <div class="msg" id="pMsg"></div>
+    <div class="rot">Anexos <span class="cresce"></span>
+      <label class="btn" style="cursor:pointer">Anexar<input type="file" id="pArquivo" hidden></label></div>
+    <div id="pAnexos"><span class="muted">carregando…</span></div>
+    <div class="rot">Comentários</div>
+    <div id="pComents"><span class="muted">carregando…</span></div>
+    <textarea id="pNovoComent" placeholder="Escrever um comentário" aria-label="Novo comentário"></textarea>
+    <div class="acoes"><button class="btn" type="button" id="pComentar">Comentar</button></div>`;
+  const sujo = () => { $('#pSalvar').disabled = false; };
+  $('#pTitulo').addEventListener('input', sujo);
+  $('#pConteudo').addEventListener('input', sujo);
+  $('#pLista').addEventListener('change', sujo);
+  $('#pFechar').onclick = fecharPainel;
+  $('#pMostrar').onclick = () => {
+    const oculto = $('#pCaixa').classList.toggle('oculto');
+    $('#pConteudo').readOnly = oculto;
+    $('#pMostrar').textContent = oculto ? 'Mostrar' : 'Ocultar';
+  };
+  $('#pCopiar').onclick = async () => {
+    try { await navigator.clipboard.writeText($('#pConteudo').value); aviso('Copiado.', false); }
+    catch (e) { aviso('Não deu para copiar: ' + e.message); }
+  };
+  $('#pSalvar').onclick = () => salvar(i.id);
+  if ($('#pArquivar')) $('#pArquivar').onclick = () => arquivar(i.id, true);
+  if ($('#pRestaurar')) $('#pRestaurar').onclick = () => arquivar(i.id, false);
+  if ($('#pExcluir')) $('#pExcluir').onclick = () => excluir(i.id);
+  $('#pComentar').onclick = () => comentar(i.id);
+  $('#pArquivo').onchange = ev => anexar(i.id, ev.target.files[0]);
+}
+
+function desenharExtras() {
+  const a = S.aberto;
+  $('#pAnexos').innerHTML = a.anexos.length ? a.anexos.map(x => `
+    <div class="anexo"><span class="n">${esc(x.nome)}</span>
+      <button class="btn" type="button" data-baixar="${x.id}">Baixar</button>
+      <button class="btn-perigo" type="button" data-tirar="${x.id}">Tirar</button></div>`).join('')
+    : '<span class="muted">Nenhum anexo.</span>';
+  $('#pComents').innerHTML = a.comentarios.length ? a.comentarios.map(c => `
+    <div class="coment"><div class="muted">${esc(c.autor || '')} · ${esc(dataHora(c.criado_em))}</div>
+      <div class="txt">${esc(c.texto)}</div></div>`).join('')
+    : '<span class="muted">Nenhum comentário.</span>';
+}
+
+function aviso(t, erro = true) {
+  const m = $('#pMsg');
+  if (!m) return;
+  m.style.color = erro ? 'var(--neg)' : 'var(--pos)';
+  m.textContent = t;
+  if (!erro) setTimeout(() => { if (m.textContent === t) m.textContent = ''; }, 2500);
+}
+
+/* ---------- gravação (sempre cifrada) ---------- */
+async function salvar(id) {
+  const i = S.itens.find(x => x.id === id);
+  const titulo = $('#pTitulo').value.trim(), conteudo = $('#pConteudo').value, lista_id = $('#pLista').value;
+  try {
+    const corpo = { titulo: await CR.cifrar(S.k, titulo), conteudo: await CR.cifrar(S.k, conteudo), lista_id };
+    if (lista_id !== i.lista_id) corpo.pos = proxPos(S.itens.filter(x => x.lista_id === lista_id));
+    const r = ok(await sb().from('senhas_itens').update(corpo).eq('id', id).select('atualizado_em,pos'), 'salvar');
+    Object.assign(i, { titulo, conteudo, lista_id }, r && r[0] ? r[0] : {});
+    $('#pSalvar').disabled = true;
+    aviso('Salvo.', false);
+    desenhar();
+  } catch (e) { aviso(e.message); }
+}
+
+async function arquivar(id, sim) {
+  try {
+    ok(await sb().from('senhas_itens').update({ arquivado: sim }).eq('id', id), sim ? 'arquivar' : 'restaurar');
+    const i = S.itens.find(x => x.id === id);
+    i.arquivado = sim;
+    const l = listaDe(i.lista_id);
+    if (!sim && l && l.arquivada) {            // restaurar de lista arquivada: volta para a 1ª aberta
+      const destino = listasAbertas()[0];
+      if (destino) {
+        ok(await sb().from('senhas_itens').update({ lista_id: destino.id }).eq('id', id), 'restaurar');
+        i.lista_id = destino.id;
+      }
+    }
+    fecharPainel();
+  } catch (e) { aviso(e.message); }
+}
+
+async function excluir(id) {
+  if (!confirm('Excluir este item de vez? Não dá para desfazer.')) return;
+  try {
+    const anexos = (S.aberto && S.aberto.anexos) || [];
+    if (anexos.length) await sb().storage.from(BUCKET).remove(anexos.map(a => a.caminho));
+    ok(await sb().from('senhas_itens').delete().eq('id', id), 'excluir');
+    S.itens = S.itens.filter(x => x.id !== id);
+    fecharPainel();
+  } catch (e) { aviso(e.message); }
+}
+
+async function comentar(id) {
+  const t = $('#pNovoComent').value.trim();
+  if (!t) return;
+  try {
+    const r = ok(await sb().from('senhas_comentarios').insert({ item_id: id, texto: await CR.cifrar(S.k, t) })
+      .select('id,autor,criado_em'), 'comentar');
+    S.aberto.comentarios.push({ ...(r && r[0] || {}), texto: t });
+    $('#pNovoComent').value = '';
+    desenharExtras();
+  } catch (e) { aviso(e.message); }
+}
+
+async function anexar(id, arq) {
+  if (!arq) return;
+  try {
+    const caminho = (crypto.randomUUID ? crypto.randomUUID() : String(Date.now())) + '.bin';
+    const cifrado = await CR.cifrarBytes(S.k, new Uint8Array(await arq.arrayBuffer()));
+    // bytes crus (não Blob): o storage-js manda Blob como multipart
+    ok(await sb().storage.from(BUCKET).upload(caminho, cifrado, { contentType: 'application/octet-stream' }),
+      'enviar o anexo');
+    const r = ok(await sb().from('senhas_anexos').insert({ item_id: id, nome: await CR.cifrar(S.k, arq.name),
+      caminho, tamanho: arq.size }).select('id,caminho,tamanho,criado_em'), 'gravar o anexo');
+    S.aberto.anexos.push({ ...(r && r[0] || {}), nome: arq.name });
+    desenharExtras();
+  } catch (e) { aviso(e.message); }
+  $('#pArquivo').value = '';
+}
+
+async function baixar(aid) {
+  const a = S.aberto.anexos.find(x => x.id === aid);
+  try {
+    const blob = ok(await sb().storage.from(BUCKET).download(a.caminho), 'baixar');
+    const claro = await CR.decifrarBytes(S.k, new Uint8Array(await blob.arrayBuffer()));
+    const url = URL.createObjectURL(new Blob([claro]));
+    const el = document.createElement('a');
+    el.href = url; el.download = a.nome || 'arquivo';
+    document.body.appendChild(el); el.click(); el.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 10000);
+  } catch (e) { aviso('Não deu para abrir o anexo: ' + e.message); }
+}
+
+async function tirarAnexo(aid) {
+  const a = S.aberto.anexos.find(x => x.id === aid);
+  if (!confirm('Tirar este anexo?')) return;
+  try {
+    await sb().storage.from(BUCKET).remove([a.caminho]);
+    ok(await sb().from('senhas_anexos').delete().eq('id', aid), 'tirar o anexo');
+    S.aberto.anexos = S.aberto.anexos.filter(x => x.id !== aid);
+    desenharExtras();
+  } catch (e) { aviso(e.message); }
+}
+
+async function novoItem() {
+  const lista = listasAbertas()[0];
+  if (!lista) return;
+  try {
+    const pos = proxPos(S.itens.filter(x => x.lista_id === lista.id));
+    const r = ok(await sb().from('senhas_itens').insert({ lista_id: lista.id, pos,
+      titulo: await CR.cifrar(S.k, 'Novo item'), conteudo: await CR.cifrar(S.k, '') })
+      .select('id,lista_id,pos,arquivado,atualizado_em'), 'criar o item');
+    const novo = { ...r[0], titulo: 'Novo item', conteudo: '' };
+    S.itens.push(novo);
+    S.busca = ''; $('#busca').value = '';
+    await abrirItem(novo.id);
+    $('#pCaixa').classList.remove('oculto'); $('#pConteudo').readOnly = false; $('#pMostrar').textContent = 'Ocultar';
+    $('#pTitulo').select();
+  } catch (e) { alert(e.message); }
+}
+
+async function novaLista() {
+  const nome = (prompt('Nome da nova lista') || '').trim();
+  if (!nome) return;
+  try {
+    const pos = proxPos(S.listas);
+    const r = ok(await sb().from('senhas_listas').insert({ nome: await CR.cifrar(S.k, nome), pos })
+      .select('id,pos,arquivada'), 'criar a lista');
+    S.listas.push({ ...r[0], nome });
+    desenhar();
+  } catch (e) { alert(e.message); }
+}
+
+async function renomearLista(id) {
+  const l = listaDe(id);
+  const nome = (prompt('Novo nome da lista', l.nome) || '').trim();
+  if (!nome || nome === l.nome) return;
+  try {
+    ok(await sb().from('senhas_listas').update({ nome: await CR.cifrar(S.k, nome) }).eq('id', id), 'renomear');
+    l.nome = nome;
+    desenhar();
+  } catch (e) { alert(e.message); }
+}
+
+/* ---------- eventos ---------- */
+$('#fTrava').addEventListener('submit', abrir);
+$('#bBloq').onclick = bloquear;
+$('#bNovo').onclick = novoItem;
+$('#bLista').onclick = novaLista;
+$('#bArq').onclick = () => { S.arquivados = !S.arquivados; fecharPainel(); };
+$('#busca').addEventListener('input', ev => { S.busca = ev.target.value; desenhar(); });
+$('#lista').addEventListener('click', ev => {
+  const it = ev.target.closest('[data-item]');
+  if (it) return abrirItem(it.dataset.item);
+  const rn = ev.target.closest('[data-renomear]');
+  if (rn) renomearLista(rn.dataset.renomear);
+});
+$('#painel').addEventListener('click', ev => {
+  const b = ev.target.closest('[data-baixar]');
+  if (b) return baixar(b.dataset.baixar);
+  const t = ev.target.closest('[data-tirar]');
+  if (t) tirarAnexo(t.dataset.tirar);
+});
+['mousemove', 'keydown', 'click', 'scroll'].forEach(e => document.addEventListener(e, mexeu, { passive: true }));
+document.addEventListener('keydown', ev => { if (ev.key === 'Escape' && S.aberto) fecharPainel(); });
+$('#mestra').focus();
+</script>
+</body>
+</html>

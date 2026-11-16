@@ -70,6 +70,8 @@ const ICON = {
   imovel:'M4 21V5l8-3v19M12 21V9l8 3v9M2 21h20M7 8h2M7 12h2M7 16h2M15 14h2M15 18h2',
   // três colunas de cards de alturas diferentes: o board, e não o checklist de `proj`
   kanban:'M4 4h4.5v16H4zM9.75 4h4.5v10h-4.5zM15.5 4H20v13h-4.5z',
+  // cadeado: a aba de Senhas
+  senhas:'M6 11h12v10H6zM8.5 11V7.5a3.5 3.5 0 017 0V11M12 15v2',
   // organograma: uma caixa no topo ligada a duas embaixo
   org:'M9 2.5h6v5H9zM12 7.5v4M5.5 11.5h13M5.5 11.5v4M18.5 11.5v4M2.5 15.5h6v5h-6zM15.5 15.5h6v5h-6z',
   // tela de projeção com um gráfico (Comitê FO) e mesa com cadeiras (Board): dois
@@ -91,6 +93,7 @@ const ROUTES = [
   {id:'controle_pagamentos', title:'Controle de Pagamentos', sub:'Fornecedores fixos do mês e o que já foi pago', icon:'pagamentos', render:renderControlePagamentos},
   {id:'tarituba', title:'Fluxo de Caixa — Tarituba', sub:'Orçado × realizado do imóvel, mês a mês', icon:'imovel', render:renderTarituba},
   {id:'kanban', title:'Kanban Planejamento, Controle e Concierge', sub:'Tarefas do time: a fazer, em andamento, bloqueadas e feitas', icon:'kanban', render:renderKanban},
+  {id:'senhas', title:'Senhas P&C', sub:'Listagem de senhas do P&C, aberta com a senha mestra', icon:'senhas', render:renderSenhas},
   {id:'societario', title:'Estruturas Societárias', sub:'Chat, organogramas e quadro societário do Grupo Luxor', icon:'org', render:renderSocietario},
   {id:'comite_fo', title:'Comitê de Resultados FO', sub:'Deck trimestral do Family Office', icon:'deck', render:el=>renderApresentacao(el,'comite_fo','Comitê de Resultados FO')},
   {id:'board_fo', title:'Board', sub:'Deck trimestral do Board', icon:'board', render:el=>renderApresentacao(el,'board_fo','Board')},
@@ -111,6 +114,7 @@ function temDado(id, hub){
   if(id==='controle_pagamentos') return true;     // idem
   if(id==='tarituba') return true;                // idem
   if(id==='kanban') return true;                  // tabelas kanban_* direto do Postgres
+  if(id==='senhas') return true;                  // tabelas senhas_* (cifradas) direto do Postgres
   if(id==='societario') return true;              // fala direto com o bot das estruturas societárias
   if(id==='comite_fo' || id==='board_fo' || id==='carta') return true;  // o iframe baixa o próprio <deck>.json
   return true;                                    // Projetos lê direto do Postgres
@@ -135,7 +139,7 @@ const MENU = [
   {pasta:'fluxos', titulo:'Fluxo de Caixa', itens:['tarituba']},
   {pasta:'controles', titulo:'Controles Financeiros', itens:['inadimplencia','vendas','saldo_bancario','controle_pagamentos']},
   {pasta:'apresentacoes', titulo:'Apresentações', itens:['comite_fo','board_fo','carta']},
-  {pasta:'tarefas', titulo:'Kanban e Projetos', itens:['kanban','projetos']},
+  {pasta:'tarefas', titulo:'Kanban e Projetos', itens:['kanban','projetos','senhas']},
   'societario',
 ];
 const PASTA_ICO='M3 7.5A1.5 1.5 0 014.5 6H9.2l1.8 2h8.5A1.5 1.5 0 0121 9.5v8A1.5 1.5 0 0119.5 19h-15A1.5 1.5 0 013 17.5z';
@@ -1029,6 +1033,15 @@ function renderKanban(el, params){
   const alvo=card && /^[0-9a-f-]{36}$/i.test(card) ? '#card='+card : '';
   // allow="fullscreen": o botão "Tela cheia" do board põe só o iframe na tela inteira
   el.innerHTML=`<iframe class="embed" src="assets/kanban/index.html${alvo}" title="Kanban Planejamento, Controle e Concierge" allow="fullscreen" allowfullscreen></iframe>`;
+}
+
+/* ---- Senhas P&C (mesmo padrão do Kanban) ----
+   O board "Listagem de Senhas P&C" do Trello. Tabelas senhas_* e bucket `senhas`
+   (sql/hub_schema.sql, seção 10), tudo cifrado: a senha mestra é pedida dentro do
+   iframe e a chave só vive lá. */
+function renderSenhas(el){
+  el.classList.add('flush');
+  el.innerHTML=`<iframe class="embed" src="assets/senhas/index.html" title="Senhas P&C"></iframe>`;
 }
 
 /* ---- Estruturas Societárias ----
