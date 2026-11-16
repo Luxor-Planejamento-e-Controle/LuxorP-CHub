@@ -345,7 +345,8 @@
   }
 
   /* ---------- Processos (GET /hub/processos; só para hub_can('processos')) ---------- */
-  var processosData = null, procsFiltro = { kpi: 'todos', area: '', escritorio: '', empresa: '', busca: '' };
+  var processosData = null, procsFiltro = { kpi: 'todos', area: '', escritorio: '', empresa: '', situacao: '', busca: '' };
+  function tituloProc(p) { return p.objeto || [p.area, p.numero].filter(Boolean).join(' · ') || '(sem descrição)'; }
   function riscoClasse(r) {
     var k = sem(r);
     return k.indexOf('provav') === 0 ? 'provavel' : k.indexOf('possiv') === 0 ? 'possivel' : k.indexOf('remot') === 0 ? 'remoto' : 'sem';
@@ -386,7 +387,8 @@
       if (f.area && p.area !== f.area) return false;
       if (f.escritorio && p.escritorio !== f.escritorio) return false;
       if (f.empresa && p.empresa !== f.empresa) return false;
-      return !b || sem([p.objeto, p.numero, p.empresa, p.parte_contraria, p.escritorio, p.advogado, p.fase].join(' ')).indexOf(b) >= 0;
+      if (f.situacao && p.situacao !== f.situacao) return false;
+      return !b || sem([p.objeto, p.numero, p.empresa, p.documento, p.area, p.parte_contraria, p.escritorio, p.advogado, p.fase, p.situacao].join(' ')).indexOf(b) >= 0;
     });
     var sel = todos[+idDoHash()] || (vis[0] && vis[0].p) || todos[0];
     var kpi = function (k, rot, cls) {
@@ -400,31 +402,45 @@
     };
     var h = '<div class="so-kpis cinco">' + kpi('todos', 'Processos') + kpi('provavel', 'Risco provável', 'provavel') +
       kpi('possivel', 'Risco possível', 'possivel') + kpi('remoto', 'Risco remoto') + kpi('prazo', 'Prazo em até 7 dias', 'prazo') + '</div>' +
-      '<div class="so-topo">' + (podeEnviar ? '<button class="so-btn" id="novoProcesso">+ Novo processo</button><button class="so-btn ghost" id="importarProc">Importar planilha</button>' : '') + sel_('pcArea', 'area', 'Todas as áreas') + sel_('pcEscritorio', 'escritorio', 'Todos os escritórios') +
-      sel_('pcEmpresa', 'empresa', 'Todas as empresas') +
+      '<div class="so-topo">' + (podeEnviar ? '<button class="so-btn" id="novoProcesso">+ Novo processo</button><button class="so-btn ghost" id="importarProc">Importar planilha</button>' : '') + sel_('pcArea', 'area', 'Todos os tipos') + sel_('pcEscritorio', 'escritorio', 'Todos os jurídicos') +
+      sel_('pcEmpresa', 'empresa', 'Todas as empresas') + sel_('pcSituacao', 'situacao', 'Ativos e inativos') +
       '<input class="so-busca" id="pcBusca" style="max-width:300px" placeholder="Buscar processo, parte, advogado" value="' + esc(f.busca) + '"></div>';
     h += '<div class="so-duas"><div class="so-lista">' + (vis.length ? vis.map(function (x) {
-      var sub = [x.p.empresa, x.p.escritorio].filter(Boolean).join(' · ');
-      return '<button class="so-item' + (x.p === sel ? ' on' : '') + '" data-i="' + x.i + '">' + esc(x.p.objeto || x.p.numero || '(sem objeto)') +
+      var sub = [x.p.empresa, x.p.escritorio, x.p.situacao].filter(Boolean).join(' · ');
+      return '<button class="so-item' + (x.p === sel ? ' on' : '') + '" data-i="' + x.i + '">' + esc(tituloProc(x.p)) +
         (sub ? '<span class="so-muted">' + esc(sub) + '</span>' : '') + '</button>';
     }).join('') : '<div class="so-muted" style="padding:8px">Nenhum processo com esses filtros.</div>') + '</div><div class="so-ficha">';
     var dProx = diasAte(sel.data_proximo_prazo);
-    h += '<div class="card"><h2>' + esc(sel.objeto || sel.numero || '(sem objeto)') +
-      (sel.risco ? '<span class="so-st ' + riscoClasse(sel.risco) + '" style="margin-left:10px">Risco ' + esc(sel.risco) + '</span>' : '') + '</h2>' +
+    var inativo = sem(sel.situacao).indexOf('inativ') === 0;
+    h += '<div class="card"><h2>' + esc(tituloProc(sel)) +
+      (sel.situacao ? '<span class="so-st ' + (inativo ? 'sem' : 'vigente') + '" style="margin-left:10px">' + esc(sel.situacao) + '</span>' : '') +
+      (sel.risco ? '<span class="so-st ' + riscoClasse(sel.risco) + '" style="margin-left:8px">Risco ' + esc(sel.risco) + '</span>' : '') + '</h2>' +
       (podeEnviar && sel.id ? '<div class="so-acoes"><button class="so-btn ghost" id="editProc">Editar</button></div>' : '') +
-      kv([['Nº do processo', sel.numero], ['Empresa / pessoa do grupo', sel.empresa], ['Polo', sel.polo],
-          ['Parte contrária', sel.parte_contraria], ['Área', sel.area], ['Tribunal / vara', sel.tribunal],
-          ['Valor da causa', reais(sel.valor_causa)], ['Fase', sel.fase], ['Advogado responsável', sel.advogado]]);
+      kv([['Empresa ou pessoa física', sel.empresa], ['CNPJ ou CPF', sel.documento], ['Tipo de processo', sel.area],
+          ['Número do processo', sel.numero], ['Pessoas envolvidas', sel.parte_contraria], ['Advogado responsável', sel.advogado]]);
     if (sel.escritorio) {
-      h += '<div class="so-kv"><div><div class="k">Escritório</div><div class="v"><button class="so-link" id="pcEscr">' +
+      h += '<div class="so-kv"><div><div class="k">Jurídico responsável</div><div class="v"><button class="so-link" id="pcEscr">' +
         esc(sel.escritorio) + '</button></div></div></div>';
     }
-    h += '</div>';
+    h += kv([['Objeto', sel.objeto], ['Polo', sel.polo], ['Tribunal / vara', sel.tribunal], ['Valor da causa', reais(sel.valor_causa)],
+             ['Fase', sel.fase]]) + '</div>';
     if (sel.ultima_movimentacao || sel.data_ultima_movimentacao || sel.proximo_prazo || sel.data_proximo_prazo) {
       h += '<div class="card" style="margin-top:14px"><div class="card-title"><h2>Andamento</h2></div>' +
-        kv([['Última movimentação', [sel.data_ultima_movimentacao ? dataBR(sel.data_ultima_movimentacao) : '', sel.ultima_movimentacao || ''].filter(Boolean).join(' — ')],
+        kv([['Andamento', [sel.data_ultima_movimentacao ? dataBR(sel.data_ultima_movimentacao) : '', sel.ultima_movimentacao || ''].filter(Boolean).join(' — ')],
             ['Próximo prazo / audiência', [sel.data_proximo_prazo ? dataBR(sel.data_proximo_prazo) : '', sel.proximo_prazo || ''].filter(Boolean).join(' — ')]]) +
         (dProx != null && dProx >= 0 && dProx <= 7 ? '<span class="so-st vence_7">' + (dProx === 0 ? 'hoje' : 'em ' + dProx + (dProx === 1 ? ' dia' : ' dias')) + '</span>' : '') +
+        '</div>';
+    }
+    var cnj = sel.andamento_cnj;
+    if (sel.numero_cnj && processosData.andamentos_configurado) {
+      h += '<div class="card" style="margin-top:14px" id="pcCnj"><div class="card-title"><h2>Andamento no CNJ</h2>' +
+        (cnj && cnj.consultado_em ? '<span class="so-muted" style="margin-left:auto">consultado em ' + esc(dataBR(cnj.consultado_em)) + '</span>' : '') + '</div>' +
+        (!cnj ? '<div class="so-muted">Ainda não consultado.</div>'
+          : cnj.encontrado === false ? '<span class="so-badge">não encontrado no DataJud</span>'
+          : kv([['Tribunal', cnj.tribunal], ['Classe', cnj.classe], ['Órgão julgador', cnj.orgao]]) +
+            '<ul class="so-docs" style="columns:1">' + (cnj.movimentos || []).map(function (m) {
+              return '<li><strong>' + esc(dataBR(m.data)) + '</strong> — ' + esc(m.nome) + '</li>';
+            }).join('') + '</ul>') +
         '</div>';
     }
     if (sel.id) h += cartaoAnexos('processos', sel.id, podeEnviar);
@@ -439,7 +455,7 @@
       var k = e.target.closest('[data-k]'); if (!k) return;
       f.kpi = f.kpi === k.dataset.k ? 'todos' : k.dataset.k; desenharProcessos();
     };
-    [['pcArea', 'area'], ['pcEscritorio', 'escritorio'], ['pcEmpresa', 'empresa']].forEach(function (x) {
+    [['pcArea', 'area'], ['pcEscritorio', 'escritorio'], ['pcEmpresa', 'empresa'], ['pcSituacao', 'situacao']].forEach(function (x) {
       $('#' + x[0]).onchange = function () { f[x[1]] = this.value; desenharProcessos(); };
     });
     $('#pcBusca').oninput = function () {
@@ -609,20 +625,36 @@
       return 'Advogado incluído: ' + v.nome + '.' + DEMORA;
     });
   }
+  // os 8 campos pedidos pela equipe primeiro, com os nomes deles; depois os extras
+  function camposProcesso(o) {
+    o = o || {};
+    var areas = AREAS.indexOf(o.area) >= 0 || !o.area ? AREAS : AREAS.concat([o.area]);
+    return [
+      { id: 'empresa', rotulo: 'Empresa ou pessoa física', valor: o.empresa }, { id: 'documento', rotulo: 'CNPJ ou CPF', valor: o.documento },
+      { id: 'area', rotulo: 'Tipo de processo', tipo: 'select', opcoes: areas, valor: o.area },
+      { id: 'numero', rotulo: 'Número do processo', valor: o.numero },
+      { id: 'parte_contraria', rotulo: 'Pessoas envolvidas (PJ ou PF)', tipo: 'textarea', valor: o.parte_contraria },
+      { id: 'situacao', rotulo: 'Ativo/Inativo', tipo: 'select', opcoes: ['Ativo', 'Inativo'], valor: o.situacao },
+      { id: 'ultima_movimentacao', rotulo: 'Andamento', tipo: 'textarea', valor: o.ultima_movimentacao },
+      { id: 'data_ultima_movimentacao', rotulo: 'Data do andamento', tipo: 'date', valor: o.data_ultima_movimentacao },
+      { id: 'escritorio', rotulo: 'Jurídico responsável', valor: o.escritorio },
+      { id: 'advogado', rotulo: 'Advogado responsável', valor: o.advogado },
+      { id: 'objeto', rotulo: 'Objeto (resumo)', tipo: 'textarea', valor: o.objeto },
+      { id: 'polo', rotulo: 'Polo', tipo: 'select', opcoes: ['Autor', 'Réu', 'Terceiro interessado'], valor: o.polo },
+      { id: 'tribunal', rotulo: 'Tribunal / vara', valor: o.tribunal },
+      { id: 'valor_causa', rotulo: 'Valor da causa (R$)', tipo: 'number', valor: o.valor_causa },
+      { id: 'risco', rotulo: 'Risco', tipo: 'select', opcoes: ['Provável', 'Possível', 'Remoto'], valor: o.risco },
+      { id: 'fase', rotulo: 'Fase', valor: o.fase },
+      { id: 'proximo_prazo', rotulo: 'Próximo prazo / audiência', valor: o.proximo_prazo },
+      { id: 'data_proximo_prazo', rotulo: 'Data do próximo prazo', tipo: 'date', valor: o.data_proximo_prazo },
+    ];
+  }
+  function identifica(v) {
+    if (!v.numero && !v.area && !v.objeto) throw new Error('Informe o número, o tipo ou o objeto do processo.');
+  }
   function formNovoProcesso() {
-    formulario('Novo processo', [
-      { id: 'objeto', rotulo: 'Objeto (resumo)', tipo: 'textarea', obrigatorio: true }, { id: 'numero', rotulo: 'Nº do processo (CNJ)' },
-      { id: 'empresa', rotulo: 'Empresa / pessoa do grupo' },
-      { id: 'polo', rotulo: 'Polo', tipo: 'select', opcoes: ['Autor', 'Réu', 'Terceiro interessado'] },
-      { id: 'parte_contraria', rotulo: 'Parte contrária' }, { id: 'area', rotulo: 'Área', tipo: 'select', opcoes: AREAS },
-      { id: 'tribunal', rotulo: 'Tribunal / vara' }, { id: 'escritorio', rotulo: 'Escritório' },
-      { id: 'advogado', rotulo: 'Advogado responsável' }, { id: 'valor_causa', rotulo: 'Valor da causa (R$)', tipo: 'number' },
-      { id: 'risco', rotulo: 'Risco', tipo: 'select', opcoes: ['Provável', 'Possível', 'Remoto'] }, { id: 'fase', rotulo: 'Fase' },
-      { id: 'ultima_movimentacao', rotulo: 'Última movimentação' },
-      { id: 'data_ultima_movimentacao', rotulo: 'Data da última movimentação', tipo: 'date' },
-      { id: 'proximo_prazo', rotulo: 'Próximo prazo / audiência' },
-      { id: 'data_proximo_prazo', rotulo: 'Data do próximo prazo', tipo: 'date' },
-    ], async function (v) {
+    formulario('Novo processo', camposProcesso(), async function (v) {
+      identifica(v);
       v.valor_causa = v.valor_causa ? parseFloat(v.valor_causa) : null;
       var r = await postJson('/hub/processos', v);
       return 'Processo ' + r.id + ' incluído.' + DEMORA;
@@ -781,25 +813,10 @@
     } catch (e) { aviso(e.message, true); }
   }
   function formEditarProcesso(p) {
-    var ids = ['objeto', 'numero', 'empresa', 'polo', 'parte_contraria', 'area', 'tribunal', 'escritorio', 'advogado',
-               'valor_causa', 'risco', 'fase', 'ultima_movimentacao', 'data_ultima_movimentacao', 'proximo_prazo', 'data_proximo_prazo'];
     var orig = {};
-    ids.forEach(function (k) { orig[k] = p[k] == null ? '' : String(p[k]); });
-    formulario('Editar processo ' + p.id, [
-      { id: 'objeto', rotulo: 'Objeto (resumo)', tipo: 'textarea', obrigatorio: true, valor: orig.objeto },
-      { id: 'numero', rotulo: 'Nº do processo (CNJ)', valor: orig.numero }, { id: 'empresa', rotulo: 'Empresa / pessoa do grupo', valor: orig.empresa },
-      { id: 'polo', rotulo: 'Polo', tipo: 'select', opcoes: ['Autor', 'Réu', 'Terceiro interessado'], valor: orig.polo },
-      { id: 'parte_contraria', rotulo: 'Parte contrária', valor: orig.parte_contraria },
-      { id: 'area', rotulo: 'Área', tipo: 'select', opcoes: AREAS.indexOf(orig.area) >= 0 || !orig.area ? AREAS : AREAS.concat([orig.area]), valor: orig.area },
-      { id: 'tribunal', rotulo: 'Tribunal / vara', valor: orig.tribunal }, { id: 'escritorio', rotulo: 'Escritório', valor: orig.escritorio },
-      { id: 'advogado', rotulo: 'Advogado responsável', valor: orig.advogado },
-      { id: 'valor_causa', rotulo: 'Valor da causa (R$)', tipo: 'number', valor: orig.valor_causa },
-      { id: 'risco', rotulo: 'Risco', tipo: 'select', opcoes: ['Provável', 'Possível', 'Remoto'], valor: orig.risco },
-      { id: 'fase', rotulo: 'Fase', valor: orig.fase }, { id: 'ultima_movimentacao', rotulo: 'Última movimentação', valor: orig.ultima_movimentacao },
-      { id: 'data_ultima_movimentacao', rotulo: 'Data da última movimentação', tipo: 'date', valor: orig.data_ultima_movimentacao },
-      { id: 'proximo_prazo', rotulo: 'Próximo prazo / audiência', valor: orig.proximo_prazo },
-      { id: 'data_proximo_prazo', rotulo: 'Data do próximo prazo', tipo: 'date', valor: orig.data_proximo_prazo },
-    ], async function (v) {
+    camposProcesso().forEach(function (c) { orig[c.id] = p[c.id] == null ? '' : String(p[c.id]); });
+    formulario('Editar processo ' + p.id, camposProcesso(orig), async function (v) {
+      identifica(v);
       var m = mudou(orig, v);
       if (!Object.keys(m).length) return 'Nada mudou.';
       if ('valor_causa' in m) m.valor_causa = m.valor_causa ? parseFloat(m.valor_causa) : null;

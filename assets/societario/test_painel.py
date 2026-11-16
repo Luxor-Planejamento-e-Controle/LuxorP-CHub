@@ -72,15 +72,21 @@ ADV = {"arquivo": "Listagem Advogados Parceiros.xlsx", "atualizado_em": "2026-11
             "processos": [], "advogados": [{"nome": "Pessoa Quatro", "telefone": "11 9999-0004", "email": None,
                                             "processo": None}]},
        ]}
-PROCS = {"arquivo": "Processos em andamento.xlsx", "atualizado_em": "2026-11-13T16:00:00-03:00",
+PROCS = {"arquivo": "Processos em andamento.xlsx", "atualizado_em": "2026-11-13T16:00:00-03:00", "andamentos_configurado": True,
          "processos": [
-             {"id": "P-0001", "numero": "0000001-00.2025.5.01.0001", "empresa": "Empresa Alfa", "polo": "Réu", "parte_contraria": "Pessoa X",
+             {"id": "P-0001", "documento": "00.000.000/0001-00", "situacao": "Ativo", "numero_cnj": True,
+              "andamento_cnj": {"encontrado": True, "tribunal": "TRT1", "classe": "Ação Trabalhista", "orgao": "1ª Vara do Trabalho",
+                                "consultado_em": "2026-11-16T08:00:00-03:00",
+                                "movimentos": [{"data": "2026-11-12T10:30:00", "nome": "Audiência designada"},
+                                               {"data": "2026-10-01T09:00:00", "nome": "Citação"}]},
+              "numero": "0000001-00.2025.5.01.0001", "empresa": "Empresa Alfa", "polo": "Réu", "parte_contraria": "Pessoa X",
               "area": "Trabalhista", "objeto": "Reclamação trabalhista", "tribunal": "1ª Vara do Trabalho RJ",
               "escritorio": "BETA ADVOCACIA", "advogado": "Pessoa Três", "valor_causa": 150000.5, "risco": "Provável",
               "fase": "Instrução", "ultima_movimentacao": "Audiência redesignada", "data_ultima_movimentacao": "2026-11-03",
               "proximo_prazo": "Audiência de instrução", "data_proximo_prazo": (date.today() + timedelta(days=3)).isoformat(),
               "linha": 2},
-             {"id": "P-0002", "numero": None, "empresa": "Empresa Beta", "polo": "Autor", "parte_contraria": None, "area": "Tributário",
+             {"id": "P-0002", "documento": None, "situacao": "Inativo", "numero_cnj": False, "andamento_cnj": None,
+              "numero": None, "empresa": "Empresa Beta", "polo": "Autor", "parte_contraria": None, "area": "Tributário",
               "objeto": "Recuperação de ICMS <b>x</b>", "tribunal": None, "escritorio": "ALFA ADVOGADOS", "advogado": None,
               "valor_causa": None, "risco": "Remoto", "fase": None, "ultima_movimentacao": None,
               "data_ultima_movimentacao": None, "proximo_prazo": None, "data_proximo_prazo": None, "linha": 3},
@@ -698,6 +704,32 @@ class TestAbaSocietario(unittest.TestCase):
         self.assertIn("3 na planilha, 0 novos", pg.inner_text(".so-modal"))
         self.assertEqual(pg.locator("#pOk").count(), 0)
         self.assertEqual(pg.inner_text("#pCancelar"), "Fechar")
+        self.assertEqual(erros, [])
+
+    def test_26_campos_pedidos_situacao_e_andamento_cnj(self):
+        bot = Bot()
+        pg, erros = _abrir(self, bot, "processos")
+        pg.wait_for_selector("#pcCnj")
+        ficha = pg.inner_text("#v-processos .so-ficha").replace("\xa0", " ")
+        for trecho in ("00.000.000/0001-00", "Empresa Alfa", "Trabalhista", "0000001-00.2025.5.01.0001", "Pessoa X",
+                       "BETA ADVOCACIA", "TRT1", "Ação Trabalhista", "12/11/2026 10:30", "Audiência designada", "Citação"):
+            self.assertIn(trecho, ficha)
+        self.assertIn("JURÍDICO RESPONSÁVEL", ficha.upper())
+        self.assertIn("ATIVO", pg.inner_text("#v-processos .so-ficha h2").upper())
+        pg.select_option("#pcSituacao", "Inativo")
+        self.assertEqual(pg.locator("#v-processos .so-lista button").count(), 1)
+        pg.click("#v-processos .so-lista button")
+        pg.wait_for_function("document.querySelector('#v-processos .so-ficha h2').textContent.toUpperCase().includes('INATIVO')")
+        self.assertEqual(pg.locator("#pcCnj").count(), 0)                         # sem número CNJ, sem cartão
+        pg.click("#novoProcesso")
+        self.assertEqual([pg.inner_text(f"label:has(#f_{c}) span") for c in ("empresa", "documento", "area", "numero")],
+                         ["EMPRESA OU PESSOA FÍSICA", "CNPJ OU CPF", "TIPO DE PROCESSO", "NÚMERO DO PROCESSO"])
+        pg.click("#fSalvar")
+        pg.wait_for_function("document.querySelector('#fStatus').textContent.includes('Informe o número')")
+        pg.fill("#f_numero", "PA 123/2024")
+        pg.select_option("#f_situacao", "Ativo")
+        self._salvar(pg)
+        self.assertEqual((bot.posts[-1][2]["numero"], bot.posts[-1][2]["situacao"]), ("PA 123/2024", "Ativo"))
         self.assertEqual(erros, [])
 
 

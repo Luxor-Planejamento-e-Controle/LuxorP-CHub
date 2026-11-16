@@ -628,20 +628,21 @@
   S.highlights = s => {
     const P = [];
     titulo(P, s);
-    // coluna da direita afastada da linha vertical (608): em 624 o título encostava nela
-    const pos = [[176, 163], [652, 163], [176, 510], [652, 510]];
-    P.push(L(608, 150, 608, 660, {c: COR.laranja, esp: 1}));
-    P.push(L(140, 460, 1140, 460, {c: COR.laranja, esp: 1}));
+    // cruz centrada no slide (x 640) e quadrantes simétricos: cada título a 40 px da
+    // linha que o abre. A vertical em 608 deixava a coluna da direita sobrando.
+    const cx = 640, hy = 420;
+    const pos = [[180, 150], [cx + 40, 150], [180, hy + 20], [cx + 40, hy + 20]];
+    P.push(L(cx, 150, cx, 650, {c: COR.laranja, esp: 1}));
+    P.push(L(140, hy, 1140, hy, {c: COR.laranja, esp: 1}));
     s.quadrantes.slice(0, 4).forEach((q, i) => {
-      const [x, y] = pos[i];
-      const y0 = i < 2 ? 150 : 478;
-      P.push(T(x - 20, y0, 440, 30, q.q, {pt: 16, va: 'm', c: COR.laranja}));
+      const [x, y0] = pos[i];
+      P.push(T(x, y0, 440, 30, q.q, {pt: 16, va: 'm', c: COR.laranja}));
       q.itens.forEach((it, j) => {
         const yy = y0 + 40 + j * 32;
         const txt = it.v == null ? `${it.r} N/A` : `${it.r} ${it.v >= 0 ? '+' : '-'}${nf(Math.abs(it.v), 0)}k`;
         const c = it.fav ? COR.verdeFav : COR.branco;
-        P.push(R(x - 4, yy + 11, 6, 6, {fill: c, forma: 'elipse'}));
-        P.push(T(x + 10, yy, 420, 28, txt, {pt: 13, va: 'm', c}));
+        P.push(R(x + 16, yy + 11, 6, 6, {fill: c, forma: 'elipse'}));
+        P.push(T(x + 30, yy, 400, 28, txt, {pt: 13, va: 'm', c}));
       });
     });
     logo(P);
