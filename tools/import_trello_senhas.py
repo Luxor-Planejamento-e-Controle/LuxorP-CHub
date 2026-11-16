@@ -30,7 +30,6 @@ from __future__ import annotations
 import argparse
 import base64
 import datetime as dt
-import hashlib
 import json
 import os
 import sys
@@ -38,41 +37,16 @@ import uuid
 from pathlib import Path
 
 import requests
-from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from import_trello_kanban import Trello, credenciais  # noqa: E402
+from senhas_cifra import (ITERACOES, VERIFICADOR, chave, cifrar, cifrar_bytes,  # noqa: E402
+                          decifrar)
 
 BOARD_NOME = "Listagem de Senhas P&C"
 BUCKET = "senhas"
-ITERACOES = 600_000            # PBKDF2-SHA256 (recomendação OWASP de 2023)
-VERIFICADOR = "senhas-pc"      # igual ao SH_CRIPTO.VERIFICADOR
 # id estável por linha do Trello: rodar de novo cai na mesma linha (upsert)
 NS = uuid.UUID("5b1f2b6e-9a4e-4c3a-8f1e-3d2a7c9e5b10")
-
-
-# ---------------------------------------------------------------- cifra
-def chave(senha: str, sal: bytes, iteracoes: int) -> bytes:
-    return hashlib.pbkdf2_hmac("sha256", senha.encode("utf-8"), sal, iteracoes, 32)
-
-
-def cifrar_bytes(k: bytes, dados: bytes) -> bytes:
-    iv = os.urandom(12)
-    return iv + AESGCM(k).encrypt(iv, dados, None)
-
-
-def decifrar_bytes(k: bytes, dados: bytes) -> bytes:
-    return AESGCM(k).decrypt(dados[:12], dados[12:], None)
-
-
-def cifrar(k: bytes, texto: str | None) -> str:
-    return "v1:" + base64.b64encode(cifrar_bytes(k, (texto or "").encode("utf-8"))).decode("ascii")
-
-
-def decifrar(k: bytes, s: str) -> str:
-    if not s.startswith("v1:"):
-        raise ValueError("texto fora do formato cifrado")
-    return decifrar_bytes(k, base64.b64decode(s[3:])).decode("utf-8")
 
 
 def uid(tipo: str, trello_id: str) -> str:

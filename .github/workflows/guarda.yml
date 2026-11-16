@@ -95,8 +95,10 @@ jobs:
       - name: Playwright e Chromium
         # As suítes abrem o painel num navegador de verdade e interceptam a rede. Não
         # sobe servidor: cada teste faz goto() num file:// do próprio repo.
+        # cryptography: a suíte das Senhas cifra os dados de teste com o Python do
+        # import (tools/senhas_cifra.py) para provar que ele e o navegador batem.
         run: |
-          pip install --quiet playwright
+          pip install --quiet playwright cryptography
           python -m playwright install --with-deps chromium
 
       - name: Suítes dos painéis

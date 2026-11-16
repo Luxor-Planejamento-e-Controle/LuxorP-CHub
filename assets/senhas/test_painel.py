@@ -1,9 +1,9 @@
 """Testa a aba Senhas com o supabase-js REAL e a rede interceptada (mesma abordagem do
 Kanban): um PostgREST de mentira responde às tabelas senhas_*, e os dados de teste são
-cifrados pelo PYTHON do tools/import_trello_senhas.py — então o teste também prova que a
-cifra do import e a do navegador (sh_cripto.js) são a mesma, nos dois sentidos.
+cifrados pelo PYTHON que o import usa (tools/senhas_cifra.py) — então o teste também prova
+que a cifra do import e a do navegador (sh_cripto.js) são a mesma, nos dois sentidos.
 
-Roda sem credencial e sem tocar no Supabase de verdade.
+Roda sem credencial e sem tocar no Supabase de verdade. Precisa de `cryptography`.
 
 Uso: python assets/senhas/test_painel.py   (da raiz do repo do hub)
 """
@@ -18,7 +18,7 @@ import urllib.parse
 
 AQUI = pathlib.Path(__file__).resolve().parent
 sys.path.insert(0, str(AQUI.parent.parent / "tools"))
-import import_trello_senhas as IMP  # noqa: E402
+import senhas_cifra as IMP  # noqa: E402
 
 SENHA = "mestra-de-teste"
 SAL = b"0123456789abcdef"
