@@ -99,6 +99,9 @@ class Bot:
                                     "data": base64.b64encode(b"%PDF").decode()}]}
         self.status = 200
         self.processos_ok = True    # o que hub_can('processos') responde no Supabase
+        self.envio_ok = True        # idem para hub_can('societario_envio')
+        self.envio_status = 200
+        self.envios = []            # (query, corpo) dos POST /hub/documentos
         self.segurar = False     # True: guarda a rota do /hub/ask e só responde quando o teste mandar
         self.pendente = None
 
@@ -134,6 +137,15 @@ def _abrir(cls, bot, secao=""):
             return route.fulfill(status=200, headers=cors, content_type="application/json", body=json.dumps(DADOS))
         if u.path == "/hub/procuracoes":
             return route.fulfill(status=200, headers=cors, content_type="application/json", body=json.dumps(PROC))
+        if u.path == "/hub/documentos":
+            bot.envios.append((urllib.parse.parse_qs(u.query), request.post_data_buffer))
+            if bot.envio_status != 200:
+                return route.fulfill(status=bot.envio_status, headers=cors, content_type="application/json",
+                                     body=json.dumps({"error": "Já existe um documento com esse nome em Alfa."}))
+            nome = urllib.parse.parse_qs(u.query)["nome"][0]
+            return route.fulfill(status=200, headers=cors, content_type="application/json",
+                                 body=json.dumps({"ok": True, "pasta": "Alfa", "arquivo": nome, "caminho": "c",
+                                                  "commit": "abc", "commit_url": "u"}))
         if u.path == "/hub/processos":
             return route.fulfill(status=200, headers=cors, content_type="application/json", body=json.dumps(PROCS))
         if u.path == "/hub/advogados":
@@ -153,7 +165,7 @@ def _abrir(cls, bot, secao=""):
     def supa(route, request):
         if "/rest/v1/rpc/hub_can" in request.url:
             dash = json.loads(request.post_data or "{}").get("dash")
-            ok = bot.processos_ok if dash == "processos" else True
+            ok = {"processos": bot.processos_ok, "societario_envio": bot.envio_ok}.get(dash, True)
             return route.fulfill(status=200, headers=cors, content_type="application/json", body=json.dumps(ok))
         return route.fulfill(status=404, headers=cors, body="")
     pg.route("**/*.supabase.co/**", supa)
@@ -399,6 +411,40 @@ class TestAbaSocietario(unittest.TestCase):
         pg.wait_for_function("document.querySelector('#v-advogados .so-ficha') && "
                              "document.querySelector('#v-advogados .so-ficha').innerText.includes('BETA ADVOCACIA')")
         self.assertTrue(any(c == "/hub/processos" for _, c, a, _ in bot.pedidos if a == f"Bearer {TOKEN}"))
+        self.assertEqual(erros, [])
+
+    def test_13_envio_de_documento_pela_ficha(self):
+        bot = Bot()
+        pg, erros = _abrir(self, bot, "empresas/gama")                   # empresa sem documento também recebe
+        pg.wait_for_selector("#envBtn")
+        pdf = b"%PDF-1.4 teste"
+        pg.set_input_files("#envArq", files=[{"name": "Ata AGE 11.2026.pdf", "mimeType": "application/pdf", "buffer": pdf}])
+        pg.wait_for_function("document.querySelector('#envStatus') && document.querySelector('#envStatus').textContent.startsWith('Enviado')")
+        self.assertIn("Enviado: Ata AGE 11.2026.pdf", pg.inner_text("#envStatus"))
+        query, corpo = bot.envios[0]
+        self.assertEqual((query["empresa"], query["nome"]), (["gama"], ["Ata AGE 11.2026.pdf"]))
+        self.assertEqual(corpo, pdf)
+        envio = [x for x in bot.pedidos if x[1].startswith("/hub/documentos")][0]
+        self.assertEqual((envio[0], envio[2]), ("POST", f"Bearer {TOKEN}"))
+
+        pg.set_input_files("#envArq", files=[{"name": "foto.png", "mimeType": "image/png", "buffer": b"PNG"}])
+        pg.wait_for_function("document.querySelector('#envStatus').textContent === 'Só PDF.'")
+        self.assertEqual(len(bot.envios), 1)                               # nem chegou ao bot
+
+        bot.envio_status = 409
+        pg.set_input_files("#envArq", files=[{"name": "Ata AGE 11.2026.pdf", "mimeType": "application/pdf", "buffer": pdf}])
+        pg.wait_for_function("document.querySelector('#envStatus').textContent.startsWith('Já existe')")
+        self.assertFalse(pg.is_disabled("#envBtn"))
+        self.assertEqual(erros, [])
+
+    def test_14_sem_permissao_de_envio_nao_ha_botao(self):
+        bot = Bot()
+        bot.envio_ok = False
+        pg, erros = _abrir(self, bot, "empresas/alfa")
+        pg.wait_for_selector(".so-ficha h2")
+        pg.wait_for_timeout(400)
+        self.assertEqual(pg.locator("#envBtn").count(), 0)
+        self.assertIn("Estatuto Alfa.pdf", pg.inner_text(".so-ficha"))     # a lista continua lá
         self.assertEqual(erros, [])
 
 

@@ -8,6 +8,7 @@
  *   GET  /hub/procuracoes              {items, documents_total, documents_pending, ...}
  *   GET  /hub/advogados                {arquivo, atualizado_em, escritorios}
  *   GET  /hub/processos                {arquivo, atualizado_em, processos}  (só hub_can('processos'))
+ *   POST /hub/documentos               ?empresa=&nome=, corpo = o PDF  (só hub_can('societario_envio'))
  *   GET  /hub/organogramas             manifest {generated_at, charts, files}
  *   GET  /hub/organogramas/arquivo     ?path=<arquivo do manifest> → PNG/PDF
  *
@@ -559,6 +560,37 @@
   }
   function linkEmpresa(c) { return '<button class="so-link" data-empresa="' + esc(c.key) + '">' + esc(nomeEmpresa(c)) + '</button>'; }
 
+  // Envio de documento pela ficha da empresa: o bot commita o PDF no repo, e o
+  // publish-documents.yml sobe pro Azure e reindexa. Só para hub_can('societario_envio').
+  var podeEnviar = false, envioStatus = {};
+  async function enviarDoc(c, arq) {
+    if (!/\.pdf$/i.test(arq.name) && arq.type !== 'application/pdf') {
+      envioStatus[c.key] = { erro: true, msg: 'Só PDF.' }; return desenharEmpresas();
+    }
+    if (arq.size > 25 * 1024 * 1024) {
+      envioStatus[c.key] = { erro: true, msg: 'Arquivo maior que 25 MB.' }; return desenharEmpresas();
+    }
+    envioStatus[c.key] = { enviando: true, msg: 'Enviando ' + arq.name + '…' };
+    desenharEmpresas();
+    try {
+      var r = await (await bot('/hub/documentos?empresa=' + encodeURIComponent(c.key) + '&nome=' + encodeURIComponent(arq.name),
+        { method: 'POST', headers: { 'Content-Type': 'application/pdf' }, body: arq })).json();
+      envioStatus[c.key] = { msg: 'Enviado: ' + r.arquivo + '. Entra na lista depois que o bot reindexar (alguns minutos).' };
+    } catch (e) {
+      envioStatus[c.key] = { erro: true, msg: e.message };
+    }
+    if (secaoAtual() === 'empresas') desenharEmpresas();
+  }
+  (async function () {
+    try {
+      var r = await sb().rpc('hub_can', { dash: 'societario_envio' });
+      if (r && r.data === true) {
+        podeEnviar = true;
+        if (secaoAtual() === 'empresas' && carregado.dados) desenharEmpresas();
+      }
+    } catch (e) { /* sem permissão: sem botão */ }
+  })();
+
   function desenharEmpresas() {
     var v = $('#v-empresas');
     var itens = dados.companies.slice().sort(function (a, b) { return nomeEmpresa(a).localeCompare(nomeEmpresa(b), 'pt-BR'); });
@@ -600,13 +632,20 @@
             '</td><td>' + esc(f.source || '') + '</td></tr>';
         }).join('') + '</tbody></table></div></div>';
     }
-    var docs = c.documents || [];
-    if (docs.length) {
-      h += '<div class="card" style="margin-top:14px"><div class="card-title"><h2>Documentos (' + docs.length + ')</h2></div><ul class="so-docs">' +
-        docs.map(function (d) { return '<li>' + esc(d) + '</li>'; }).join('') + '</ul></div>';
+    var docs = c.documents || [], st = envioStatus[c.key];
+    if (docs.length || podeEnviar) {
+      h += '<div class="card" style="margin-top:14px"><div class="card-title"><h2>Documentos (' + docs.length + ')</h2>' +
+        (podeEnviar ? '<button class="so-btn ghost" id="envBtn" style="margin-left:auto"' + (st && st.enviando ? ' disabled' : '') +
+          '>Enviar documento</button><input type="file" id="envArq" accept="application/pdf,.pdf" hidden>' : '') + '</div>' +
+        (st ? '<div class="' + (st.erro ? 'so-erro' : 'so-muted') + '" id="envStatus" style="margin-bottom:10px">' + esc(st.msg) + '</div>' : '') +
+        (docs.length ? '<ul class="so-docs">' + docs.map(function (d) { return '<li>' + esc(d) + '</li>'; }).join('') + '</ul>' : '') + '</div>';
     }
     v.innerHTML = h + '</div></div>';
     ligarLista('empresas', desenharEmpresas);
+    if ($('#envBtn')) {
+      $('#envBtn').onclick = function () { $('#envArq').click(); };
+      $('#envArq').onchange = function () { if (this.files && this.files[0]) enviarDoc(c, this.files[0]); };
+    }
   }
 
   function desenharInvestidores() {
