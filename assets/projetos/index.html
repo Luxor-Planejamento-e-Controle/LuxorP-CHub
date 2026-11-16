@@ -53,6 +53,10 @@
   * { box-sizing: border-box; }
   html, body { margin: 0; }
   body { background: var(--bg); color: var(--ink); font-family: var(--font-sans); font-size: 16px; line-height: 1.5; -webkit-font-smoothing: antialiased; }
+  /* barra de rolagem do hub (theme.css): o iframe não herda o CSS da página de fora */
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-thumb { background: var(--surface-2); border-radius: 8px; }
+  ::-webkit-scrollbar-track, ::-webkit-scrollbar-corner { background: transparent; }
   ::selection { background: var(--orange); color: #201700; }
   :focus-visible { outline: 2px solid var(--orange); outline-offset: 2px; border-radius: 3px; }
   [hidden] { display: none !important; }
