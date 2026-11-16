@@ -676,6 +676,23 @@ class TestKanban(unittest.TestCase):
         self.assertLess(c["pos"], 100, "Done foi para antes do To Do")
         pg.evaluate("() => document.querySelectorAll('.kcol').forEach(c => c.dispatchEvent(new DragEvent('dragend', {bubbles: true})))")
 
+    def test_61_card_novo_aparece_e_nao_duplica(self):
+        pg = self.pg
+        self._fechar()
+        pg.click("#fMeus")                                   # filtro que esconderia o card novo
+        pg.click(f'.kcol[data-lista="{L_WIP}"] [data-acao="novo-card"]')
+        pg.fill("#inCard", "Fluxo de Caixa FPG")
+        antes = len([e for e in self.fake.escritas if e[0] == "POST" and e[1] == "kanban_cards"])
+        pg.evaluate("""() => { const b = document.querySelector('[data-acao="salvar-card"]'); b.click(); b.click(); }""")
+        pg.wait_for_timeout(800)
+        depois = len([e for e in self.fake.escritas if e[0] == "POST" and e[1] == "kanban_cards"])
+        self.assertEqual(depois - antes, 1, "dois cliques seguidos criam UM card")
+        novo = pg.locator('.kcard:has-text("Fluxo de Caixa FPG")')
+        self.assertEqual(novo.count(), 1, "o card novo aparece mesmo com o filtro 'Meus cards'")
+        self.assertIn("novo", novo.get_attribute("class"), "e vem destacado")
+        pg.keyboard.press("Escape")
+        pg.click("#fLimpar")
+
     def test_90_arquivar_todos_os_cards_da_lista(self):
         # por último: arquiva a lista onde o card dos outros testes foi parar
         self._fechar()

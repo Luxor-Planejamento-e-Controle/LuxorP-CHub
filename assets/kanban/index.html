@@ -104,6 +104,7 @@ a{color:var(--teal-light)}
 .kcard:hover{border-color:var(--line-strong);background:var(--surface-2)}
 .kcard:focus-visible{outline:2px solid var(--orange);outline-offset:1px}
 .kcard.arrastando{opacity:.35}
+.kcard.novo{border-color:var(--orange);box-shadow:0 0 0 2px var(--orange)}
 .kcard .etqs{display:flex;flex-wrap:wrap;gap:4px;margin-bottom:5px}
 .kcard .ttl{font-size:13.5px;overflow-wrap:anywhere}
 .kcard .badges{display:flex;flex-wrap:wrap;align-items:center;gap:4px 9px;margin-top:6px;color:var(--ink-3);font-size:11.5px}
@@ -386,6 +387,7 @@ const S = {
   detalhes: false,       // mostrar histórico junto dos comentários
   erro: null, carregou: false,
   buscaIds: null,        // cards que a busca do banco achou em comentário/checklist
+  recemCriados: new Set(),  // criados nesta tela: aparecem mesmo fora do filtro
   ocultarFeitos: {},     // checklist -> esconder itens marcados
 };
 const IX = { lista: new Map(), etq: new Map(), mbr: new Map(), usuarios: {} };
@@ -409,6 +411,7 @@ try {
   S.detalhes = localStorage.getItem('kanban.detalhes') === '1';
 } catch (e) { /* sem storage: segue com o padrão */ }
 function guardarFiltro() {
+  S.recemCriados.clear();                             // mexeu no filtro: vale o filtro
   try { localStorage.setItem(CHAVE_FILTRO, JSON.stringify(S.filtro)); } catch (e) {}
 }
 
@@ -522,6 +525,7 @@ document.addEventListener('fullscreenchange', () => {
 /* Um card passa no filtro pelo título/descrição (na hora, aqui) ou porque a busca do
    banco o achou num comentário ou item de checklist (chega logo depois). */
 function passaFiltro(c) {
+  if (S.recemCriados.has(c.id)) return true;          // quem acabou de criar vê o card
   if (KB.passa(c, S.filtro)) return true;
   return !!(S.filtro.texto && S.buscaIds && S.buscaIds.has(c.id)
             && KB.passa(c, Object.assign({}, S.filtro, { texto: '' })));
@@ -807,17 +811,44 @@ $('#board').addEventListener('focusout', ev => {
   tentar(() => KB_FONTE.atualizarLista(id, { nome }));
 });
 
+/* Card novo: tem de APARECER. Ele entra no fim da lista (ou no topo) e, numa lista
+   comprida, ficava fora da área visível — a caixa só se esvaziava, parecia que nada
+   tinha acontecido, e o Leonardo criou o mesmo card 3 vezes (16/11/2026). Agora a lista
+   rola até ele, ele pisca, aparece mesmo com filtro ligado, e o botão não aceita um
+   segundo clique enquanto o primeiro grava. */
+let criandoCard = false;
 async function salvarCardNovo(listaId) {
+  if (criandoCard) return;
   const ic = $('#inCard');
   const nome = ic ? ic.value.trim() : '';
   if (!nome) { if (ic) ic.focus(); return; }
+  criandoCard = true;
+  const bt = $('[data-acao="salvar-card"]');
+  if (bt) { bt.disabled = true; bt.textContent = 'Adicionando…'; }
   ic.value = '';
+  const topo = !!(compondo && compondo.topo);
   const cs = cardsDaLista(listaId);
   // no topo: metade da posição do primeiro; no fim: depois do último
-  const pos = compondo && compondo.topo
+  const pos = topo
     ? (cs[0] ? (KB.posEntre(null, cs[0].pos) || cs[0].pos / 2) : KB.PASSO)
     : (cs.length ? cs[cs.length - 1].pos + KB.PASSO : KB.PASSO);
-  await tentar(() => KB_FONTE.criarCard(listaId, nome, pos));
+  try {
+    const id = await tentar(() => KB_FONTE.criarCard(listaId, nome, pos));
+    if (id) { S.recemCriados.add(id); renderBoard(); mostrarCardNovo(id); }
+    else if ($('#inCard')) $('#inCard').value = nome;      // falhou: devolve o texto
+  } finally {
+    criandoCard = false;
+    const b2 = $('[data-acao="salvar-card"]');
+    if (b2) { b2.disabled = false; b2.textContent = 'Adicionar card'; }
+  }
+}
+function mostrarCardNovo(id) {
+  const el = $(`.kcard[data-id="${id}"]`);
+  if (!el) return;
+  el.scrollIntoView({ block: 'nearest' });
+  el.classList.add('novo');
+  setTimeout(() => el.classList.remove('novo'), 1800);
+  const ic = $('#inCard'); if (ic) ic.focus({ preventScroll: true });
 }
 
 /* "Criar a partir de modelo": lista os cards modelo; a cópia leva checklists,
