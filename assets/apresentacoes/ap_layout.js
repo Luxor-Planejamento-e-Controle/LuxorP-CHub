@@ -522,7 +522,7 @@
     // tabela de membros: cabeçalho branco, linhas em negrito pequeno, recuo pelos espaços
     const tx = 177, tw = 193, cn = tx + tw - 36;
     P.push(R(tx, 200, tw, 30, {fill: 'FFFFFF'}));
-    P.push(T(tx + 3, 212, 10, 16, '▾', {pt: 7, va: 'm', c: '252423'}));
+    P.push(T(tx + 3, 206, 14, 24, '▼', {pt: 6, va: 'b', c: '252423'}));
     P.push(T(tx + 27, 200, 130, 30, 'Luxor Investors', {pt: 9, va: 'm', c: '252423'}));
     P.push(T(cn, 200, 30, 30, '#', {pt: 9, al: 'c', va: 'm', c: '252423'}));
     P.push(L(tx + 136, 200, tx + 136, 230, {c: 'D9D9D9', esp: 0.75}));
