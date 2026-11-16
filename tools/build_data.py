@@ -269,7 +269,15 @@ def build_fo_diario(gdf, qdf):
         alvo = _sem_acento(seg)
         g = gdf[gdf["Segment"].map(_sem_acento) == alvo].dropna(subset=["Date", "PL"])
         g = g.sort_values("Date").drop_duplicates("Date", keep="last")
-        return {pd.Timestamp(d).strftime("%Y-%m-%d"): float(v) for d, v in zip(g["Date"], g["PL"])}
+        out = {pd.Timestamp(d).strftime("%Y-%m-%d"): float(v) for d, v in zip(g["Date"], g["PL"])}
+        # Fechamento antes do 1º mês do segmento (a base da série, 31/12/2023): sem
+        # PL na fonte, vale a posição implícita PL ÷ (1 + %_MoM) do 1º mês — supõe
+        # mês sem aplicação/resgate. Sem isso o 1º mês (jan/24) ficava sem prévia.
+        if len(g) and pd.notna(g["%_MoM"].iloc[0]) and float(g["%_MoM"].iloc[0]) != -1:
+            d0 = pd.Timestamp(g["Date"].iloc[0])
+            ant = (d0.replace(day=1) - pd.Timedelta(days=1)).strftime("%Y-%m-%d")
+            out.setdefault(ant, float(g["PL"].iloc[0]) / (1 + float(g["%_MoM"].iloc[0])))
+        return out
 
     pl_fo = pl("Resultado_FO")
     pl_manga = {fundo: pl(seg) for seg, fundo in FO_DIARIO_MANGA}
