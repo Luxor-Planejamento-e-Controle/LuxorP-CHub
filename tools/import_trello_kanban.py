@@ -245,6 +245,11 @@ class Supabase:
                 return nomes
             ini += 1000
 
+    def baixar(self, caminho):
+        """Arquivo do bucket (o export de uma importação anterior), ou None."""
+        r = self.s.get(f"{self.url}/storage/v1/object/{BUCKET}/{quote(caminho)}", headers=self.cab, timeout=300)
+        return r.content if r.status_code == 200 else None
+
     def enviar(self, caminho, corpo, mime, sobrescrever=False):
         r = self.s.post(f"{self.url}/storage/v1/object/{BUCKET}/{quote(caminho)}",
                         headers={**self.cab, "Content-Type": mime or "application/octet-stream",
@@ -600,6 +605,173 @@ def caminho_no_bucket(att, nome):
 
 
 # --------------------------------------------------------------------------
+# --atualizar: junta o Trello com o hub quando os dois estão em uso
+# --------------------------------------------------------------------------
+# Campos que a importação escreve e que alguém pode ter mexido no hub. É por eles que se
+# decide quem mudou o quê desde a última importação (a BASE).
+CAMPOS = {
+    "kanban_listas": ("nome", "pos", "arquivada"),
+    "kanban_etiquetas": ("nome", "cor"),
+    "kanban_cards": ("lista_id", "nome", "descricao", "pos", "arquivado", "prazo", "prazo_concluido",
+                     "inicio", "lembrete_min", "modelo"),
+    "kanban_checklists": ("card_id", "nome", "pos"),
+    "kanban_checkitens": ("checklist_id", "nome", "pos", "concluido", "membro_id", "prazo"),
+    "kanban_comentarios": ("card_id", "texto"),
+    "kanban_reacoes": ("comentario_id", "emoji"),
+    "kanban_anexos": ("card_id", "nome", "pos"),
+}
+JUNCOES = {"kanban_card_etiquetas": "etiqueta_id", "kanban_card_membros": "membro_id"}
+
+
+def _norm(v):
+    """Valor comparável: o banco devolve '2026-11-13T12:00:00+00:00' onde o Trello
+    manda '2026-11-13T12:00:00.000Z'; número vem int ou float."""
+    if isinstance(v, bool) or v is None:
+        return v
+    if isinstance(v, (int, float)):
+        return round(float(v), 6)
+    if isinstance(v, str) and re.match(r"^\d{4}-\d\d-\d\dT\d\d:\d\d", v):
+        try:
+            return int(dt.datetime.fromisoformat(v.replace("Z", "+00:00")).timestamp())
+        except ValueError:
+            return v
+    return v
+
+
+def _assinatura(linha, campos):
+    return tuple(_norm(linha.get(c)) for c in campos)
+
+
+def juntar(base, novo, sb):
+    """Três pontas, linha a linha (chave = id do Trello):
+
+        só no NOVO (nem na base nem no hub)  -> nasceu no Trello: entra
+        na base e no novo, fora do hub       -> foi apagado no hub: NÃO volta
+        no hub igual à base                  -> ninguém mexeu no hub: vale o Trello
+        no hub diferente da base             -> mexeram no hub: o hub fica
+                                                (se o Trello também mudou: conflito)
+        no hub, fora do novo                 -> apagado no Trello: sai, se o hub não mexeu
+
+    O histórico (atividade) só ganha o que é novo; seguidores, só o que foi seguido no
+    Trello depois da base. Devolve (o que gravar, o que apagar, relatório)."""
+    gravar, apagar, rel = defaultdict(list), defaultdict(list), defaultdict(Counter)
+    conflitos = set()
+    nome_card = {c["id"]: c["nome"] for c in novo["kanban_cards"]}
+    nome_card.update({c["id"]: c["nome"] for c in base["kanban_cards"] if c["id"] not in nome_card})
+    card_de = {}                                   # linha filha -> card, para o relatório
+    for cl in novo["kanban_checklists"] + base["kanban_checklists"]:
+        card_de[cl["id"]] = cl["card_id"]
+    for m in novo["kanban_comentarios"] + base["kanban_comentarios"]:
+        card_de[m["id"]] = m["card_id"]
+
+    def card_da_linha(tab, l):
+        if tab == "kanban_cards":
+            return l["id"]
+        if tab in ("kanban_checklists", "kanban_comentarios", "kanban_anexos"):
+            return l.get("card_id")
+        if tab == "kanban_checkitens":
+            return card_de.get(l.get("checklist_id"))
+        if tab == "kanban_reacoes":
+            return card_de.get(l.get("comentario_id"))
+        return None
+
+    # cards com coisa criada NO HUB (comentário, anexo...): o Trello não pode apagá-los
+    com_filho_do_hub = set()
+    for tab, col in (("kanban_comentarios", "card_id"), ("kanban_anexos", "card_id"),
+                     ("kanban_checklists", "card_id")):
+        com_filho_do_hub |= {x[col] for x in sb.select(tab, col, "trello_id=is.null")}
+
+    for tab, campos in CAMPOS.items():
+        b = {l["trello_id"]: l for l in base[tab]}
+        n = {l["trello_id"]: l for l in novo[tab]}
+        h = {l["trello_id"]: l for l in sb.select(tab, "id,trello_id," + ",".join(campos), "trello_id=not.is.null")}
+        for tid, linha in n.items():
+            if tid in h:
+                mexeu_hub = tid in b and _assinatura(h[tid], campos) != _assinatura(b[tid], campos)
+                mexeu_trello = tid not in b or _assinatura(linha, campos) != _assinatura(b[tid], campos)
+                if mexeu_hub:
+                    rel[tab]["mantido (mexido no hub)"] += 1
+                    if mexeu_trello:
+                        conflitos.add(card_da_linha(tab, linha))
+                elif mexeu_trello:
+                    gravar[tab].append(linha)
+                    rel[tab]["atualizado do Trello"] += 1
+            elif tid in b:
+                rel[tab]["apagado no hub, não volta"] += 1
+            else:
+                gravar[tab].append(linha)
+                rel[tab]["novo do Trello"] += 1
+        for tid, linha in h.items():
+            if tid in n:
+                continue
+            igual_base = tid in b and _assinatura(linha, campos) == _assinatura(b[tid], campos)
+            if igual_base and not (tab == "kanban_cards" and linha["id"] in com_filho_do_hub):
+                apagar[tab].append(linha["id"])
+                rel[tab]["apagado no Trello, sai"] += 1
+            else:
+                rel[tab]["apagado no Trello, mas mexido no hub: fica"] += 1
+                conflitos.add(card_da_linha(tab, linha))
+
+    # etiquetas e membros de cada card: o conjunto inteiro, nas mesmas três pontas
+    cards_hub = {c["id"] for c in sb.select("kanban_cards", "id", "trello_id=not.is.null")}
+    cards_novos = {c["id"] for c in gravar["kanban_cards"]} - cards_hub
+    for tab, col in JUNCOES.items():
+        def por_card(linhas):
+            m = defaultdict(set)
+            for l in linhas:
+                m[l["card_id"]].add(l[col])
+            return m
+        jb, jn = por_card(base[tab]), por_card(novo[tab])
+        jh = por_card(sb.select(tab, "card_id," + col))
+        for card in {c["id"] for c in novo["kanban_cards"]}:
+            if card in cards_novos:
+                if jn[card]:
+                    gravar[tab] += [{"card_id": card, col: v} for v in jn[card]]
+                continue
+            if card not in cards_hub:
+                continue
+            if jh[card] != jb[card]:
+                if jn[card] != jb[card]:
+                    conflitos.add(card)
+                continue
+            if jn[card] != jb[card]:
+                apagar[tab + ":card"].append(card)
+                gravar[tab] += [{"card_id": card, col: v} for v in jn[card]]
+                rel[tab]["cards com etiquetas/membros do Trello"] += 1
+
+    # seguidores: só o que passou a ser seguido no Trello depois da base
+    base_seg = {(s["card_id"], s["membro_id"]) for s in base["kanban_seguidores"]}
+    hub_seg = {(s["card_id"], s["membro_id"]) for s in sb.select("kanban_seguidores", "card_id,membro_id")}
+    gravar["kanban_seguidores"] = [s for s in novo["kanban_seguidores"]
+                                   if (s["card_id"], s["membro_id"]) not in base_seg | hub_seg
+                                   and (s["card_id"] in cards_hub or s["card_id"] in cards_novos)]
+    # histórico: só eventos que o hub ainda não tem
+    hub_atv = {x["trello_id"] for x in sb.select("kanban_atividade", "trello_id", "trello_id=not.is.null")}
+    gravar["kanban_atividade"] = [a for a in novo["kanban_atividade"] if a["trello_id"] not in hub_atv]
+    rel["kanban_atividade"]["novo do Trello"] = len(gravar["kanban_atividade"])
+
+    # Nada órfão: filho novo do Trello cujo pai foi apagado no hub (ou não entra) fica de fora.
+    listas_ok = {x["id"] for x in sb.select("kanban_listas", "id")} | {x["id"] for x in gravar["kanban_listas"]}
+    gravar["kanban_cards"] = [c for c in gravar["kanban_cards"] if c["lista_id"] in listas_ok]
+    cards_ok = {x["id"] for x in sb.select("kanban_cards", "id")} | {c["id"] for c in gravar["kanban_cards"]}
+    cards_ok -= set(apagar["kanban_cards"])
+    for tab in ("kanban_checklists", "kanban_comentarios", "kanban_anexos", "kanban_seguidores",
+                *JUNCOES):
+        gravar[tab] = [x for x in gravar[tab] if x["card_id"] in cards_ok]
+    ckl_ok = ({x["id"] for x in sb.select("kanban_checklists", "id")}
+              | {x["id"] for x in gravar["kanban_checklists"]}) - set(apagar["kanban_checklists"])
+    gravar["kanban_checkitens"] = [x for x in gravar["kanban_checkitens"] if x["checklist_id"] in ckl_ok]
+    com_ok = ({x["id"] for x in sb.select("kanban_comentarios", "id")}
+              | {x["id"] for x in gravar["kanban_comentarios"]}) - set(apagar["kanban_comentarios"])
+    gravar["kanban_reacoes"] = [x for x in gravar["kanban_reacoes"] if x["comentario_id"] in com_ok]
+    for a in gravar["kanban_atividade"]:
+        if a["card_id"] and a["card_id"] not in cards_ok:
+            a["card_id"] = None                   # evento de card que não está no hub: fica no board
+    conflitos.discard(None)
+    return gravar, apagar, rel, sorted(nome_card.get(c, c) for c in conflitos)
+
+
+# --------------------------------------------------------------------------
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--gravar", action="store_true")
@@ -607,6 +779,9 @@ def main():
     ap.add_argument("--cache", default=str(Path.home() / ".cache" / "hub_kanban"))
     ap.add_argument("--mapa")
     ap.add_argument("--forcar", action="store_true")
+    ap.add_argument("--atualizar", action="store_true",
+                    help="junta com o hub em uso: traz do Trello só o que o hub não mexeu")
+    ap.add_argument("--base", help="export da última importação (padrão: o que ela deixou no bucket)")
     args = ap.parse_args()
     # nome de pessoa e de arquivo com acento: no PowerShell redirecionado para arquivo a
     # saída seria cp1252 e um caractere fora dele derrubaria a rodada no meio
@@ -617,6 +792,24 @@ def main():
     tr = Trello(cfg["TRELLO_API_KEY"], cfg["TRELLO_TOKEN"])
     sb = Supabase(cfg["SUPABASE_URL"], cfg["SUPABASE_SERVICE_ROLE_KEY"])
     cache = Path(args.cache)
+
+    # 0) --atualizar: a BASE é o export da última importação gravada. Lida ANTES de baixar
+    #    o board de novo, porque o export novo sobrescreve o do cache.
+    base_exp = None
+    if args.atualizar:
+        if args.base:
+            base_exp = json.loads(Path(args.base).read_text(encoding="utf-8"))
+        else:
+            ptr = sb.baixar("_trello/ultima.json")
+            if ptr:
+                corpo = sb.baixar("_trello/" + json.loads(ptr)["arquivo"])
+                base_exp = json.loads(corpo) if corpo else None
+            elif (cache / "export.json").exists():
+                base_exp = json.loads((cache / "export.json").read_text(encoding="utf-8"))
+        if not base_exp:
+            sys.exit("--atualizar precisa da base (o export da última importação): não achei no bucket "
+                     "nem no cache. Passe --base.")
+        print(f"base: export de {base_exp.get('exportado_em', '?')} (a última importação gravada)")
 
     # 1) export
     if args.dump and Path(args.dump).exists():
@@ -678,12 +871,36 @@ def main():
     ids_atv = Counter(x["trello_id"] for x in t["kanban_atividade"])
     assert not [k for k, v in ids_atv.items() if v > 1], "evento de histórico repetido"
 
-    if not args.gravar:
+    if args.atualizar:
+        # a base montada do mesmo jeito que foi gravada naquela importação
+        pessoas_base = casar_membros(base_exp, usuarios, mapa)
+        cam_base = dict(caminhos)
+        for c in base_exp["cards"]:
+            for a in c.get("attachments") or []:
+                if a.get("isUpload"):
+                    cam_base.setdefault(a["id"], caminho_no_bucket(a["id"], a.get("fileName") or a.get("name")))
+        tb = montar(base_exp, pessoas_base, cam_base, eu)
+        gravar, apagar, rel, conflitos = juntar(tb, t, sb)
+        print(f"\nJUNÇÃO com o hub (desde a importação de {base_exp.get('exportado_em', '?')}):")
+        for tab in list(CAMPOS) + list(JUNCOES) + ["kanban_atividade"]:
+            if rel[tab]:
+                print(f"  {tab.replace('kanban_', ''):<16} " + "; ".join(f"{v} {k}" for k, v in rel[tab].items()))
+        if gravar["kanban_seguidores"]:
+            print(f"  seguidores       {len(gravar['kanban_seguidores'])} novos do Trello")
+        novos_trello = [c["nome"] for c in gravar["kanban_cards"] if c["trello_id"] not in {x["trello_id"] for x in tb["kanban_cards"]}]
+        if novos_trello:
+            print("  cards novos no Trello: " + "; ".join(novos_trello[:15]))
+        if conflitos:
+            print(f"  CONFLITOS ({len(conflitos)} — mexidos nos dois; ficou o do hub): " + "; ".join(conflitos[:20]))
+        if not args.gravar:
+            print("\nPRÉVIA — nada gravado. Rode com --atualizar --gravar para gravar.")
+            return
+    elif not args.gravar:
         print("\nPRÉVIA — nada gravado. Rode com --gravar para gravar.")
         return
 
-    # 5) trava de virada
-    if not args.forcar:
+    # 5) trava de virada (o --atualizar existe justamente para o hub em uso)
+    if not args.forcar and not args.atualizar:
         do_hub = {tab: sb.select(tab, "id", "trello_id=is.null&limit=1")
                   for tab in ("kanban_cards", "kanban_comentarios", "kanban_anexos", "kanban_checklists",
                               "kanban_reacoes")}
@@ -705,10 +922,17 @@ def main():
         if enviados % 100 == 0:
             print(f"  {enviados} enviados")
     print(f"  {enviados} enviados agora; {len(obtidos) - enviados} já estavam lá")
-    hoje = dt.date.today().isoformat()
-    sb.enviar(f"_trello/export-{hoje}.json", json.dumps(exp, ensure_ascii=False).encode("utf-8"),
+    # export bruto com dia E hora: é a base da próxima --atualizar, e duas rodadas no mesmo
+    # dia não podem se sobrescrever
+    arq_export = f"export-{dt.datetime.now().strftime('%Y-%m-%dT%H%M')}.json"
+    sb.enviar(f"_trello/{arq_export}", json.dumps(exp, ensure_ascii=False).encode("utf-8"),
               "application/json", sobrescrever=True)
-    print(f"  export bruto: {BUCKET}/_trello/export-{hoje}.json")
+    print(f"  export bruto: {BUCKET}/_trello/{arq_export}")
+
+    def marcar_ultima():
+        sb.enviar("_trello/ultima.json", json.dumps({"exportado_em": exp.get("exportado_em"),
+                                                     "arquivo": arq_export}).encode("utf-8"),
+                  "application/json", sobrescrever=True)
 
     # 7) membros. O id de quem veio do Trello é fixo (os cards apontam para ele). Se a
     #    pessoa abriu o board no hub antes desta rodada, kanban_entrar() já lhe deu uma
@@ -738,6 +962,31 @@ def main():
              if u["ativo"] and (u["role"] == "admin" or u["email"] in acesso) and u["email"] not in ja_membros]
     if novos:
         sb.inserir("kanban_membros", novos)
+
+    if args.atualizar:
+        # 8') só o que a junção decidiu, na ordem das chaves estrangeiras
+        for tab in ("kanban_listas", "kanban_etiquetas", "kanban_cards", "kanban_checklists",
+                    "kanban_checkitens", "kanban_comentarios", "kanban_reacoes", "kanban_anexos",
+                    "kanban_atividade"):
+            if gravar[tab]:
+                sb.upsert(tab, gravar[tab])
+                print(f"  {tab}: {len(gravar[tab])} gravadas")
+        for tab, col in JUNCOES.items():
+            if apagar[tab + ":card"]:
+                sb.apagar(tab, "card_id", apagar[tab + ":card"])
+            if gravar[tab]:
+                sb.inserir(tab, gravar[tab])
+                print(f"  {tab}: {len(gravar[tab])} gravadas")
+        if gravar["kanban_seguidores"]:
+            sb.inserir("kanban_seguidores", gravar["kanban_seguidores"])
+        for tab in ("kanban_anexos", "kanban_reacoes", "kanban_comentarios", "kanban_checkitens",
+                    "kanban_checklists", "kanban_cards", "kanban_etiquetas", "kanban_listas"):
+            if apagar[tab]:
+                sb.apagar(tab, "id", apagar[tab])
+                print(f"  {tab}: {len(apagar[tab])} apagadas (saíram do Trello, ninguém mexeu no hub)")
+        marcar_ultima()
+        print("\njunção gravada. Base da próxima: " + arq_export)
+        return
 
     # 8) tabelas, na ordem das chaves estrangeiras
     for tab in ("kanban_listas", "kanban_etiquetas", "kanban_cards", "kanban_checklists",
@@ -780,6 +1029,8 @@ def main():
     n_arq_db = len(sb.select("kanban_cards", "id", "arquivado=is.true&trello_id=not.is.null"))
     ok &= n_arq_db == n_arq
     print(f"  {'cards arquivados':<22} {n_arq_db:>6}  {'ok' if n_arq_db == n_arq else f'ESPERADO {n_arq}'}")
+    if ok:
+        marcar_ultima()                       # base da próxima --atualizar
     sys.exit(0 if ok else 1)
 
 
