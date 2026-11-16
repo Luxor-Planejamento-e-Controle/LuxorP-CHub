@@ -74,13 +74,13 @@ ADV = {"arquivo": "Listagem Advogados Parceiros.xlsx", "atualizado_em": "2026-11
        ]}
 PROCS = {"arquivo": "Processos em andamento.xlsx", "atualizado_em": "2026-11-13T16:00:00-03:00",
          "processos": [
-             {"numero": "0000001-00.2025.5.01.0001", "empresa": "Empresa Alfa", "polo": "Réu", "parte_contraria": "Pessoa X",
+             {"id": "P-0001", "numero": "0000001-00.2025.5.01.0001", "empresa": "Empresa Alfa", "polo": "Réu", "parte_contraria": "Pessoa X",
               "area": "Trabalhista", "objeto": "Reclamação trabalhista", "tribunal": "1ª Vara do Trabalho RJ",
               "escritorio": "BETA ADVOCACIA", "advogado": "Pessoa Três", "valor_causa": 150000.5, "risco": "Provável",
               "fase": "Instrução", "ultima_movimentacao": "Audiência redesignada", "data_ultima_movimentacao": "2026-11-03",
               "proximo_prazo": "Audiência de instrução", "data_proximo_prazo": (date.today() + timedelta(days=3)).isoformat(),
               "linha": 2},
-             {"numero": None, "empresa": "Empresa Beta", "polo": "Autor", "parte_contraria": None, "area": "Tributário",
+             {"id": "P-0002", "numero": None, "empresa": "Empresa Beta", "polo": "Autor", "parte_contraria": None, "area": "Tributário",
               "objeto": "Recuperação de ICMS <b>x</b>", "tribunal": None, "escritorio": "ALFA ADVOGADOS", "advogado": None,
               "valor_causa": None, "risco": "Remoto", "fase": None, "ultima_movimentacao": None,
               "data_ultima_movimentacao": None, "proximo_prazo": None, "data_proximo_prazo": None, "linha": 3},
@@ -102,6 +102,8 @@ class Bot:
         self.envio_ok = True        # idem para hub_can('societario_envio')
         self.envio_status = 200
         self.envios = []            # (query, corpo) dos POST /hub/documentos
+        self.posts = []             # (caminho, query, corpo) dos demais POST de cadastro
+        self.anexos = {("advogados", "ALFA ADVOGADOS"): [{"nome": "Contrato.pdf", "tamanho": 4, "enviado_em": "2026-11-16T10:00:00-03:00"}]}
         self.segurar = False     # True: guarda a rota do /hub/ask e só responde quando o teste mandar
         self.pendente = None
 
@@ -137,6 +139,25 @@ def _abrir(cls, bot, secao=""):
             return route.fulfill(status=200, headers=cors, content_type="application/json", body=json.dumps(DADOS))
         if u.path == "/hub/procuracoes":
             return route.fulfill(status=200, headers=cors, content_type="application/json", body=json.dumps(PROC))
+        if request.method == "POST" and u.path in ("/hub/empresas", "/hub/advogados", "/hub/processos", "/hub/anexos") \
+                or (request.method == "POST" and u.path.startswith("/hub/advogados/")):
+            q = urllib.parse.parse_qs(u.query)
+            corpo = request.post_data_buffer if u.path == "/hub/anexos" else json.loads(request.post_data or "{}")
+            bot.posts.append((u.path, q, corpo))
+            resp = {"ok": True, "commit": "c1"}
+            if u.path == "/hub/empresas":
+                resp["pasta"] = corpo["nome"]
+            if u.path == "/hub/processos":
+                resp["id"] = "P-0099"
+            if u.path == "/hub/anexos":
+                resp["arquivo"] = q["nome"][0]
+            return route.fulfill(status=200, headers=cors, content_type="application/json", body=json.dumps(resp))
+        if u.path == "/hub/anexos":
+            q = urllib.parse.parse_qs(u.query)
+            itens = bot.anexos.get((q["tipo"][0], q["chave"][0]), [])
+            return route.fulfill(status=200, headers=cors, content_type="application/json", body=json.dumps(itens))
+        if u.path in ("/hub/anexos/arquivo", "/hub/documentos/arquivo"):
+            return route.fulfill(status=200, headers=cors, content_type="application/pdf", body=b"%PDF-baixado")
         if u.path == "/hub/documentos":
             bot.envios.append((urllib.parse.parse_qs(u.query), request.post_data_buffer))
             if bot.envio_status != 200:
@@ -446,6 +467,123 @@ class TestAbaSocietario(unittest.TestCase):
         self.assertEqual(pg.locator("#envBtn").count(), 0)
         self.assertIn("Estatuto Alfa.pdf", pg.inner_text(".so-ficha"))     # a lista continua lá
         self.assertEqual(erros, [])
+
+    def _salvar(self, pg):
+        antes = pg.locator(".so-aviso").count()
+        pg.click("#fSalvar")
+        pg.wait_for_function(f"document.querySelectorAll('.so-aviso').length > {antes}")
+        return pg.locator(".so-aviso").last.inner_text()
+
+    def test_15_nova_empresa_e_download_de_documento(self):
+        bot = Bot()
+        pg, erros = _abrir(self, bot, "empresas/alfa")
+        pg.wait_for_selector("#novaEmpresa")
+        pg.click("#novaEmpresa")
+        pg.click("#fSalvar")                                                     # sem nome: não envia
+        self.assertIn("Preencha: Nome da empresa", pg.inner_text("#fStatus"))
+        self.assertEqual(bot.posts, [])
+        pg.fill("#f_nome", "Nova Holding")
+        self.assertIn("Empresa criada: Nova Holding", self._salvar(pg))
+        self.assertEqual(bot.posts[0][0], "/hub/empresas")
+        self.assertEqual(bot.posts[0][2], {"nome": "Nova Holding"})
+        self.assertEqual(pg.locator(".so-modal").count(), 0)
+        with pg.expect_download() as dl:
+            pg.click(".so-ficha [data-doc='Estatuto Alfa.pdf']")
+        self.assertEqual(dl.value.suggested_filename, "Estatuto Alfa.pdf")
+        self.assertTrue(any(c.startswith("/hub/documentos/arquivo?empresa=alfa&nome=Estatuto") for _, c, _, _ in bot.pedidos))
+        self.assertEqual(erros, [])
+
+    def test_16_nova_procuracao_vai_para_a_pasta_da_empresa(self):
+        bot = Bot()
+        pg, erros = _abrir(self, bot, "procuracoes")
+        pg.wait_for_selector("#novaProcuracao")
+        pg.click("#novaProcuracao")
+        pg.wait_for_selector("#f_empresa")
+        pg.select_option("#f_empresa", "beta")
+        pg.set_input_files("#f_arquivo", files=[{"name": "Procuração 2026.pdf", "mimeType": "application/pdf", "buffer": b"%PDF-p"}])
+        self.assertIn("Procuração enviada para Alfa", self._salvar(pg))         # o mock sempre responde "Alfa"
+        q, corpo = bot.envios[0]
+        self.assertEqual((q["empresa"], q["nome"], corpo), (["beta"], ["Procuração 2026.pdf"], b"%PDF-p"))
+        self.assertEqual(erros, [])
+
+    def test_17_advogados_novo_escritorio_novo_advogado_e_anexos(self):
+        bot = Bot()
+        pg, erros = _abrir(self, bot, "advogados")
+        pg.wait_for_selector("#novoEscritorio")
+        pg.click("#novoEscritorio")
+        pg.fill("#f_nome", "GAMA ADVOGADOS")
+        pg.fill("#f_area", "Cível")
+        pg.fill("#f_adv_nome", "Pessoa G")
+        pg.fill("#f_adv_email", "g@gama.adv.br")
+        self.assertIn("Escritório incluído: GAMA ADVOGADOS", self._salvar(pg))
+        caminho, _, corpo = bot.posts[-1]
+        self.assertEqual(caminho, "/hub/advogados")
+        self.assertEqual((corpo["nome"], corpo["area"], corpo["advogados"][0]["nome"], corpo["advogados"][0]["email"]),
+                         ("GAMA ADVOGADOS", "Cível", "Pessoa G", "g@gama.adv.br"))
+
+        pg.click("#v-advogados .so-lista button:has-text('Tributário SP')")       # 3º escritório (índice 2)
+        pg.wait_for_function("document.querySelector('#v-advogados .so-ficha').innerText.includes('Pessoa Quatro')")
+        pg.click("#novoAdvogado")
+        pg.fill("#f_nome", "Pessoa Cinco")
+        pg.wait_for_timeout(50)
+        self.assertIn("Advogado incluído: Pessoa Cinco", self._salvar(pg))
+        self.assertEqual(bot.posts[-1][0], "/hub/advogados/2/advogados")
+        self.assertEqual(bot.posts[-1][2]["nome"], "Pessoa Cinco")
+
+        pg.click("#v-advogados .so-lista button:has-text('ALFA ADVOGADOS')")
+        pg.wait_for_selector("#anx-advogados [data-anx]")
+        with pg.expect_download() as dl:
+            pg.click("#anx-advogados [data-anx='Contrato.pdf']")
+        self.assertEqual(dl.value.suggested_filename, "Contrato.pdf")
+        pg.set_input_files("#anx-advogados [data-anx-arq]", files=[{"name": "Proposta.docx", "mimeType":
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "buffer": b"PK\x03\x04x"}])
+        pg.wait_for_function("[...document.querySelectorAll('.so-aviso')].some(e => e.textContent.includes('Anexo enviado: Proposta.docx'))")
+        caminho, q, corpo = bot.posts[-1]
+        self.assertEqual((caminho, q["tipo"], q["chave"], q["nome"]), ("/hub/anexos", ["advogados"], ["ALFA ADVOGADOS"], ["Proposta.docx"]))
+        self.assertEqual(erros, [])
+
+    def test_18_novo_processo_e_anexo_pelo_id(self):
+        bot = Bot()
+        pg, erros = _abrir(self, bot, "processos")
+        pg.wait_for_selector("#novoProcesso")
+        pg.click("#novoProcesso")
+        pg.fill("#f_objeto", "Execução fiscal X")
+        pg.select_option("#f_risco", "Remoto")
+        pg.fill("#f_valor_causa", "1234.5")
+        pg.fill("#f_data_proximo_prazo", "2026-12-01")
+        self.assertIn("Processo P-0099 incluído", self._salvar(pg))
+        corpo = bot.posts[-1][2]
+        self.assertEqual((corpo["objeto"], corpo["risco"], corpo["valor_causa"], corpo["data_proximo_prazo"]),
+                         ("Execução fiscal X", "Remoto", 1234.5, "2026-12-01"))
+        pg.wait_for_selector("#anx-processos")
+        self.assertEqual(pg.get_attribute("#anx-processos", "data-chave"), "P-0001")
+        self.assertIn("Nenhum anexo", pg.inner_text("#anx-processos"))
+        self.assertEqual(erros, [])
+
+    def test_19_investidor_tem_anexos_so_para_quem_envia(self):
+        bot = Bot()
+        pg, erros = _abrir(self, bot, "investidores")
+        pg.wait_for_selector("#anx-investidores")
+        self.assertEqual(pg.get_attribute("#anx-investidores", "data-chave"), "Pessoa Dois")
+        bot2 = Bot()
+        bot2.envio_ok = False
+        pg2, erros2 = _abrir(self, bot2, "investidores")
+        pg2.wait_for_selector("#v-investidores .so-ficha h2")
+        pg2.wait_for_timeout(400)
+        self.assertEqual(pg2.locator("#anx-investidores").count(), 0)
+        self.assertEqual(erros + erros2, [])
+
+    def test_20_sem_permissao_de_envio_nada_de_criar(self):
+        bot = Bot()
+        bot.envio_ok = False
+        for secao, botao in (("empresas/alfa", "#novaEmpresa"), ("procuracoes", "#novaProcuracao"),
+                             ("advogados", "#novoEscritorio"), ("processos", "#novoProcesso")):
+            pg, erros = _abrir(self, bot, secao)
+            pg.wait_for_timeout(700)
+            self.assertEqual(pg.locator(botao).count(), 0, botao)
+            self.assertEqual(pg.locator("[data-anx-enviar]").count(), 0, secao)
+            self.assertEqual(erros, [])
+        self.assertEqual(bot.posts, [])
 
 
 if __name__ == "__main__":
