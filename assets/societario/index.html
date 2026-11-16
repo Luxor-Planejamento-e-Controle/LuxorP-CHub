@@ -94,6 +94,19 @@ body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--font-sans)
 .so-texto{font-size:14px;line-height:1.55;color:var(--ink-2);margin:0}
 .so-lista-proc{margin:0;padding-left:18px;font-size:14px;line-height:1.6}
 #abas button[hidden]{display:none}
+.so-modal{position:fixed;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:flex-start;justify-content:center;
+  z-index:50;overflow-y:auto;padding:40px 16px}
+.so-form{width:min(640px,100%);display:grid;gap:12px;background:var(--surface)}
+.so-form h2{font-family:var(--font-serif);font-size:18px;margin:0 0 4px;font-weight:600}
+.so-campo{display:flex;flex-direction:column;gap:4px;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-3)}
+.so-campo input,.so-campo select,.so-campo textarea{background:var(--bg-2);border:1px solid var(--line);border-radius:var(--r-sm);
+  color:var(--ink);padding:8px 10px;font:inherit;font-size:13px;letter-spacing:0;text-transform:none}
+.so-campo input:focus,.so-campo select:focus,.so-campo textarea:focus{outline:none;border-color:var(--orange)}
+.so-form-pe{display:flex;gap:10px;align-items:center;justify-content:flex-end;margin-top:6px}
+.so-form-pe #fStatus{margin-right:auto}
+.so-aviso{position:fixed;right:18px;bottom:18px;background:var(--surface-2);border:1px solid var(--line-strong);
+  border-left:3px solid var(--teal-light);padding:10px 14px;border-radius:var(--r-sm);font-size:13px;z-index:60;max-width:440px}
+.so-aviso.erro{border-left-color:var(--neg)}
 .so-kpis.cinco{grid-template-columns:repeat(5,minmax(0,1fr))}
 .so-st.provavel{background:rgba(229,103,78,.18);color:var(--neg)}
 .so-st.possivel{background:rgba(242,193,78,.16);color:var(--warn)}

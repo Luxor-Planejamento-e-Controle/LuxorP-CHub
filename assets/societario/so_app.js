@@ -245,7 +245,7 @@
       ? '<span class="so-badge">lendo documentos: ' + (proc.documents_total - proc.documents_pending) + ' de ' + proc.documents_total + '</span>' : '';
     v.innerHTML = '<div class="so-kpis">' + kpi('vencida', 'Vencidas') + kpi('vence_7', 'Vencem em até 7 dias') +
       kpi('vence_30', 'Vencem em até 30 dias') + kpi('vigente', 'Vigentes') + '</div>' +
-      '<div class="so-topo"><select class="so-sel" id="procEmpresa"><option value="">Todas as empresas</option>' +
+      '<div class="so-topo">' + (podeEnviar ? '<button class="so-btn" id="novaProcuracao">+ Nova procuração</button>' : '') + '<select class="so-sel" id="procEmpresa"><option value="">Todas as empresas</option>' +
       empresas.map(function (e) { return '<option value="' + esc(e) + '"' + (e === f.empresa ? ' selected' : '') + '>' + esc(e) + '</option>'; }).join('') +
       '</select><input class="so-busca" id="procBusca" style="max-width:320px" placeholder="Buscar outorgado, poderes, documento" value="' + esc(f.busca) + '">' +
       (f.status !== 'todas' ? '<button class="so-btn ghost" id="procTodas">Mostrar todas</button>' : '') + lendo + '</div>' +
@@ -255,6 +255,7 @@
       var k = e.target.closest('[data-st]'); if (!k) return;
       f.status = f.status === k.dataset.st ? 'todas' : k.dataset.st; desenharProc();
     };
+    if ($('#novaProcuracao')) $('#novaProcuracao').onclick = formNovaProcuracao;
     $('#procEmpresa').onchange = function () { f.empresa = this.value; desenharProc(); };
     $('#procBusca').oninput = function () {
       f.busca = this.value; var pos = this.selectionStart; desenharProc();
@@ -282,7 +283,8 @@
     var vis = firmas.map(function (f, i) { return { f: f, i: i }; }).filter(function (x) {
       return !b || sem([x.f.nome, x.f.area, x.f.advogados.map(function (a) { return a.nome; }).join(' ')].join(' ')).indexOf(b) >= 0;
     });
-    var h = '<div class="so-duas"><div class="so-lista"><input class="so-busca" id="advBusca" placeholder="Buscar escritório, área, advogado" value="' + esc(buscaAdv) + '">' +
+    var h = (podeEnviar ? '<div class="so-topo"><button class="so-btn" id="novoEscritorio">+ Novo escritório</button></div>' : '') +
+      '<div class="so-duas"><div class="so-lista"><input class="so-busca" id="advBusca" placeholder="Buscar escritório, área, advogado" value="' + esc(buscaAdv) + '">' +
       vis.map(function (x) {
         return '<button class="so-item' + (x.f === sel ? ' on' : '') + '" data-i="' + x.i + '">' + esc(x.f.nome) +
           (x.f.area ? '<span class="so-muted">' + esc(x.f.area) + '</span>' : '') + '</button>';
@@ -296,15 +298,19 @@
         sel.processos.map(function (p) { return '<li>' + esc(p) + '</li>'; }).join('') + '</ul></div>';
     }
     var comProc = sel.advogados.some(function (a) { return a.processo; });
-    h += '<div class="card" style="margin-top:14px"><div class="card-title"><h2>Advogados</h2></div><div class="tbl-wrap"><table class="so-tab">' +
+    h += '<div class="card" style="margin-top:14px"><div class="card-title"><h2>Advogados</h2>' + (podeEnviar ? '<button class="so-btn ghost" id="novoAdvogado" style="margin-left:auto">+ Advogado</button>' : '') + '</div><div class="tbl-wrap"><table class="so-tab">' +
       '<thead><tr><th>Advogado</th><th>Telefone</th><th>E-mail</th>' + (comProc ? '<th>Processo em curso</th>' : '') + '</tr></thead><tbody>' +
       sel.advogados.map(function (a) {
         return '<tr><td>' + esc(a.nome || '') + '</td><td>' + esc(a.telefone || '') + '</td><td>' +
           (a.email ? '<a class="so-link" href="mailto:' + esc(a.email) + '">' + esc(a.email) + '</a>' : '') + '</td>' +
           (comProc ? '<td>' + esc(a.processo || '') + '</td>' : '') + '</tr>';
       }).join('') + '</tbody></table></div></div>';
+    h += cartaoAnexos('advogados', sel.nome, podeEnviar);
     h += '<div class="so-muted" style="margin-top:10px">' + esc(adv.arquivo + ' · atualizada em ' + dataBR(adv.atualizado_em)) + '</div>';
     v.innerHTML = h + '</div></div>';
+    if ($('#novoEscritorio')) $('#novoEscritorio').onclick = formNovoEscritorio;
+    if ($('#novoAdvogado')) $('#novoAdvogado').onclick = function () { formNovoAdvogado(firmas.indexOf(sel), sel.nome); };
+    ligarAnexos('advogados');
     $('#advBusca').oninput = function () {
       buscaAdv = this.value; var pos = this.selectionStart; desenharAdvogados();
       var i = $('#advBusca'); i.focus(); i.setSelectionRange(pos, pos);
@@ -370,7 +376,7 @@
     };
     var h = '<div class="so-kpis cinco">' + kpi('todos', 'Processos') + kpi('provavel', 'Risco provável', 'provavel') +
       kpi('possivel', 'Risco possível', 'possivel') + kpi('remoto', 'Risco remoto') + kpi('prazo', 'Prazo em até 7 dias', 'prazo') + '</div>' +
-      '<div class="so-topo">' + sel_('pcArea', 'area', 'Todas as áreas') + sel_('pcEscritorio', 'escritorio', 'Todos os escritórios') +
+      '<div class="so-topo">' + (podeEnviar ? '<button class="so-btn" id="novoProcesso">+ Novo processo</button>' : '') + sel_('pcArea', 'area', 'Todas as áreas') + sel_('pcEscritorio', 'escritorio', 'Todos os escritórios') +
       sel_('pcEmpresa', 'empresa', 'Todas as empresas') +
       '<input class="so-busca" id="pcBusca" style="max-width:300px" placeholder="Buscar processo, parte, advogado" value="' + esc(f.busca) + '"></div>';
     h += '<div class="so-duas"><div class="so-lista">' + (vis.length ? vis.map(function (x) {
@@ -396,8 +402,11 @@
         (dProx != null && dProx >= 0 && dProx <= 7 ? '<span class="so-st vence_7">' + (dProx === 0 ? 'hoje' : 'em ' + dProx + (dProx === 1 ? ' dia' : ' dias')) + '</span>' : '') +
         '</div>';
     }
+    if (sel.id) h += cartaoAnexos('processos', sel.id, podeEnviar);
     h += '<div class="so-muted" style="margin-top:10px">' + esc(processosData.arquivo + ' · atualizada em ' + dataBR(processosData.atualizado_em)) + '</div>';
     v.innerHTML = h + '</div></div>';
+    if ($('#novoProcesso')) $('#novoProcesso').onclick = formNovoProcesso;
+    ligarAnexos('processos');
 
     v.querySelector('.so-kpis').onclick = function (e) {
       var k = e.target.closest('[data-k]'); if (!k) return;
@@ -426,6 +435,171 @@
       if (r && r.data === true) $('#btnProcessos').hidden = false;
     } catch (e) { /* sem acesso: o botão fica escondido */ }
   })();
+
+  /* ---------- Cadastro pelo Hub: formulário, aviso, anexos ----------
+   * Tudo que se cria aqui vira commit no repo (o bot grava pela API do GitHub) e chega
+   * nas listas depois que o publish-documents sobe pro Azure — alguns minutos. */
+  var DEMORA = ' Aparece aqui em alguns minutos.';
+  function aviso(msg, erro) {
+    var t = document.createElement('div');
+    t.className = 'so-aviso' + (erro ? ' erro' : ''); t.textContent = msg;
+    document.body.appendChild(t);
+    setTimeout(function () { t.remove(); }, 7000);
+  }
+  async function postJson(path, dados) {
+    return (await bot(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(dados) })).json();
+  }
+  async function postArquivo(path, arq) {
+    if (!arq) throw new Error('Escolha o arquivo.');
+    if (arq.size > 25 * 1024 * 1024) throw new Error('Arquivo maior que 25 MB.');
+    return (await bot(path, { method: 'POST', headers: { 'Content-Type': arq.type || 'application/octet-stream' }, body: arq })).json();
+  }
+  function formulario(titulo, campos, salvar) {
+    var fundo = document.createElement('div');
+    fundo.className = 'so-modal';
+    fundo.innerHTML = '<form class="card so-form" novalidate><h2>' + esc(titulo) + '</h2>' + campos.map(function (c) {
+      var id = 'f_' + c.id, ctl;
+      if (c.tipo === 'textarea') ctl = '<textarea id="' + id + '" rows="3"></textarea>';
+      else if (c.tipo === 'select') ctl = '<select id="' + id + '"><option value=""></option>' + (c.opcoes || []).map(function (o) {
+        var v = typeof o === 'object' ? o.v : o, t = typeof o === 'object' ? o.t : o;
+        return '<option value="' + esc(v) + '">' + esc(t) + '</option>';
+      }).join('') + '</select>';
+      else ctl = '<input id="' + id + '" type="' + (c.tipo || 'text') + '"' + (c.accept ? ' accept="' + c.accept + '"' : '') +
+        (c.tipo === 'number' ? ' step="0.01" min="0"' : '') + '>';
+      return '<label class="so-campo"><span>' + esc(c.rotulo) + (c.obrigatorio ? ' *' : '') + '</span>' + ctl + '</label>';
+    }).join('') + '<div class="so-form-pe"><span class="so-muted" id="fStatus"></span>' +
+      '<button type="button" class="so-btn ghost" id="fCancelar">Cancelar</button><button class="so-btn" id="fSalvar">Salvar</button></div></form>';
+    document.body.appendChild(fundo);
+    var fechar = function () { fundo.remove(); };
+    fundo.querySelector('#fCancelar').onclick = fechar;
+    fundo.addEventListener('mousedown', function (e) { if (e.target === fundo) fechar(); });
+    fundo.querySelector('form').onsubmit = async function (e) {
+      e.preventDefault();
+      var vals = {}, st = fundo.querySelector('#fStatus'), bt = fundo.querySelector('#fSalvar');
+      campos.forEach(function (c) {
+        var el = fundo.querySelector('#f_' + c.id);
+        vals[c.id] = c.tipo === 'file' ? (el.files && el.files[0]) || null : el.value.trim();
+      });
+      var falta = campos.filter(function (c) { return c.obrigatorio && !vals[c.id]; })[0];
+      if (falta) { st.className = 'so-erro'; st.textContent = 'Preencha: ' + falta.rotulo + '.'; return; }
+      bt.disabled = true; st.className = 'so-muted'; st.textContent = 'Salvando…';
+      try { var msg = await salvar(vals); fechar(); aviso(msg || 'Salvo.'); }
+      catch (err) { st.className = 'so-erro'; st.textContent = err.message; bt.disabled = false; }
+    };
+    var primeiro = fundo.querySelector('input,select,textarea');
+    if (primeiro) primeiro.focus();
+  }
+  async function garantirDados() {
+    if (!dados) { dados = await (await bot('/hub/dados')).json(); indexar(); carregado.dados = true; }
+    return dados;
+  }
+  function redesenhar() {
+    var s = secaoAtual();
+    if (s === 'empresas' && carregado.dados) desenharEmpresas();
+    else if (s === 'investidores' && carregado.dados) desenharInvestidores();
+    else if (s === 'advogados' && adv) desenharAdvogados();
+    else if (s === 'processos' && processosData) desenharProcessos();
+    else if (s === 'procuracoes' && proc) desenharProc();
+  }
+  function cartaoAnexos(tipo, chave, podeEnviarAqui) {
+    return '<div class="card" style="margin-top:14px" id="anx-' + tipo + '" data-chave="' + esc(chave) + '"><div class="card-title"><h2>Anexos</h2>' +
+      (podeEnviarAqui ? '<button class="so-btn ghost" data-anx-enviar style="margin-left:auto">Enviar anexo</button><input type="file" data-anx-arq hidden>' : '') +
+      '</div><div data-anx-lista class="so-muted">Carregando…</div></div>';
+  }
+  async function ligarAnexos(tipo) {
+    var box = $('#anx-' + tipo);
+    if (!box) return;
+    var chave = box.dataset.chave, lista = box.querySelector('[data-anx-lista]');
+    var bt = box.querySelector('[data-anx-enviar]'), inp = box.querySelector('[data-anx-arq]');
+    var q = 'tipo=' + tipo + '&chave=' + encodeURIComponent(chave);
+    if (bt) {
+      bt.onclick = function () { inp.click(); };
+      inp.onchange = async function () {
+        var arq = this.files && this.files[0];
+        if (!arq) return;
+        bt.disabled = true;
+        try {
+          var r = await postArquivo('/hub/anexos?' + q + '&nome=' + encodeURIComponent(arq.name), arq);
+          aviso('Anexo enviado: ' + r.arquivo + '.' + DEMORA);
+        } catch (e) { aviso(e.message, true); }
+        bt.disabled = false; this.value = '';
+      };
+    }
+    try {
+      var itens = await (await bot('/hub/anexos?' + q)).json();
+      if (!document.body.contains(box)) return;
+      lista.className = itens.length ? '' : 'so-muted';
+      lista.innerHTML = itens.length ? '<ul class="so-docs">' + itens.map(function (a) {
+        return '<li><button class="so-link" data-anx="' + esc(a.nome) + '">' + esc(a.nome) + '</button> <span class="so-muted">' +
+          esc(dataBR(a.enviado_em)) + '</span></li>';
+      }).join('') + '</ul>' : 'Nenhum anexo.';
+      lista.querySelectorAll('[data-anx]').forEach(function (b) {
+        b.onclick = async function () {
+          try { baixarBlob(await (await bot('/hub/anexos/arquivo?' + q + '&nome=' + encodeURIComponent(b.dataset.anx))).blob(), b.dataset.anx); }
+          catch (e) { aviso(e.message, true); }
+        };
+      });
+    } catch (e) { lista.className = 'so-erro'; lista.textContent = e.message; }
+  }
+  var AREAS = ['Trabalhista', 'Tributário', 'Cível', 'Criminal', 'Societário', 'Imobiliário', 'Sucessório', 'Marcas e Patentes', 'Administrativo'];
+  function formNovaEmpresa() {
+    formulario('Nova empresa', [{ id: 'nome', rotulo: 'Nome da empresa', obrigatorio: true }], async function (v) {
+      var r = await postJson('/hub/empresas', { nome: v.nome });
+      return 'Empresa criada: ' + r.pasta + '. Envie os documentos dela pela ficha.' + DEMORA;
+    });
+  }
+  async function formNovaProcuracao() {
+    try { await garantirDados(); } catch (e) { return aviso(e.message, true); }
+    var opcoes = dados.companies.slice().sort(function (a, b) { return nomeEmpresa(a).localeCompare(nomeEmpresa(b), 'pt-BR'); })
+      .map(function (c) { return { v: c.key, t: nomeEmpresa(c) }; });
+    formulario('Nova procuração', [
+      { id: 'empresa', rotulo: 'Empresa', tipo: 'select', opcoes: opcoes, obrigatorio: true },
+      { id: 'arquivo', rotulo: 'PDF da procuração', tipo: 'file', accept: 'application/pdf,.pdf', obrigatorio: true },
+    ], async function (v) {
+      var r = await postArquivo('/hub/documentos?empresa=' + encodeURIComponent(v.empresa) + '&nome=' + encodeURIComponent(v.arquivo.name), v.arquivo);
+      return 'Procuração enviada para ' + r.pasta + '. Entra na lista depois que o bot ler o documento (alguns minutos).';
+    });
+  }
+  function formNovoEscritorio() {
+    formulario('Novo escritório', [
+      { id: 'nome', rotulo: 'Nome / razão social', obrigatorio: true }, { id: 'documento', rotulo: 'CPF / CNPJ' },
+      { id: 'area', rotulo: 'Área de atuação' }, { id: 'indicacao', rotulo: 'Indicação ou referência', tipo: 'textarea' },
+      { id: 'processo', rotulo: 'Processo em curso' }, { id: 'adv_nome', rotulo: 'Advogado responsável' },
+      { id: 'adv_telefone', rotulo: 'Telefone' }, { id: 'adv_email', rotulo: 'E-mail', tipo: 'email' },
+    ], async function (v) {
+      await postJson('/hub/advogados', { nome: v.nome, documento: v.documento, area: v.area, indicacao: v.indicacao,
+        processo: v.processo, advogados: [{ nome: v.adv_nome, telefone: v.adv_telefone, email: v.adv_email }] });
+      return 'Escritório incluído: ' + v.nome + '.' + DEMORA;
+    });
+  }
+  function formNovoAdvogado(indice, escritorio) {
+    formulario('Novo advogado — ' + escritorio, [
+      { id: 'nome', rotulo: 'Nome', obrigatorio: true }, { id: 'telefone', rotulo: 'Telefone' },
+      { id: 'email', rotulo: 'E-mail', tipo: 'email' }, { id: 'processo', rotulo: 'Processo em curso' },
+    ], async function (v) {
+      await postJson('/hub/advogados/' + indice + '/advogados', v);
+      return 'Advogado incluído: ' + v.nome + '.' + DEMORA;
+    });
+  }
+  function formNovoProcesso() {
+    formulario('Novo processo', [
+      { id: 'objeto', rotulo: 'Objeto (resumo)', tipo: 'textarea', obrigatorio: true }, { id: 'numero', rotulo: 'Nº do processo (CNJ)' },
+      { id: 'empresa', rotulo: 'Empresa / pessoa do grupo' },
+      { id: 'polo', rotulo: 'Polo', tipo: 'select', opcoes: ['Autor', 'Réu', 'Terceiro interessado'] },
+      { id: 'parte_contraria', rotulo: 'Parte contrária' }, { id: 'area', rotulo: 'Área', tipo: 'select', opcoes: AREAS },
+      { id: 'tribunal', rotulo: 'Tribunal / vara' }, { id: 'escritorio', rotulo: 'Escritório' },
+      { id: 'advogado', rotulo: 'Advogado responsável' }, { id: 'valor_causa', rotulo: 'Valor da causa (R$)', tipo: 'number' },
+      { id: 'risco', rotulo: 'Risco', tipo: 'select', opcoes: ['Provável', 'Possível', 'Remoto'] }, { id: 'fase', rotulo: 'Fase' },
+      { id: 'ultima_movimentacao', rotulo: 'Última movimentação' },
+      { id: 'data_ultima_movimentacao', rotulo: 'Data da última movimentação', tipo: 'date' },
+      { id: 'proximo_prazo', rotulo: 'Próximo prazo / audiência' },
+      { id: 'data_proximo_prazo', rotulo: 'Data do próximo prazo', tipo: 'date' },
+    ], async function (v) {
+      v.valor_causa = v.valor_causa ? parseFloat(v.valor_causa) : null;
+      var r = await postJson('/hub/processos', v);
+      return 'Processo ' + r.id + ' incluído.' + DEMORA;
+    });
+  }
 
   /* ---------- Organogramas ---------- */
   var org = null, orgSecao = null, orgSel = null, orgBusca = '', orgImg = {};
@@ -586,7 +760,7 @@
       var r = await sb().rpc('hub_can', { dash: 'societario_envio' });
       if (r && r.data === true) {
         podeEnviar = true;
-        if (secaoAtual() === 'empresas' && carregado.dados) desenharEmpresas();
+        redesenhar();
       }
     } catch (e) { /* sem permissão: sem botão */ }
   })();
@@ -596,7 +770,8 @@
     var itens = dados.companies.slice().sort(function (a, b) { return nomeEmpresa(a).localeCompare(nomeEmpresa(b), 'pt-BR'); });
     var c = idx.porKey[idDoHash()] || itens.filter(function (x) { return !x.no_documents; })[0] || itens[0];
     if (!c) { v.innerHTML = '<div class="so-muted">Nenhuma empresa no quadro societário.</div>'; return; }
-    var h = '<div class="so-duas">' + lista('empresas', itens, c, nomeEmpresa, function (x) {
+    var h = (podeEnviar ? '<div class="so-topo"><button class="so-btn" id="novaEmpresa">+ Nova empresa</button></div>' : '') +
+      '<div class="so-duas">' + lista('empresas', itens, c, nomeEmpresa, function (x) {
       return x.no_documents ? 'sem documentos' : esc(x.type || '');
     }) + '<div class="so-ficha">';
     h += '<div class="card"><h2>' + esc(c.name || nomeEmpresa(c)) +
@@ -638,10 +813,19 @@
         (podeEnviar ? '<button class="so-btn ghost" id="envBtn" style="margin-left:auto"' + (st && st.enviando ? ' disabled' : '') +
           '>Enviar documento</button><input type="file" id="envArq" accept="application/pdf,.pdf" hidden>' : '') + '</div>' +
         (st ? '<div class="' + (st.erro ? 'so-erro' : 'so-muted') + '" id="envStatus" style="margin-bottom:10px">' + esc(st.msg) + '</div>' : '') +
-        (docs.length ? '<ul class="so-docs">' + docs.map(function (d) { return '<li>' + esc(d) + '</li>'; }).join('') + '</ul>' : '') + '</div>';
+        (docs.length ? '<ul class="so-docs">' + docs.map(function (d) { return '<li><button class="so-link" data-doc="' + esc(d) + '">' + esc(d) + '</button></li>'; }).join('') + '</ul>' : '') + '</div>';
     }
     v.innerHTML = h + '</div></div>';
     ligarLista('empresas', desenharEmpresas);
+    if ($('#novaEmpresa')) $('#novaEmpresa').onclick = formNovaEmpresa;
+    v.querySelectorAll('[data-doc]').forEach(function (b) {
+      b.onclick = async function () {
+        try {
+          baixarBlob(await (await bot('/hub/documentos/arquivo?empresa=' + encodeURIComponent(c.key) + '&nome=' +
+            encodeURIComponent(b.dataset.doc))).blob(), b.dataset.doc);
+        } catch (e) { aviso(e.message, true); }
+      };
+    });
     if ($('#envBtn')) {
       $('#envBtn').onclick = function () { $('#envArq').click(); };
       $('#envArq').onchange = function () { if (this.files && this.files[0]) enviarDoc(c, this.files[0]); };
@@ -676,8 +860,10 @@
             esc((d.path || []).join(' → ')) + '</td></tr>';
         }).join('') + '</tbody></table></div></div>';
     }
+    if (podeEnviar) h += cartaoAnexos('investidores', i.name, true);
     v.innerHTML = h + '</div></div>';
     ligarLista('investidores', desenharInvestidores);
+    ligarAnexos('investidores');
   }
 
   desenharChat();
