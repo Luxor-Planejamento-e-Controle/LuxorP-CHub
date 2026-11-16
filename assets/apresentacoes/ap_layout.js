@@ -628,21 +628,36 @@
   S.highlights = s => {
     const P = [];
     titulo(P, s);
-    // cruz centrada no slide (x 640) e quadrantes simétricos: cada título a 40 px da
-    // linha que o abre. A vertical em 608 deixava a coluna da direita sobrando.
-    const cx = 640, hy = 420;
-    const pos = [[180, 150], [cx + 40, 150], [180, hy + 20], [cx + 40, hy + 20]];
-    P.push(L(cx, 150, cx, 650, {c: COR.laranja, esp: 1}));
-    P.push(L(140, hy, 1140, hy, {c: COR.laranja, esp: 1}));
-    s.quadrantes.slice(0, 4).forEach((q, i) => {
-      const [x, y0] = pos[i];
-      P.push(T(x, y0, 440, 30, q.q, {pt: 16, va: 'm', c: COR.laranja}));
+    // Grade 2×2 dimensionada pelo conteúdo e centrada no slide: cruz em x 640, as duas
+    // colunas com a mesma largura, cada bloco de texto centrado na sua coluna e a
+    // altura de cada faixa dada pelo quadrante mais longo dela. Com posição fixa, o
+    // texto ficava pequeno e encostado à esquerda, com metade de cada quadrante vazia.
+    const PT_TIT = 20, PT_IT = 16, PASSO = 36, CAB = 48, BOLA = 30, PAD = 48, VAO = 26;
+    const qs = s.quadrantes.slice(0, 4);
+    const linha = it => (it.v == null ? `${it.r} N/A`
+      : `${it.r} ${it.v >= 0 ? '+' : '-'}${nf(Math.abs(it.v), 0)}k`);
+    const larg = q => Math.max(largura(q.q, PT_TIT),
+      ...q.itens.map(it => BOLA + largura(linha(it), PT_IT)));
+    const need = [Math.max(...[0, 2].filter(i => qs[i]).map(i => larg(qs[i])), 0),
+                  Math.max(...[1, 3].filter(i => qs[i]).map(i => larg(qs[i])), 0)];
+    const cx = 640, col = Math.min(540, Math.max(...need) + 2 * PAD);
+    const n = k => Math.max(0, ...[k, k + 1].filter(i => qs[i]).map(i => qs[i].itens.length));
+    const hT = CAB + n(0) * PASSO, hB = CAB + n(2) * PASSO;
+    const topo = 150, fundo = 670;
+    const y0 = Math.max(topo, topo + (fundo - topo - (hT + 2 * VAO + hB)) / 2);
+    const hy = y0 + hT + VAO;
+    P.push(L(cx, y0 - 8, cx, hy + VAO + hB + 4, {c: COR.laranja, esp: 1}));
+    P.push(L(cx - col, hy, cx + col, hy, {c: COR.laranja, esp: 1}));
+    qs.forEach((q, i) => {
+      const lado = i % 2, ini = lado ? cx : cx - col;
+      const x = ini + (col - need[lado]) / 2;
+      const yq = i < 2 ? y0 : hy + VAO;
+      P.push(T(x, yq, col, 34, q.q, {pt: PT_TIT, va: 'm', c: COR.laranja}));
       q.itens.forEach((it, j) => {
-        const yy = y0 + 40 + j * 32;
-        const txt = it.v == null ? `${it.r} N/A` : `${it.r} ${it.v >= 0 ? '+' : '-'}${nf(Math.abs(it.v), 0)}k`;
+        const yy = yq + CAB + j * PASSO;
         const c = it.fav ? COR.verdeFav : COR.branco;
-        P.push(R(x + 16, yy + 11, 6, 6, {fill: c, forma: 'elipse'}));
-        P.push(T(x + 30, yy, 400, 28, txt, {pt: 13, va: 'm', c}));
+        P.push(R(x + 10, yy + 13, 7, 7, {fill: c, forma: 'elipse'}));
+        P.push(T(x + BOLA, yy, col - BOLA, 32, linha(it), {pt: PT_IT, va: 'm', c}));
       });
     });
     logo(P);
