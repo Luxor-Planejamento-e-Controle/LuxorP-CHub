@@ -190,10 +190,10 @@
   });
 
   /* ---------- Procurações (GET /hub/procuracoes) ---------- */
-  var proc = null, procFiltro = { status: 'todas', empresa: '', busca: '' };
+  var proc = null, procFiltro = { status: 'todas', empresa: '', busca: '' }, procVerExcl = false;
   var ROTULO_ST = { vencida: 'Vencida', vence_7: 'Vence em até 7 dias', vence_30: 'Vence em até 30 dias', vigente: 'Vigente' };
   async function carregarProc() {
-    if (!proc) proc = await (await bot('/hub/procuracoes')).json();
+    if (!proc) proc = await (await bot('/hub/procuracoes' + (procVerExcl ? '?excluidas=1' : ''))).json();
     return proc;
   }
   function prazo(i) {
@@ -204,15 +204,17 @@
   function tabelaProc(itens, comEmpresa) {
     return '<div class="tbl-wrap"><table class="so-tab"><thead><tr><th>Status</th><th class="num">Vencimento</th>' +
       (comEmpresa ? '<th>Empresa</th>' : '') +
-      '<th>Outorgado</th><th>Outorgante</th><th class="num">Outorga</th><th>Poderes</th><th>Documento</th></tr></thead><tbody>' +
+      '<th>Outorgado</th><th>Outorgante</th><th class="num">Outorga</th><th>Poderes</th><th>Documento</th>' + (podeEnviar ? '<th></th>' : '') + '</tr></thead><tbody>' +
       itens.map(function (i) {
         var emp = i.company_key ? '<button class="so-link" data-empresa="' + esc(i.company_key) + '">' + esc(i.company) + '</button>' : esc(i.company);
-        return '<tr><td><span class="so-st ' + esc(i.status) + '">' + esc(ROTULO_ST[i.status] || i.status) + '</span></td>' +
+        return '<tr' + (i.excluida ? ' class="so-excluida"' : '') + '><td><span class="so-st ' + esc(i.status) + '">' + esc(i.excluida ? 'Excluída' : (ROTULO_ST[i.status] || i.status)) + '</span></td>' +
           '<td class="num">' + esc(dataBR(i.data_vencimento)) + '<span class="so-muted" style="display:block">' + esc(prazo(i)) + '</span></td>' +
           (comEmpresa ? '<td>' + emp + '</td>' : '') +
           '<td>' + esc(i.outorgado) + '</td><td>' + esc(i.outorgante || '') + '</td>' +
           '<td class="num">' + esc(i.data_outorga ? dataBR(i.data_outorga) : '') + '</td>' +
-          '<td class="poderes">' + esc(i.poderes || '') + '</td><td>' + esc((i.documents || []).join(', ')) + '</td></tr>';
+          '<td class="poderes">' + esc(i.poderes || '') + '</td><td>' + esc((i.documents || []).join(', ')) + '</td>' +
+          (podeEnviar ? '<td>' + (i.excluida ? '<button class="so-btn ghost mini" data-rest="' + esc(i.chave) + '">Restaurar</button>'
+            : i.status === 'vencida' ? '<button class="so-btn ghost mini" data-excl="' + esc(i.chave) + '">Excluir</button>' : '') + '</td>' : '') + '</tr>';
       }).join('') + '</tbody></table></div>';
   }
   async function abrirProcuracoes() {
@@ -228,9 +230,10 @@
     var conta = { vencida: 0, vence_7: 0, vence_30: 0, vigente: 0 };
     var empresas = [];
     itens.forEach(function (i) {
-      conta[i.status] = (conta[i.status] || 0) + 1;
+      if (!i.excluida) conta[i.status] = (conta[i.status] || 0) + 1;
       if (empresas.indexOf(i.company) < 0) empresas.push(i.company);
     });
+    var vencidas = itens.filter(function (i) { return i.status === 'vencida' && !i.excluida; }).map(function (i) { return i.chave; });
     empresas.sort(function (x, y) { return x.localeCompare(y, 'pt-BR'); });
     var vis = itens.filter(function (i) {
       if (f.status !== 'todas' && i.status !== f.status) return false;
@@ -248,7 +251,10 @@
       '<div class="so-topo">' + (podeEnviar ? '<button class="so-btn" id="novaProcuracao">+ Nova procuração</button>' : '') + '<select class="so-sel" id="procEmpresa"><option value="">Todas as empresas</option>' +
       empresas.map(function (e) { return '<option value="' + esc(e) + '"' + (e === f.empresa ? ' selected' : '') + '>' + esc(e) + '</option>'; }).join('') +
       '</select><input class="so-busca" id="procBusca" style="max-width:320px" placeholder="Buscar outorgado, poderes, documento" value="' + esc(f.busca) + '">' +
-      (f.status !== 'todas' ? '<button class="so-btn ghost" id="procTodas">Mostrar todas</button>' : '') + lendo + '</div>' +
+      (f.status !== 'todas' ? '<button class="so-btn ghost" id="procTodas">Mostrar todas</button>' : '') +
+      (podeEnviar && vencidas.length ? '<button class="so-btn ghost" id="procExclVenc">Excluir vencidas (' + vencidas.length + ')</button>' : '') +
+      (podeEnviar && (proc.excluidas || procVerExcl) ? '<button class="so-btn ghost" id="procVerExcl">' +
+        (procVerExcl ? 'Esconder excluídas' : 'Ver excluídas (' + proc.excluidas + ')') + '</button>' : '') + lendo + '</div>' +
       (vis.length ? '<div class="card">' + tabelaProc(vis, true) + '</div>'
         : '<div class="so-muted">' + (itens.length ? 'Nenhuma procuração com esses filtros.' : 'Nenhuma procuração encontrada nos documentos.') + '</div>');
     v.querySelector('.so-kpis').onclick = function (e) {
@@ -263,6 +269,9 @@
     };
     if ($('#procTodas')) $('#procTodas').onclick = function () { f.status = 'todas'; desenharProc(); };
     v.querySelectorAll('[data-empresa]').forEach(function (a) { a.onclick = function () { irPara('empresas', a.dataset.empresa); }; });
+    ligarAcoesProc(v);
+    if ($('#procExclVenc')) $('#procExclVenc').onclick = function () { excluirProcs(vencidas); };
+    if ($('#procVerExcl')) $('#procVerExcl').onclick = function () { procVerExcl = !procVerExcl; proc = null; abrirProcuracoes(); };
   }
 
   /* ---------- Advogados (GET /hub/advogados) ---------- */
@@ -283,13 +292,16 @@
     var vis = firmas.map(function (f, i) { return { f: f, i: i }; }).filter(function (x) {
       return !b || sem([x.f.nome, x.f.area, x.f.advogados.map(function (a) { return a.nome; }).join(' ')].join(' ')).indexOf(b) >= 0;
     });
-    var h = (podeEnviar ? '<div class="so-topo"><button class="so-btn" id="novoEscritorio">+ Novo escritório</button></div>' : '') +
+    var h = (podeEnviar ? '<div class="so-topo"><button class="so-btn" id="novoEscritorio">+ Novo escritório</button>' +
+      '<button class="so-btn ghost" id="importarAdv">Importar planilha</button></div>' : '') +
       '<div class="so-duas"><div class="so-lista"><input class="so-busca" id="advBusca" placeholder="Buscar escritório, área, advogado" value="' + esc(buscaAdv) + '">' +
       vis.map(function (x) {
         return '<button class="so-item' + (x.f === sel ? ' on' : '') + '" data-i="' + x.i + '">' + esc(x.f.nome) +
           (x.f.area ? '<span class="so-muted">' + esc(x.f.area) + '</span>' : '') + '</button>';
       }).join('') + '</div><div class="so-ficha">';
-    h += '<div class="card"><h2>' + esc(sel.nome) + '</h2>' + kv([['CPF / CNPJ', sel.documento], ['Área de atuação', sel.area]]) + '</div>';
+    h += '<div class="card"><h2>' + esc(sel.nome) + '</h2>' + kv([['CPF / CNPJ', sel.documento], ['Área de atuação', sel.area]]) +
+      (podeEnviar ? '<div class="so-acoes"><button class="so-btn ghost" id="editEscr">Editar</button>' +
+        '<button class="so-btn ghost" id="exclEscr">Excluir escritório</button></div>' : '') + '</div>';
     if (sel.indicacao) {
       h += '<div class="card" style="margin-top:14px"><div class="card-title"><h2>Indicação ou referência</h2></div><p class="so-texto">' + esc(sel.indicacao) + '</p></div>';
     }
@@ -299,17 +311,29 @@
     }
     var comProc = sel.advogados.some(function (a) { return a.processo; });
     h += '<div class="card" style="margin-top:14px"><div class="card-title"><h2>Advogados</h2>' + (podeEnviar ? '<button class="so-btn ghost" id="novoAdvogado" style="margin-left:auto">+ Advogado</button>' : '') + '</div><div class="tbl-wrap"><table class="so-tab">' +
-      '<thead><tr><th>Advogado</th><th>Telefone</th><th>E-mail</th>' + (comProc ? '<th>Processo em curso</th>' : '') + '</tr></thead><tbody>' +
-      sel.advogados.map(function (a) {
+      '<thead><tr><th>Advogado</th><th>Telefone</th><th>E-mail</th>' + (comProc ? '<th>Processo em curso</th>' : '') +
+      (podeEnviar ? '<th></th>' : '') + '</tr></thead><tbody>' +
+      sel.advogados.map(function (a, j) {
         return '<tr><td>' + esc(a.nome || '') + '</td><td>' + esc(a.telefone || '') + '</td><td>' +
           (a.email ? '<a class="so-link" href="mailto:' + esc(a.email) + '">' + esc(a.email) + '</a>' : '') + '</td>' +
-          (comProc ? '<td>' + esc(a.processo || '') + '</td>' : '') + '</tr>';
+          (comProc ? '<td>' + esc(a.processo || '') + '</td>' : '') +
+          (podeEnviar ? '<td class="num"><button class="so-btn ghost mini" data-adv-ed="' + j + '">Editar</button> ' +
+            '<button class="so-btn ghost mini" data-adv-ex="' + j + '">Excluir</button></td>' : '') + '</tr>';
       }).join('') + '</tbody></table></div></div>';
     h += cartaoAnexos('advogados', sel.nome, podeEnviar);
     h += '<div class="so-muted" style="margin-top:10px">' + esc(adv.arquivo + ' · atualizada em ' + dataBR(adv.atualizado_em)) + '</div>';
     v.innerHTML = h + '</div></div>';
     if ($('#novoEscritorio')) $('#novoEscritorio').onclick = formNovoEscritorio;
     if ($('#novoAdvogado')) $('#novoAdvogado').onclick = function () { formNovoAdvogado(firmas.indexOf(sel), sel.nome); };
+    if ($('#importarAdv')) $('#importarAdv').onclick = function () { importarPlanilha('advogados'); };
+    if ($('#editEscr')) $('#editEscr').onclick = function () { formEditarEscritorio(firmas.indexOf(sel), sel); };
+    if ($('#exclEscr')) $('#exclEscr').onclick = function () { excluirEscritorio(firmas.indexOf(sel), sel); };
+    v.querySelectorAll('[data-adv-ed]').forEach(function (b) {
+      b.onclick = function () { var j = +b.dataset.advEd; formEditarAdvogado(firmas.indexOf(sel), sel, j, sel.advogados[j]); };
+    });
+    v.querySelectorAll('[data-adv-ex]').forEach(function (b) {
+      b.onclick = function () { var j = +b.dataset.advEx; excluirAdvogado(firmas.indexOf(sel), sel, j, sel.advogados[j]); };
+    });
     ligarAnexos('advogados');
     $('#advBusca').oninput = function () {
       buscaAdv = this.value; var pos = this.selectionStart; desenharAdvogados();
@@ -376,7 +400,7 @@
     };
     var h = '<div class="so-kpis cinco">' + kpi('todos', 'Processos') + kpi('provavel', 'Risco provável', 'provavel') +
       kpi('possivel', 'Risco possível', 'possivel') + kpi('remoto', 'Risco remoto') + kpi('prazo', 'Prazo em até 7 dias', 'prazo') + '</div>' +
-      '<div class="so-topo">' + (podeEnviar ? '<button class="so-btn" id="novoProcesso">+ Novo processo</button>' : '') + sel_('pcArea', 'area', 'Todas as áreas') + sel_('pcEscritorio', 'escritorio', 'Todos os escritórios') +
+      '<div class="so-topo">' + (podeEnviar ? '<button class="so-btn" id="novoProcesso">+ Novo processo</button><button class="so-btn ghost" id="importarProc">Importar planilha</button>' : '') + sel_('pcArea', 'area', 'Todas as áreas') + sel_('pcEscritorio', 'escritorio', 'Todos os escritórios') +
       sel_('pcEmpresa', 'empresa', 'Todas as empresas') +
       '<input class="so-busca" id="pcBusca" style="max-width:300px" placeholder="Buscar processo, parte, advogado" value="' + esc(f.busca) + '"></div>';
     h += '<div class="so-duas"><div class="so-lista">' + (vis.length ? vis.map(function (x) {
@@ -387,6 +411,7 @@
     var dProx = diasAte(sel.data_proximo_prazo);
     h += '<div class="card"><h2>' + esc(sel.objeto || sel.numero || '(sem objeto)') +
       (sel.risco ? '<span class="so-st ' + riscoClasse(sel.risco) + '" style="margin-left:10px">Risco ' + esc(sel.risco) + '</span>' : '') + '</h2>' +
+      (podeEnviar && sel.id ? '<div class="so-acoes"><button class="so-btn ghost" id="editProc">Editar</button></div>' : '') +
       kv([['Nº do processo', sel.numero], ['Empresa / pessoa do grupo', sel.empresa], ['Polo', sel.polo],
           ['Parte contrária', sel.parte_contraria], ['Área', sel.area], ['Tribunal / vara', sel.tribunal],
           ['Valor da causa', reais(sel.valor_causa)], ['Fase', sel.fase], ['Advogado responsável', sel.advogado]]);
@@ -406,6 +431,8 @@
     h += '<div class="so-muted" style="margin-top:10px">' + esc(processosData.arquivo + ' · atualizada em ' + dataBR(processosData.atualizado_em)) + '</div>';
     v.innerHTML = h + '</div></div>';
     if ($('#novoProcesso')) $('#novoProcesso').onclick = formNovoProcesso;
+    if ($('#importarProc')) $('#importarProc').onclick = function () { importarPlanilha('processos'); };
+    if ($('#editProc')) $('#editProc').onclick = function () { formEditarProcesso(sel); };
     ligarAnexos('processos');
 
     v.querySelector('.so-kpis').onclick = function (e) {
@@ -470,6 +497,7 @@
     }).join('') + '<div class="so-form-pe"><span class="so-muted" id="fStatus"></span>' +
       '<button type="button" class="so-btn ghost" id="fCancelar">Cancelar</button><button class="so-btn" id="fSalvar">Salvar</button></div></form>';
     document.body.appendChild(fundo);
+    campos.forEach(function (c) { if (c.valor != null && c.tipo !== 'file') fundo.querySelector('#f_' + c.id).value = c.valor; });
     var fechar = function () { fundo.remove(); };
     fundo.querySelector('#fCancelar').onclick = fechar;
     fundo.addEventListener('mousedown', function (e) { if (e.target === fundo) fechar(); });
@@ -598,6 +626,185 @@
       v.valor_causa = v.valor_causa ? parseFloat(v.valor_causa) : null;
       var r = await postJson('/hub/processos', v);
       return 'Processo ' + r.id + ' incluído.' + DEMORA;
+    });
+  }
+
+  /* ---------- Editar, excluir, importar ---------- */
+  function mudou(orig, v) {          // só o que o usuário alterou vai pro bot
+    var m = {};
+    Object.keys(orig).forEach(function (k) { if ((v[k] || '') !== (orig[k] || '')) m[k] = v[k] || ''; });
+    return m;
+  }
+  function modalPrevia(titulo, html, rotulo, acao) {
+    var fundo = document.createElement('div');
+    fundo.className = 'so-modal';
+    fundo.innerHTML = '<div class="card so-form"><h2>' + esc(titulo) + '</h2><div>' + html + '</div><div class="so-form-pe">' +
+      '<span class="so-muted" id="pStatus"></span><button type="button" class="so-btn ghost" id="pCancelar">' + (rotulo ? 'Cancelar' : 'Fechar') +
+      '</button>' + (rotulo ? '<button class="so-btn" id="pOk">' + esc(rotulo) + '</button>' : '') + '</div></div>';
+    document.body.appendChild(fundo);
+    var fechar = function () { fundo.remove(); };
+    fundo.querySelector('#pCancelar').onclick = fechar;
+    if (rotulo) fundo.querySelector('#pOk').onclick = async function () {
+      var st = fundo.querySelector('#pStatus'), bt = this;
+      bt.disabled = true; st.className = 'so-muted'; st.textContent = 'Salvando…';
+      try { var m = await acao(); fechar(); aviso(m); }
+      catch (e) { st.className = 'so-erro'; st.textContent = e.message; bt.disabled = false; }
+    };
+  }
+  function importarPlanilha(tipo) {
+    var inp = document.createElement('input');
+    inp.type = 'file'; inp.hidden = true; inp.id = 'importArq';
+    inp.accept = '.xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+    document.body.appendChild(inp);
+    inp.onchange = async function () {
+      var arq = inp.files && inp.files[0];
+      inp.remove();
+      if (!arq) return;
+      var url = '/hub/' + tipo + '/importar';
+      try {
+        var p = await postArquivo(url + '?confirmar=0', arq);
+        var linhas = tipo === 'advogados'
+          ? p.escritorios.map(function (f) {
+              return '<li>Escritório novo: <strong>' + esc(f.nome) + '</strong>' + (f.area ? ' — ' + esc(f.area) : '') +
+                ' (' + f.advogados.length + ' advogado' + (f.advogados.length === 1 ? '' : 's') + ')</li>';
+            }).concat(p.advogados.map(function (a) {
+              return '<li>Advogado novo em ' + esc(a.escritorio) + ': <strong>' + esc(a.nome) + '</strong></li>';
+            }))
+          : p.processos.map(function (x) {
+              return '<li><strong>' + esc(x.objeto) + '</strong>' + (x.numero ? ' — ' + esc(x.numero) : '') + '</li>';
+            });
+        var n = linhas.length;
+        modalPrevia('Importar ' + tipo,
+          '<p class="so-muted">' + p.lidos + ' na planilha, ' + n + ' novo' + (n === 1 ? '' : 's') + '.</p>' +
+            (n ? '<ul class="so-docs" style="columns:1">' + linhas.join('') + '</ul>' : ''),
+          n ? 'Importar ' + n : null,
+          async function () {
+            await postArquivo(url + '?confirmar=1', arq);
+            return n + (n === 1 ? ' item importado.' : ' itens importados.') + DEMORA;
+          });
+      } catch (e) { aviso(e.message, true); }
+    };
+    inp.click();
+  }
+  function formEditarEmpresa(c) {
+    var orig = { pasta: c.pasta || nomeEmpresa(c), name: c.name || '', cnpj: c.cnpj || '', type: c.type || '',
+                 capital_social: c.capital_social && c.capital_social !== 'None' ? c.capital_social : '' };
+    formulario('Editar empresa', [
+      { id: 'pasta', rotulo: 'Nome da empresa (pasta)', obrigatorio: true, valor: orig.pasta },
+      { id: 'name', rotulo: 'Razão social', valor: orig.name }, { id: 'cnpj', rotulo: 'CNPJ', valor: orig.cnpj },
+      { id: 'type', rotulo: 'Tipo', valor: orig.type }, { id: 'capital_social', rotulo: 'Capital social', valor: orig.capital_social },
+    ], async function (v) {
+      var m = mudou(orig, v);
+      if (!Object.keys(m).length) return 'Nada mudou.';
+      var r = await postJson('/hub/empresas/' + encodeURIComponent(c.key) + '/editar', m);
+      return 'Empresa salva' + (m.pasta ? ' como ' + r.pasta : '') + '.' + DEMORA;
+    });
+  }
+  async function excluirEmpresa(c) {
+    if (!window.confirm('Excluir a empresa ' + nomeEmpresa(c) + '?')) return;
+    try {
+      await postJson('/hub/empresas/' + encodeURIComponent(c.key) + '/excluir', {});
+      aviso('Empresa excluída: ' + nomeEmpresa(c) + '.' + DEMORA);
+    } catch (e) { aviso(e.message, true); }
+  }
+  // procurações: o bot só aceita excluir vencida; a lista daqui já reflete na hora
+  function marcarProcs(chaves, excluida) {
+    if (!proc) return;
+    proc.items = (proc.items || []).filter(function (i) { return excluida ? (procVerExcl || chaves.indexOf(i.chave) < 0) : true; })
+      .map(function (i) { return chaves.indexOf(i.chave) >= 0 ? Object.assign({}, i, { excluida: excluida }) : i; });
+    proc.excluidas = Math.max(0, (proc.excluidas || 0) + (excluida ? chaves.length : -chaves.length));
+    redesenhar();
+  }
+  async function excluirProcs(chaves) {
+    var msg = chaves.length === 1 ? 'Excluir esta procuração vencida da lista? O documento continua na pasta da empresa.'
+      : 'Excluir ' + chaves.length + ' procurações vencidas da lista? Os documentos continuam nas pastas.';
+    if (!window.confirm(msg)) return;
+    try {
+      await postJson('/hub/procuracoes/excluir', { chaves: chaves });
+      marcarProcs(chaves, true);
+      aviso(chaves.length === 1 ? 'Procuração excluída.' : chaves.length + ' procurações excluídas.');
+    } catch (e) { aviso(e.message, true); }
+  }
+  async function restaurarProcs(chaves) {
+    try {
+      await postJson('/hub/procuracoes/restaurar', { chaves: chaves });
+      marcarProcs(chaves, false);
+      aviso('Procuração restaurada.');
+    } catch (e) { aviso(e.message, true); }
+  }
+  function ligarAcoesProc(box) {
+    box.querySelectorAll('[data-excl]').forEach(function (b) { b.onclick = function () { excluirProcs([b.dataset.excl]); }; });
+    box.querySelectorAll('[data-rest]').forEach(function (b) { b.onclick = function () { restaurarProcs([b.dataset.rest]); }; });
+  }
+  function formEditarEscritorio(i, f) {
+    var orig = { nome: f.nome || '', documento: f.documento || '', area: f.area || '', indicacao: f.indicacao || '' };
+    var campos = [{ id: 'nome', rotulo: 'Nome / razão social', obrigatorio: true, valor: orig.nome },
+      { id: 'documento', rotulo: 'CPF / CNPJ', valor: orig.documento }, { id: 'area', rotulo: 'Área de atuação', valor: orig.area },
+      { id: 'indicacao', rotulo: 'Indicação ou referência', tipo: 'textarea', valor: orig.indicacao }];
+    if (f.processos.length || !f.advogados.some(function (a) { return a.processo; })) {
+      orig.processo = f.processos[0] || '';
+      campos.push({ id: 'processo', rotulo: 'Processo em curso (do escritório)', valor: orig.processo });
+    }
+    formulario('Editar escritório', campos, async function (v) {
+      var m = mudou(orig, v);
+      if (!Object.keys(m).length) return 'Nada mudou.';
+      m.nome_atual = f.nome;
+      await postJson('/hub/advogados/' + i + '/editar', m);
+      return 'Escritório salvo.' + DEMORA;
+    });
+  }
+  async function excluirEscritorio(i, f) {
+    if (!window.confirm('Excluir o escritório ' + f.nome + ' e os ' + f.advogados.length + ' advogado(s) dele?')) return;
+    try {
+      await postJson('/hub/advogados/' + i + '/excluir', { nome_atual: f.nome });
+      aviso('Escritório excluído: ' + f.nome + '.' + DEMORA);
+    } catch (e) { aviso(e.message, true); }
+  }
+  function formEditarAdvogado(i, f, j, a) {
+    var orig = { nome: a.nome || '', telefone: a.telefone || '', email: a.email || '', processo: a.processo || '' };
+    formulario('Editar advogado — ' + f.nome, [
+      { id: 'nome', rotulo: 'Nome', obrigatorio: true, valor: orig.nome }, { id: 'telefone', rotulo: 'Telefone', valor: orig.telefone },
+      { id: 'email', rotulo: 'E-mail', tipo: 'email', valor: orig.email }, { id: 'processo', rotulo: 'Processo em curso', valor: orig.processo },
+    ], async function (v) {
+      var m = mudou(orig, v);
+      if (!Object.keys(m).length) return 'Nada mudou.';
+      m.nome_atual = a.nome || ''; m.escritorio = f.nome;
+      await postJson('/hub/advogados/' + i + '/advogados/' + j + '/editar', m);
+      return 'Advogado salvo.' + DEMORA;
+    });
+  }
+  async function excluirAdvogado(i, f, j, a) {
+    if (!window.confirm('Excluir ' + (a.nome || 'este advogado') + ' do escritório ' + f.nome + '?')) return;
+    try {
+      await postJson('/hub/advogados/' + i + '/advogados/' + j + '/excluir', { nome_atual: a.nome || '', escritorio: f.nome });
+      aviso('Advogado excluído: ' + (a.nome || '') + '.' + DEMORA);
+    } catch (e) { aviso(e.message, true); }
+  }
+  function formEditarProcesso(p) {
+    var ids = ['objeto', 'numero', 'empresa', 'polo', 'parte_contraria', 'area', 'tribunal', 'escritorio', 'advogado',
+               'valor_causa', 'risco', 'fase', 'ultima_movimentacao', 'data_ultima_movimentacao', 'proximo_prazo', 'data_proximo_prazo'];
+    var orig = {};
+    ids.forEach(function (k) { orig[k] = p[k] == null ? '' : String(p[k]); });
+    formulario('Editar processo ' + p.id, [
+      { id: 'objeto', rotulo: 'Objeto (resumo)', tipo: 'textarea', obrigatorio: true, valor: orig.objeto },
+      { id: 'numero', rotulo: 'Nº do processo (CNJ)', valor: orig.numero }, { id: 'empresa', rotulo: 'Empresa / pessoa do grupo', valor: orig.empresa },
+      { id: 'polo', rotulo: 'Polo', tipo: 'select', opcoes: ['Autor', 'Réu', 'Terceiro interessado'], valor: orig.polo },
+      { id: 'parte_contraria', rotulo: 'Parte contrária', valor: orig.parte_contraria },
+      { id: 'area', rotulo: 'Área', tipo: 'select', opcoes: AREAS.indexOf(orig.area) >= 0 || !orig.area ? AREAS : AREAS.concat([orig.area]), valor: orig.area },
+      { id: 'tribunal', rotulo: 'Tribunal / vara', valor: orig.tribunal }, { id: 'escritorio', rotulo: 'Escritório', valor: orig.escritorio },
+      { id: 'advogado', rotulo: 'Advogado responsável', valor: orig.advogado },
+      { id: 'valor_causa', rotulo: 'Valor da causa (R$)', tipo: 'number', valor: orig.valor_causa },
+      { id: 'risco', rotulo: 'Risco', tipo: 'select', opcoes: ['Provável', 'Possível', 'Remoto'], valor: orig.risco },
+      { id: 'fase', rotulo: 'Fase', valor: orig.fase }, { id: 'ultima_movimentacao', rotulo: 'Última movimentação', valor: orig.ultima_movimentacao },
+      { id: 'data_ultima_movimentacao', rotulo: 'Data da última movimentação', tipo: 'date', valor: orig.data_ultima_movimentacao },
+      { id: 'proximo_prazo', rotulo: 'Próximo prazo / audiência', valor: orig.proximo_prazo },
+      { id: 'data_proximo_prazo', rotulo: 'Data do próximo prazo', tipo: 'date', valor: orig.data_proximo_prazo },
+    ], async function (v) {
+      var m = mudou(orig, v);
+      if (!Object.keys(m).length) return 'Nada mudou.';
+      if ('valor_causa' in m) m.valor_causa = m.valor_causa ? parseFloat(m.valor_causa) : null;
+      await postJson('/hub/processos/' + encodeURIComponent(p.id) + '/editar', m);
+      return 'Processo ' + p.id + ' salvo.' + DEMORA;
     });
   }
 
@@ -776,7 +983,10 @@
     }) + '<div class="so-ficha">';
     h += '<div class="card"><h2>' + esc(c.name || nomeEmpresa(c)) +
       (c.no_documents ? '<span class="so-badge">sem documentos</span>' : '') +
-      (c.pending_documents || c.extraction_failed ? '<span class="so-badge">documentos novos não lidos</span>' : '') + '</h2>' +
+      (c.pending_documents || c.extraction_failed ? '<span class="so-badge">documentos novos não lidos</span>' : '') +
+      (c.corrigido && c.corrigido.length ? '<span class="so-badge">corrigida à mão</span>' : '') + '</h2>' +
+      (podeEnviar ? '<div class="so-acoes"><button class="so-btn ghost" id="editEmpresa">Editar</button>' +
+        (!(c.documents || []).length ? '<button class="so-btn ghost" id="exclEmpresa">Excluir</button>' : '') + '</div>' : '') +
       kv([['CNPJ', c.cnpj], ['Tipo', c.type], ['Capital social', c.capital_social && c.capital_social !== 'None' ? c.capital_social : ''],
           ['Posição em', c.position_date ? dataBR(c.position_date) : ''], ['Documento de referência', c.source]]) + '</div>';
 
@@ -818,6 +1028,9 @@
     v.innerHTML = h + '</div></div>';
     ligarLista('empresas', desenharEmpresas);
     if ($('#novaEmpresa')) $('#novaEmpresa').onclick = formNovaEmpresa;
+    if ($('#editEmpresa')) $('#editEmpresa').onclick = function () { formEditarEmpresa(c); };
+    if ($('#exclEmpresa')) $('#exclEmpresa').onclick = function () { excluirEmpresa(c); };
+    ligarAcoesProc(v);
     v.querySelectorAll('[data-doc]').forEach(function (b) {
       b.onclick = async function () {
         try {

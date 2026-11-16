@@ -49,13 +49,13 @@ DADOS = {
 PROC = {"documents_total": 6, "documents_pending": 2, "documents_failed": 0, "refreshing": True,
         "updated_at": "2026-11-13T10:00:00-03:00",
         "items": [
-            {"company_key": "beta", "company": "Beta", "outorgado": "Pessoa Três", "outorgante": "Beta Ltda.",
+            {"chave": "beta|PESSOA TRES|2026-11-01|2025-01-01", "company_key": "beta", "company": "Beta", "outorgado": "Pessoa Três", "outorgante": "Beta Ltda.",
              "data_outorga": "2025-01-01", "data_vencimento": "2026-11-01", "poderes": "bancos e INSS",
              "dias": -12, "status": "vencida", "documents": ["Ata outorga.pdf", "Ata outorga - REGISTRADA.pdf"]},
-            {"company_key": "alfa", "company": "Alfa", "outorgado": "Pessoa Um", "outorgante": "Alfa Holding S.A.",
+            {"chave": "alfa|PESSOA UM|2026-11-20|", "company_key": "alfa", "company": "Alfa", "outorgado": "Pessoa Um", "outorgante": "Alfa Holding S.A.",
              "data_outorga": None, "data_vencimento": "2026-11-20", "poderes": "receita federal",
              "dias": 7, "status": "vence_7", "documents": ["Procuração DP1.pdf"]},
-            {"company_key": "alfa", "company": "Alfa", "outorgado": "Pessoa Dois", "outorgante": "Alfa Holding S.A.",
+            {"chave": "alfa|PESSOA DOIS|2027-06-01|2025-06-01", "company_key": "alfa", "company": "Alfa", "outorgado": "Pessoa Dois", "outorgante": "Alfa Holding S.A.",
              "data_outorga": "2025-06-01", "data_vencimento": "2027-06-01", "poderes": "<b>tudo</b>",
              "dias": 200, "status": "vigente", "documents": ["Procuração DP1.pdf"]},
         ]}
@@ -103,6 +103,7 @@ class Bot:
         self.envio_status = 200
         self.envios = []            # (query, corpo) dos POST /hub/documentos
         self.posts = []             # (caminho, query, corpo) dos demais POST de cadastro
+        self.previa = {}             # resposta do /importar?confirmar=0, por tipo
         self.anexos = {("advogados", "ALFA ADVOGADOS"): [{"nome": "Contrato.pdf", "tamanho": 4, "enviado_em": "2026-11-16T10:00:00-03:00"}]}
         self.segurar = False     # True: guarda a rota do /hub/ask e só responde quando o teste mandar
         self.pendente = None
@@ -138,11 +139,16 @@ def _abrir(cls, bot, secao=""):
         if u.path == "/hub/dados":
             return route.fulfill(status=200, headers=cors, content_type="application/json", body=json.dumps(DADOS))
         if u.path == "/hub/procuracoes":
-            return route.fulfill(status=200, headers=cors, content_type="application/json", body=json.dumps(PROC))
-        if request.method == "POST" and u.path in ("/hub/empresas", "/hub/advogados", "/hub/processos", "/hub/anexos") \
-                or (request.method == "POST" and u.path.startswith("/hub/advogados/")):
+            corpo = dict(PROC)
+            if "excluidas=1" in u.query:
+                corpo["items"] = PROC["items"] + [dict(PROC["items"][0], chave="x|VELHA|2020-01-01|", outorgado="Pessoa Velha",
+                                                       excluida=True, data_vencimento="2020-01-01", dias=-2000)]
+            corpo["excluidas"] = 1
+            return route.fulfill(status=200, headers=cors, content_type="application/json", body=json.dumps(corpo))
+        if request.method == "POST" and u.path not in ("/hub/ask", "/hub/documentos"):
             q = urllib.parse.parse_qs(u.query)
-            corpo = request.post_data_buffer if u.path == "/hub/anexos" else json.loads(request.post_data or "{}")
+            bruto = u.path == "/hub/anexos" or u.path.endswith("/importar")
+            corpo = request.post_data_buffer if bruto else json.loads(request.post_data or "{}")
             bot.posts.append((u.path, q, corpo))
             resp = {"ok": True, "commit": "c1"}
             if u.path == "/hub/empresas":
@@ -151,6 +157,8 @@ def _abrir(cls, bot, secao=""):
                 resp["id"] = "P-0099"
             if u.path == "/hub/anexos":
                 resp["arquivo"] = q["nome"][0]
+            if u.path.endswith("/importar"):
+                resp.update(bot.previa[u.path.split("/")[2]], previa=q.get("confirmar") == ["0"])
             return route.fulfill(status=200, headers=cors, content_type="application/json", body=json.dumps(resp))
         if u.path == "/hub/anexos":
             q = urllib.parse.parse_qs(u.query)
@@ -378,14 +386,14 @@ class TestAbaSocietario(unittest.TestCase):
         self.assertEqual(pg.get_attribute("#v-advogados a[href^='mailto:']", "href"), "mailto:um@alfa.adv.br")
         self.assertIsNone(pg.evaluate("window.pwned"))
         self.assertIn("<img src=x", ficha)
-        self.assertEqual(pg.locator("#v-advogados thead th").all_inner_texts()[-1].upper(), "E-MAIL")   # sem coluna de processo
+        self.assertEqual([t for t in pg.locator("#v-advogados thead th").all_inner_texts() if t][-1].upper(), "E-MAIL")   # sem coluna de processo
 
         pg.click("#v-advogados .so-lista button:has-text('Tributário SP')")               # mesmo nome, outra área
         pg.wait_for_function("location.hash === '#advogados/2'")
         pg.wait_for_function("document.querySelector('#v-advogados .so-ficha').innerText.includes('Pessoa Quatro')")
         pg.click("#v-advogados .so-lista button:has-text('Tributário Rio')")
         pg.wait_for_function("document.querySelector('#v-advogados .so-ficha').innerText.includes('ITBI imóvel A')")
-        self.assertEqual(pg.locator("#v-advogados thead th").all_inner_texts()[-1].upper(), "PROCESSO EM CURSO")
+        self.assertEqual([t for t in pg.locator("#v-advogados thead th").all_inner_texts() if t][-1].upper(), "PROCESSO EM CURSO")
         pg.fill("#advBusca", "pessoa um")
         self.assertEqual([t.split("\n")[0] for t in pg.locator("#v-advogados .so-lista button").all_inner_texts()],
                          ["ALFA ADVOGADOS"])
@@ -584,6 +592,113 @@ class TestAbaSocietario(unittest.TestCase):
             self.assertEqual(pg.locator("[data-anx-enviar]").count(), 0, secao)
             self.assertEqual(erros, [])
         self.assertEqual(bot.posts, [])
+
+    def test_21_editar_e_excluir_empresa(self):
+        bot = Bot()
+        pg, erros = _abrir(self, bot, "empresas/alfa")
+        pg.wait_for_selector("#editEmpresa")
+        self.assertEqual(pg.locator("#exclEmpresa").count(), 0)                  # tem documentos
+        pg.click("#editEmpresa")
+        self.assertEqual(pg.input_value("#f_pasta"), "Alfa")
+        self.assertEqual(pg.input_value("#f_cnpj"), "00.000.000/0001-00")
+        pg.fill("#f_cnpj", "11.111.111/0001-11")
+        self.assertIn("Empresa salva", self._salvar(pg))
+        self.assertEqual(bot.posts[-1][0], "/hub/empresas/alfa/editar")
+        self.assertEqual(bot.posts[-1][2], {"cnpj": "11.111.111/0001-11"})      # só o que mudou
+        pg.evaluate("location.hash = '#empresas/gama'")
+        pg.wait_for_selector("#exclEmpresa")
+        pg.once("dialog", lambda d: d.accept())
+        pg.click("#exclEmpresa")
+        pg.wait_for_function("[...document.querySelectorAll('.so-aviso')].some(e => e.textContent.includes('Empresa excluída'))")
+        self.assertEqual(bot.posts[-1][0], "/hub/empresas/gama/excluir")
+        self.assertEqual(erros, [])
+
+    def test_22_excluir_e_restaurar_procuracao_vencida(self):
+        bot = Bot()
+        pg, erros = _abrir(self, bot, "procuracoes")
+        pg.wait_for_selector("#v-procuracoes table")
+        self.assertEqual(pg.locator("#v-procuracoes [data-excl]").count(), 1)     # só a vencida
+        self.assertIn("Excluir vencidas (1)", pg.inner_text("#procExclVenc"))
+        pg.once("dialog", lambda d: d.accept())
+        pg.click("#v-procuracoes [data-excl]")
+        pg.wait_for_function("document.querySelectorAll('#v-procuracoes tbody tr').length === 2")
+        self.assertEqual(bot.posts[-1][0], "/hub/procuracoes/excluir")
+        self.assertEqual(bot.posts[-1][2], {"chaves": ["beta|PESSOA TRES|2026-11-01|2025-01-01"]})
+        self.assertEqual(pg.locator("#procExclVenc").count(), 0)
+        pg.click("#procVerExcl")
+        pg.wait_for_selector("#v-procuracoes [data-rest]")
+        self.assertIn("Pessoa Velha", pg.inner_text("#v-procuracoes"))
+        pg.click("#v-procuracoes [data-rest]")
+        pg.wait_for_function("[...document.querySelectorAll('.so-aviso')].some(e => e.textContent.includes('restaurada'))")
+        self.assertEqual(bot.posts[-1], ("/hub/procuracoes/restaurar", {}, {"chaves": ["x|VELHA|2020-01-01|"]}))
+        self.assertEqual(erros, [])
+
+    def test_23_editar_e_excluir_escritorio_e_advogado(self):
+        bot = Bot()
+        pg, erros = _abrir(self, bot, "advogados")
+        pg.wait_for_selector("#editEscr")
+        pg.click("#editEscr")
+        self.assertEqual(pg.input_value("#f_area"), "Trabalhista")
+        pg.fill("#f_area", "Trabalhista e Cível")
+        self._salvar(pg)
+        self.assertEqual(bot.posts[-1][0], "/hub/advogados/0/editar")
+        self.assertEqual(bot.posts[-1][2], {"area": "Trabalhista e Cível", "nome_atual": "ALFA ADVOGADOS"})
+        pg.click("#v-advogados [data-adv-ed='1']")
+        self.assertEqual(pg.input_value("#f_email"), "dois@alfa.adv.br")
+        pg.fill("#f_email", "novo@alfa.adv.br")
+        self._salvar(pg)
+        self.assertEqual(bot.posts[-1][0], "/hub/advogados/0/advogados/1/editar")
+        self.assertEqual(bot.posts[-1][2], {"email": "novo@alfa.adv.br", "nome_atual": "Pessoa Dois", "escritorio": "ALFA ADVOGADOS"})
+        pg.once("dialog", lambda d: d.accept())
+        pg.click("#v-advogados [data-adv-ex='0']")
+        pg.wait_for_function("[...document.querySelectorAll('.so-aviso')].some(e => e.textContent.includes('Advogado excluído'))")
+        self.assertEqual(bot.posts[-1][2], {"nome_atual": "Pessoa Um", "escritorio": "ALFA ADVOGADOS"})
+        pg.once("dialog", lambda d: d.dismiss())                                  # cancelou: nada vai pro bot
+        n = len(bot.posts)
+        pg.click("#exclEscr")
+        pg.wait_for_timeout(300)
+        self.assertEqual(len(bot.posts), n)
+        self.assertEqual(erros, [])
+
+    def test_24_importar_advogados_com_previa(self):
+        bot = Bot()
+        bot.previa["advogados"] = {"lidos": 5, "escritorios": [{"nome": "NOVO ESCR", "area": "Cível", "advogados": [{"nome": "X"}]}],
+                                   "advogados": [{"indice": 0, "escritorio": "ALFA ADVOGADOS", "nome": "Pessoa Nova"}]}
+        pg, erros = _abrir(self, bot, "advogados")
+        pg.wait_for_selector("#importarAdv")
+        pg.click("#importarAdv")
+        pg.set_input_files("#importArq", files=[{"name": "lista.xlsx", "mimeType":
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "buffer": b"PK\x03\x04planilha"}])
+        pg.wait_for_selector("#pOk")
+        previa = pg.inner_text(".so-modal")
+        self.assertIn("NOVO ESCR", previa)
+        self.assertIn("Pessoa Nova", previa)
+        self.assertIn("5 na planilha, 2 novos", previa)
+        self.assertEqual(bot.posts[-1][1]["confirmar"], ["0"])
+        pg.click("#pOk")
+        pg.wait_for_function("[...document.querySelectorAll('.so-aviso')].some(e => e.textContent.includes('2 itens importados'))")
+        self.assertEqual((bot.posts[-1][0], bot.posts[-1][1]["confirmar"], bot.posts[-1][2]),
+                         ("/hub/advogados/importar", ["1"], b"PK\x03\x04planilha"))
+        self.assertEqual(erros, [])
+
+    def test_25_editar_processo_e_importacao_sem_novidade(self):
+        bot = Bot()
+        bot.previa["processos"] = {"lidos": 3, "processos": []}
+        pg, erros = _abrir(self, bot, "processos")
+        pg.wait_for_selector("#editProc")
+        pg.click("#editProc")
+        self.assertEqual(pg.input_value("#f_valor_causa"), "150000.5")
+        pg.select_option("#f_risco", "Remoto")
+        self._salvar(pg)
+        self.assertEqual(bot.posts[-1][0], "/hub/processos/P-0001/editar")
+        self.assertEqual(bot.posts[-1][2], {"risco": "Remoto"})
+        pg.click("#importarProc")
+        pg.set_input_files("#importArq", files=[{"name": "p.xlsx", "mimeType": "application/octet-stream", "buffer": b"PK\x03\x04x"}])
+        pg.wait_for_selector(".so-modal #pCancelar")
+        self.assertIn("3 na planilha, 0 novos", pg.inner_text(".so-modal"))
+        self.assertEqual(pg.locator("#pOk").count(), 0)
+        self.assertEqual(pg.inner_text("#pCancelar"), "Fechar")
+        self.assertEqual(erros, [])
 
 
 if __name__ == "__main__":
