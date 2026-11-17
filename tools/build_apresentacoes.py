@@ -830,11 +830,12 @@ def s_highlights(b, d, m):
         itens = []
         for r in x.itertuples():
             rot = r.Rotulo
+            v = AJUSTES_HIGHLIGHTS.get((f"{d.year}-Q{(d.month - 1) // 3 + 1}", q, rot), num(r.Valor))
             if rot in NOTAS_HIGHLIGHTS:
                 if NOTAS_HIGHLIGHTS[rot] not in notas:
                     notas.append(NOTAS_HIGHLIGHTS[rot])
                 rot += "*"
-            itens.append({"r": rot, "v": num(r.Valor), "fav": bool(r.Favoravel)})
+            itens.append({"r": rot, "v": v, "fav": bool(r.Favoravel)})
         quads.append({"q": q, "itens": itens})
     return {"t": "highlights", "titulo": "Budget Highlights |",
             "destaque": f"Q{(d.month - 1) // 3 + 1} {d.year} in R$", "quadrantes": quads,
@@ -844,6 +845,16 @@ def s_highlights(b, d, m):
 # Linha do Highlights que precisa de rodapé para não ser lida como estouro do orçado
 # (pedido do Arthur, 17/11/2026): o Farol é a parte da família no projeto social,
 # provisionada no Pool em 2025 — aparece como gasto acima do orçado, mas não é.
+# Valor do Highlights corrigido à mão: (trimestre, quadrante, rótulo) -> Δ em R$ mil.
+# O Highlights copia o comentário YTD do card do Trello, escrito por outra pessoa, e o
+# comentário pode ficar velho quando a planilha é revista depois.
+#   2026-Q3 Other services (EUA): o comentário de 08/10 diz +31k; a planilha do FC do
+#   FO revista (v3) dá +22,4k em OUTROS SERVIÇOS CONTRATADOS - NY (orçado 65,1k x
+#   realizado 87,5k YTD set/26). Pedido do Arthur, 17/11/2026.
+AJUSTES_HIGHLIGHTS = {
+    ("2026-Q3", "Luxor USA", "Other services"): 22.4,
+}
+
 NOTAS_HIGHLIGHTS = {
     "Farol": "*Farol: the Family's share of the social project, made available in the Pool in 2025 "
              "– not an expense above budget.",
