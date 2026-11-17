@@ -661,6 +661,7 @@
         P.push(T(x + BOLA, yy, col - BOLA, 32, linha(it), {pt: PT_IT, va: 'm', c}));
       });
     });
+    nota(P, s.nota, 11);
     logo(P);
     return P;
   };

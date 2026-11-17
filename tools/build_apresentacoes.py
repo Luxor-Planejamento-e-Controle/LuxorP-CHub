@@ -822,15 +822,32 @@ def s_highlights(b, d, m):
     if h.empty:
         raise SemDado("fato_budget_highlights sem o fechamento")
     ordem = ["Management Fees", "Investment Team Brazil", "Luxor USA", "Administrative Activities Brazil"]
-    quads = []
+    quads, notas = [], []
     for q in ordem + sorted(set(h.Quadrante) - set(ordem)):
         x = h[h.Quadrante == q].sort_values("Ordem")
         if x.empty:
             continue
-        quads.append({"q": q, "itens": [{"r": r.Rotulo, "v": num(r.Valor), "fav": bool(r.Favoravel)}
-                                         for r in x.itertuples()]})
+        itens = []
+        for r in x.itertuples():
+            rot = r.Rotulo
+            if rot in NOTAS_HIGHLIGHTS:
+                if NOTAS_HIGHLIGHTS[rot] not in notas:
+                    notas.append(NOTAS_HIGHLIGHTS[rot])
+                rot += "*"
+            itens.append({"r": rot, "v": num(r.Valor), "fav": bool(r.Favoravel)})
+        quads.append({"q": q, "itens": itens})
     return {"t": "highlights", "titulo": "Budget Highlights |",
-            "destaque": f"Q{(d.month - 1) // 3 + 1} {d.year} in R$", "quadrantes": quads}
+            "destaque": f"Q{(d.month - 1) // 3 + 1} {d.year} in R$", "quadrantes": quads,
+            "nota": notas or None}
+
+
+# Linha do Highlights que precisa de rodapé para não ser lida como estouro do orçado
+# (pedido do Arthur, 17/11/2026): o Farol é a parte da família no projeto social,
+# provisionada no Pool em 2025 — aparece como gasto acima do orçado, mas não é.
+NOTAS_HIGHLIGHTS = {
+    "Farol": "*Farol: the Family's share of the social project, made available in the Pool in 2025 "
+             "– not an expense above budget.",
+}
 
 
 def s_receita_segmento(b, d, m):
