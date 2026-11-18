@@ -69,6 +69,7 @@ PREFIXOS_VIA_CVM = ("Mangalarga", "Lipizzaner")
 # (segmento do group_hist_data, fundo na CVM) — os dois Mangalargas separados, cada
 # um com o próprio peso no PL do FO.
 FO_DIARIO = "Resultado FO diário (Mangalarga)"
+FO_DIARIO_GER = "Resultado FO diário (gerencial)"
 FO_DIARIO_MANGA = [("Luxor_Mangalarga_I", "Mangalarga I"),
                    ("Luxor_Mangalarga_Ii", "Mangalarga II")]
 # O cache das cotas (cvm.py) só fecha mês; os dias do mês corrente vêm direto do
@@ -246,53 +247,52 @@ def cotas_cvm_recentes(desde):
 
 
 # Gerencial do time de investimentos (repo luxor-data-pipelines, return_calculator): uma
-# linha por fundo por dia, e a de HOJE é regravada a cada 5 min no pregão (08h–20h). É
-# estimativa, não a cota do administrador — por isso só entra DEPOIS da última cota da
-# CVM, encadeando o Var_1D a partir dela: o histórico segue oficial e a ponta chega a hoje.
-# Pedido do Arthur, 18/11/2026. Mesma conta do Blob (container `luxorasap`).
+# linha por fundo por dia, com a cota gerencial; a de HOJE é regravada a cada 5 min no
+# pregão (08h–20h). É estimativa, não a cota do administrador — por isso é uma série À
+# PARTE, "Resultado FO diário (gerencial)", com o mesmo método da série da CVM (pedido do
+# Arthur, 18/11/2026). Mesma conta do Blob, container `luxorasap`.
 GERENCIAL_CONTAINER = "luxorasap"
 GERENCIAL_BLOB = "raw/parquet/input_manual/input_manual_historical_return_retornos.parquet"
 GERENCIAL_FUNDOS = {"mangalarga fic fia": "Mangalarga I", "mangalarga ii fic fia": "Mangalarga II"}
 
 
-def var_gerencial():
-    """Var_1D gerencial dos Mangalargas (índice DATA, uma coluna por fundo). Sem acesso,
-    devolve vazio e avisa: o painel fica com a CVM, não para."""
-    try:
-        from azure.storage.blob import BlobServiceClient
-        cli = BlobServiceClient.from_connection_string(azure_conn())
-        bruto = cli.get_blob_client(GERENCIAL_CONTAINER, GERENCIAL_BLOB).download_blob().readall()
-        df = pd.read_parquet(io.BytesIO(bruto))
-    except Exception as e:                                     # noqa: BLE001
-        print(f"[indicadores] {FO_DIARIO}: gerencial indisponível ({e}); segue só a CVM",
-              file=sys.stderr)
-        return pd.DataFrame()
+def cotas_cvm(qdf):
+    """Cotas oficiais dos Mangalargas (índice DATA, uma coluna por fundo): cache do cvm.py
+    + informe diário da CVM do mês corrente."""
+    fundos = [f for _, f in FO_DIARIO_MANGA]
+    q = qdf.loc[qdf["FUNDO"].isin(fundos), ["DATA", "FUNDO", "COTA"]]
+    q = pd.concat([q, cotas_cvm_recentes(q["DATA"].max())], ignore_index=True)
+    q = (q.drop_duplicates(["DATA", "FUNDO"], keep="last")
+          .pivot(index="DATA", columns="FUNDO", values="COTA")[fundos]
+          .dropna().sort_index())
+    # Dia em que a CVM repete a cota anterior nos dois fundos é cota que ainda não
+    # chegou (o informe do mês corrente vem assim), não variação zero de um FIA.
+    return q[(q != q.shift()).any(axis=1)]
+
+
+def cotas_gerencial():
+    """Cotas gerenciais dos Mangalargas (índice DATA, uma coluna por fundo), até hoje."""
+    from azure.storage.blob import BlobServiceClient
+    cli = BlobServiceClient.from_connection_string(azure_conn())
+    df = pd.read_parquet(io.BytesIO(
+        cli.get_blob_client(GERENCIAL_CONTAINER, GERENCIAL_BLOB).download_blob().readall()))
     fundo = df["Fundo"].astype(str).str.strip().str.lower()
     df = pd.DataFrame({"DATA": pd.to_datetime(df["Data"], errors="coerce").dt.normalize(),
                        "FUNDO": fundo.map(GERENCIAL_FUNDOS),
-                       "VAR": pd.to_numeric(df["Var_1D"], errors="coerce")}).dropna()
-    return (df.drop_duplicates(["DATA", "FUNDO"], keep="last")
-              .pivot(index="DATA", columns="FUNDO", values="VAR"))
+                       "COTA": pd.to_numeric(df["Cota"], errors="coerce")}).dropna()
+    fundos = [f for _, f in FO_DIARIO_MANGA]
+    q = (df.drop_duplicates(["DATA", "FUNDO"], keep="last")
+           .pivot(index="DATA", columns="FUNDO", values="COTA")[fundos].dropna().sort_index())
+    return q[q.index <= pd.Timestamp.today().normalize()]
 
 
-def estende_com_gerencial(q):
-    """Cotas depois da última da CVM: cota(d) = cota_CVM(último) × Π(1 + Var_1D gerencial)."""
-    v = var_gerencial()
-    if q.empty or v.empty or any(f not in v.columns for f in q.columns):
-        return q
-    v = v[list(q.columns)].dropna()
-    v = v[(v.index > q.index.max()) & (v.index <= pd.Timestamp.today().normalize())]
-    if v.empty:
-        return q
-    print(f"[indicadores] {FO_DIARIO}: CVM até {q.index.max():%d/%m}, gerencial até "
-          f"{v.index.max():%d/%m} ({len(v)} dia(s))")
-    return pd.concat([q, (1 + v).cumprod() * q.iloc[-1]])
-
-
-def build_fo_diario(gdf, qdf):
+def build_fo_diario(gdf, q):
     """Resultado FO dia a dia, com o Manga andando e o resto congelado.
 
-    Entre um fechamento c do FO e o seguinte, cada dia d com cota na CVM vale
+    `q` = cotas dos Mangalargas (índice DATA, uma coluna por fundo): as da CVM na série
+    "Resultado FO diário (Mangalarga)", as do gerencial na "(gerencial)".
+
+    Entre um fechamento c do FO e o seguinte, cada dia d com cota vale
         nível(d) = nível_FO(c) × (1 + Σ peso_i(c) × (cota_i(d) / cota_i(c) − 1))
     com peso_i = PL do Mangalarga i no group_hist_data ÷ PL do Resultado FO, os
     dois no fechamento c — o resto do FO não se mexe até o próximo fechamento.
@@ -327,15 +327,6 @@ def build_fo_diario(gdf, qdf):
     pl_manga = {fundo: pl(seg) for seg, fundo in FO_DIARIO_MANGA}
     fundos = [f for _, f in FO_DIARIO_MANGA]
 
-    q = qdf.loc[qdf["FUNDO"].isin(fundos), ["DATA", "FUNDO", "COTA"]]
-    q = pd.concat([q, cotas_cvm_recentes(q["DATA"].max())], ignore_index=True)
-    q = (q.drop_duplicates(["DATA", "FUNDO"], keep="last")
-          .pivot(index="DATA", columns="FUNDO", values="COTA")[fundos]
-          .dropna().sort_index())
-    # Dia em que a CVM repete a cota anterior nos dois fundos é cota que ainda não
-    # chegou (o informe do mês corrente vem assim), não variação zero de um FIA.
-    q = q[(q != q.shift()).any(axis=1)]
-    q = estende_com_gerencial(q)
 
     fech = sorted(d for d in pl_fo if d in fonte)
     serie = {d: r[1] for d, r in fonte.items()}
@@ -505,17 +496,24 @@ def build_indicadores():
 
     # Prévia diária do FO (precisa das duas fontes acima). Diária e sintética:
     # fantasy sim, monthly não.
+    # Duas prévias, mesmo método: pela cota oficial (CVM, D+1) e pela gerencial do time
+    # de investimentos (hoje, regravada a cada 5 min). Uma não depende da outra.
+    fontes = []
     if gdf is not None and qdf is not None:
+        fontes.append((FO_DIARIO, lambda: cotas_cvm(qdf)))
+    if gdf is not None:
+        fontes.append((FO_DIARIO_GER, cotas_gerencial))
+    for nome, cotas in fontes:
         try:
-            rows, meses = build_fo_diario(gdf, qdf)
-            out[FO_DIARIO] = rows
-            fantasy.append(FO_DIARIO)
+            rows, meses = build_fo_diario(gdf, cotas())
+            out[nome] = rows
+            fantasy.append(nome)
             if meses:
-                parcial36[FO_DIARIO] = meses
-            print(f"[indicadores] {FO_DIARIO}: {len(rows)} pontos "
+                parcial36[nome] = meses
+            print(f"[indicadores] {nome}: {len(rows)} pontos "
                   f"({rows[0][0]} a {rows[-1][0]}), último MTD {rows[-1][3]}%")
         except Exception as e:
-            print(f"[indicadores] {FO_DIARIO} ignorado:", e, file=sys.stderr)
+            print(f"[indicadores] {nome} ignorado:", e, file=sys.stderr)
 
     indices = sorted(out.keys())
     payload = {"indices": indices, "rows": out, "fantasy": sorted(fantasy),
