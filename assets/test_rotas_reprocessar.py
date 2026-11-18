@@ -56,7 +56,7 @@ class TestRotas(unittest.TestCase):
             "([p, env]) => window.__destino(p, n => env[n])", [painel, env])
 
     def test_1_cada_painel_vai_para_o_seu_destino(self):
-        for painel in ("saldo_bancario", "controle_pagamentos", "tarituba"):
+        for painel in ("saldo_bancario", "controle_pagamentos", "tarituba", "shiva"):
             self.assertEqual(self.destino(painel, CERTO),
                              {"url": f"{APP}/api/reprocessar", "chave": "chave-automacoes"}, painel)
         self.assertEqual(self.destino("inadimplencia", CERTO),
@@ -136,8 +136,8 @@ class TestRotas(unittest.TestCase):
                 if f.suffix in (".js", ".html", ".py") and not f.name.startswith("test_"):
                     ids |= set(re.findall(r"painel:\s*'([a-z_]+)'",
                                           f.read_text(encoding="utf-8", errors="ignore")))
-        self.assertTrue({"saldo_bancario", "controle_pagamentos", "tarituba", "inadimplencia",
-                         "vendas"} <= ids, ids)
+        self.assertTrue({"saldo_bancario", "controle_pagamentos", "tarituba", "shiva",
+                         "inadimplencia", "vendas"} <= ids, ids)
         rotas = set(self.pg.evaluate("Object.keys(window.__ROTAS)"))
         self.assertEqual(ids - rotas, set(), "botão sem destino na tabela")
 

@@ -28,6 +28,8 @@ const HUB_DATASETS = {
   saldo_bancario: null, controle_pagamentos: null,
   // idem: relê o snapshot depois do "Atualizar agora" e o status do card do Trello
   tarituba: null,
+  // idem (sem card): relê o snapshot depois do "Atualizar agora"
+  shiva: null,
   // tabelas kanban_* (ver sql/hub_schema.sql, seção 8), lidas e gravadas pelo iframe
   kanban: null,
   // tabelas senhas_* (seção 10), cifradas; a senha mestra é pedida no iframe
