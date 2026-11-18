@@ -79,7 +79,9 @@
   function lista(ls, i, ctx) {
     var m0 = ITEM.exec(ls[i]);
     var base = m0[1].length, ordenada = /\d/.test(m0[2]);
-    var html = ordenada ? '<ol>' : '<ul>';
+    // lista numerada que recomeça depois de um print ou bloco de código continua a contagem
+    var ini = ordenada ? parseInt(m0[2], 10) : 1;
+    var html = ordenada ? (ini > 1 ? '<ol start="' + ini + '">' : '<ol>') : '<ul>';
     while (i < ls.length) {
       var m = ITEM.exec(ls[i]);
       if (!m || m[1].length < base) break;

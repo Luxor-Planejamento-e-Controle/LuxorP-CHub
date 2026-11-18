@@ -22,12 +22,7 @@
     var d = new Date(iso);
     return ('0' + d.getDate()).slice(-2) + '/' + ('0' + (d.getMonth() + 1)).slice(-2) + '/' + d.getFullYear();
   }
-  function quem(email) {
-    if (!email) return '';
-    return email.split('@')[0].split(/[._-]/).map(function (p) {
-      return p.charAt(0).toUpperCase() + p.slice(1);
-    }).join(' ');
-  }
+  var quem = F.nome;
   function slug(s) {
     return String(s).normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
       .replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40) || 'secao';

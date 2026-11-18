@@ -76,6 +76,14 @@
     throw new Error('o manual está sendo gravado por outra pessoa agora. Tente salvar de novo.');
   }
 
+  // fulano.tal@… → "Fulano Tal" (a tela mostra nome, não e-mail)
+  function nome(email) {
+    if (!email) return '';
+    return email.split('@')[0].split(/[._-]/).map(function (p) {
+      return p.charAt(0).toUpperCase() + p.slice(1);
+    }).join(' ');
+  }
+
   function conflito(s, base) {
     // base = a seção como estava quando a edição abriu (null = seção nova)
     if (!base) return false;
@@ -89,7 +97,7 @@
       var i = doc.secoes.findIndex(function (s) { return s.id === (base ? base.id : secao.id); });
       if (conflito(i >= 0 ? doc.secoes[i] : null, base)) {
         var s = i >= 0 ? doc.secoes[i] : null;
-        throw new Error(s ? ('"' + s.titulo + '" foi alterada por ' + (s.atualizado_por || 'outra pessoa') +
+        throw new Error(s ? ('"' + s.titulo + '" foi alterada por ' + (nome(s.atualizado_por) || 'outra pessoa') +
                              ' enquanto você editava. Nada foi sobrescrito: copie seu texto, recarregue e refaça.')
                           : 'a seção foi apagada enquanto você editava. Nada foi gravado.');
       }
@@ -143,5 +151,6 @@
   }
 
   window.MN_FONTE = {ler: ler, podeEditar: podeEditar, salvarSecao: salvarSecao, apagarSecao: apagarSecao,
-                     moverSecao: moverSecao, urlsImgs: urlsImgs, enviarImg: enviarImg, normalizar: normalizar};
+                     moverSecao: moverSecao, urlsImgs: urlsImgs, enviarImg: enviarImg, normalizar: normalizar,
+                     nome: nome};
 })();
