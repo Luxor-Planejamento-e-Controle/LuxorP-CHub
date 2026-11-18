@@ -275,7 +275,23 @@
   }
 
   /* ---------- Advogados (GET /hub/advogados) ---------- */
-  var adv = null, buscaAdv = '';
+  var adv = null, buscaAdv = '', espAdv = '';
+  /* Especialidades a partir da "Área de atuação" (texto livre, várias por escritório, grafias
+   * com e sem acento). Um escritório entra em todas que o texto dele cita; área que não
+   * está aqui vira opção com o próprio texto, pra nenhum escritório ficar de fora do filtro. */
+  var ESPECIALIDADES = [
+    ['Societário', ['societari']], ['Tributário', ['tributari']], ['Imobiliário', ['imobiliari']],
+    ['Trabalhista', ['trabalhist']], ['Cível', ['civil', 'civel']], ['Cobranças', ['cobranc']],
+    ['Criminal', ['criminal', 'penal']], ['Marcas e Patentes', ['marca', 'patente']], ['M&A', ['m&a']],
+    ['Sucessão familiar', ['sucess']], ['Estruturas no exterior', ['exterior']],
+  ];
+  function especialidadesDe(f) {
+    var a = sem(f.area);
+    if (!a) return [];
+    var achou = ESPECIALIDADES.filter(function (e) { return e[1].some(function (k) { return a.indexOf(k) >= 0; }); })
+      .map(function (e) { return e[0]; });
+    return achou.length ? achou : [String(f.area).trim()];
+  }
   async function abrirAdvogados() {
     var v = $('#v-advogados');
     if (!adv) {
@@ -289,12 +305,22 @@
     var v = $('#v-advogados'), firmas = adv.escritorios || [], b = sem(buscaAdv);
     if (!firmas.length) { v.innerHTML = '<div class="so-muted">Nenhum escritório na planilha.</div>'; return; }
     var sel = firmas[+idDoHash()] || firmas[0];
+    var esps = [];
+    firmas.forEach(function (f) { especialidadesDe(f).forEach(function (e) { if (esps.indexOf(e) < 0) esps.push(e); }); });
+    esps.sort(function (x, y) { return x.localeCompare(y, 'pt-BR'); });
+    if (esps.indexOf(espAdv) < 0) espAdv = '';
     var vis = firmas.map(function (f, i) { return { f: f, i: i }; }).filter(function (x) {
+      if (espAdv && especialidadesDe(x.f).indexOf(espAdv) < 0) return false;
       return !b || sem([x.f.nome, x.f.area, x.f.advogados.map(function (a) { return a.nome; }).join(' ')].join(' ')).indexOf(b) >= 0;
     });
     var h = (podeEnviar ? '<div class="so-topo"><button class="so-btn" id="novoEscritorio">+ Novo escritório</button>' +
       '<button class="so-btn ghost" id="importarAdv">Importar planilha</button></div>' : '') +
-      '<div class="so-duas"><div class="so-lista"><input class="so-busca" id="advBusca" placeholder="Buscar escritório, área, advogado" value="' + esc(buscaAdv) + '">' +
+      '<div class="so-duas"><div class="so-lista"><select class="so-sel" id="advEsp" style="width:100%;margin-bottom:8px">' +
+      '<option value="">Todas as especialidades</option>' + esps.map(function (e) {
+        return '<option value="' + esc(e) + '"' + (e === espAdv ? ' selected' : '') + '>' + esc(e) + '</option>';
+      }).join('') + '</select>' +
+      '<input class="so-busca" id="advBusca" placeholder="Buscar escritório, área, advogado" value="' + esc(buscaAdv) + '">' +
+      (vis.length ? '' : '<div class="so-muted" style="padding:8px">Nenhum escritório com esse filtro.</div>') +
       vis.map(function (x) {
         return '<button class="so-item' + (x.f === sel ? ' on' : '') + '" data-i="' + x.i + '">' + esc(x.f.nome) +
           (x.f.area ? '<span class="so-muted">' + esc(x.f.area) + '</span>' : '') + '</button>';
@@ -335,6 +361,7 @@
       b.onclick = function () { var j = +b.dataset.advEx; excluirAdvogado(firmas.indexOf(sel), sel, j, sel.advogados[j]); };
     });
     ligarAnexos('advogados');
+    $('#advEsp').onchange = function () { espAdv = this.value; desenharAdvogados(); };
     $('#advBusca').oninput = function () {
       buscaAdv = this.value; var pos = this.selectionStart; desenharAdvogados();
       var i = $('#advBusca'); i.focus(); i.setSelectionRange(pos, pos);
