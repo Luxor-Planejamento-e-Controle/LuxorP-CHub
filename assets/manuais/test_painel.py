@@ -180,7 +180,7 @@ class TestManuais(unittest.TestCase):
         self.assertIn("Seção B", pg.text_content("#indice"))
         pg.fill("#busca", "")
         pg.click('#secao a[href="#s=secao-b"]')
-        pg.wait_for_timeout(300)
+        pg.wait_for_selector("#secao h1:text-is('Seção B')")
         self.assertEqual(pg.text_content("#secao h1"), "Seção B")
         self.assertEqual(erros, [])
         pg.close()
@@ -191,7 +191,7 @@ class TestManuais(unittest.TestCase):
         self.assertTrue(pg.is_visible("#nova"))
         pg.click('#secao button[data-a="editar"]')
         pg.fill("#ed-md", "## Novo\n\n- item editado")
-        pg.wait_for_timeout(300)
+        pg.wait_for_selector("#ed-previa li")   # a prévia redesenha 200 ms depois de digitar
         self.assertIn("item editado", pg.text_content("#ed-previa"))
         pg.click("#ed-salvar")
         pg.wait_for_selector("#secao header.cab")   # o editor saiu e a seção foi redesenhada
@@ -211,7 +211,7 @@ class TestManuais(unittest.TestCase):
         pg.fill("#ed-md", "minha versão")
         est.conflito_secao = ("secao-b", "2026-11-03T09:00:00+00:00")
         pg.click("#ed-salvar")
-        pg.wait_for_timeout(600)
+        pg.wait_for_selector("#status.erro")
         self.assertEqual(est.gravacoes, [])
         self.assertIn("Outra Pessoa", pg.text_content("#status"))
         self.assertEqual(pg.input_value("#ed-md"), "minha versão")   # o texto não se perde
@@ -224,7 +224,7 @@ class TestManuais(unittest.TestCase):
         pg.click("#nova")
         pg.fill("#ed-titulo", "Rotina Nova")
         pg.set_input_files("#ed-arq", files=[{"name": "p.png", "mimeType": "image/png", "buffer": PNG}])
-        pg.wait_for_timeout(800)
+        pg.wait_for_function("document.querySelector('#ed-md').value.includes('](img/')")
         self.assertEqual(len(est.envios), 1)
         self.assertTrue(est.envios[0].startswith(f"{MANUAL}/"))
         self.assertRegex(pg.input_value("#ed-md"), r"!\[\]\(img/\d{14}_[a-z0-9]+\.png\)")
