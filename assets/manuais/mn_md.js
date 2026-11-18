@@ -40,27 +40,27 @@
     return '<img src="' + esc(url) + '" alt="' + esc(alt) + '" data-img="' + esc(nome) + '" loading="lazy">';
   }
 
-  /* inline: o texto chega CRU; código é separado primeiro (nada dentro dele é formatado) */
+  /* inline: o texto chega CRU. Código, imagem e link viram marcadores antes do escape e da
+   * ênfase, e voltam no fim — assim **negrito com `código` no meio** fecha certo e nada
+   * dentro do código é formatado. */
   function inline(txt, ctx) {
-    var partes = String(txt).split(/(`[^`]+`)/);
-    return partes.map(function (p) {
-      if (/^`[^`]+`$/.test(p)) return '<code>' + esc(p.slice(1, -1)) + '</code>';
-      var out = '', re = /!\[([^\]]*)\]\(([^)\s]+)\)|\[([^\]]+)\]\(([^)\s]+)\)/g, ult = 0, m;
-      while ((m = re.exec(p))) {
-        out += enfase(esc(p.slice(ult, m.index)));
-        if (m[2] !== undefined && m[0][0] === '!') {
-          out += imgTag(m[1], m[2], ctx);
-        } else {
-          var h = hrefOk(m[4]);
-          var ext = h && !/^#/.test(h);
-          out += h ? '<a href="' + esc(h) + '"' + (ext ? ' target="_blank" rel="noopener"' : '') + '>' +
-                     enfase(esc(m[3])) + '</a>'
-                   : esc(m[0]);
-        }
-        ult = re.lastIndex;
-      }
-      return out + enfase(esc(p.slice(ult)));
-    }).join('');
+    var guarda = [];
+    var marca = function (html) { guarda.push(html); return '\u0000' + (guarda.length - 1) + '\u0000'; };
+    var s = String(txt).replace(/`([^`]+)`/g, function (_, c) { return marca('<code>' + esc(c) + '</code>'); });
+    s = s.replace(/!\[([^\]]*)\]\(([^)\s]+)\)/g, function (_, alt, src) { return marca(imgTag(alt, src, ctx)); });
+    s = s.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, function (todo, rot, url) {
+      var h = hrefOk(url);
+      if (!h) return todo;
+      var ext = !/^#/.test(h);
+      return marca('<a href="' + esc(h) + '"' + (ext ? ' target="_blank" rel="noopener"' : '') + '>' +
+                   enfase(esc(rot)) + '</a>');
+    });
+    s = enfase(esc(s));
+    // código dentro do rótulo de um link é marcador dentro de marcador: volta na 2ª passada
+    for (var k = 0; k < 3 && /\u0000\d+\u0000/.test(s); k++) {
+      s = s.replace(/\u0000(\d+)\u0000/g, function (_, i) { return guarda[+i]; });
+    }
+    return s;
   }
 
   function enfase(h) {

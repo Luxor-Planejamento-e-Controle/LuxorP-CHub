@@ -47,6 +47,8 @@ python script.py --mes MM/AAAA
 Ver também [a seção B](#s=secao-b) e [site](https://exemplo.com).
 
 <script>window.__xss = 1</script> **negrito** e *itálico*.
+
+Antes **apaga `base_x` tudo** depois e [link `cod`](#s=secao-b).
 """
 
 
@@ -162,7 +164,9 @@ class TestManuais(unittest.TestCase):
         # nada do texto vira tag
         self.assertIsNone(pg.evaluate("window.__xss"))
         self.assertIn("<script>", pg.text_content(md))
-        self.assertEqual(pg.locator(f"{md} strong").count(), 1)
+        self.assertEqual(pg.locator(f"{md} strong").count(), 2)
+        self.assertEqual(pg.locator(f"{md} strong code").text_content(), "base_x")   # negrito atravessa código
+        self.assertEqual(pg.locator(f'{md} a[href="#s=secao-b"] code').count(), 1)
         # leitor sem permissão não vê botão de edição
         self.assertFalse(pg.is_visible("#nova"))
         self.assertEqual(pg.locator("#secao button[data-a]").count(), 0)
@@ -190,7 +194,7 @@ class TestManuais(unittest.TestCase):
         pg.wait_for_timeout(300)
         self.assertIn("item editado", pg.text_content("#ed-previa"))
         pg.click("#ed-salvar")
-        pg.wait_for_selector("#secao .md li")
+        pg.wait_for_selector("#secao header.cab")   # o editor saiu e a seção foi redesenhada
         self.assertEqual(erros, [])
         self.assertEqual(len(est.gravacoes), 1)
         secoes = est.gravacoes[0]["data"]["secoes"]
