@@ -39,6 +39,8 @@ const HUB_DATASETS = {
   comite_fo: null, board_fo: null,
   // carta trimestral: o deck vem do bucket e os textos de app_state ('carta'), no iframe
   carta: null,
+  // manuais de processo: texto em app_state (<manual>) e prints no bucket `manuais`, no iframe
+  manual_backoffice: null,
 };
 
 /* Erro devolvido pelo GoTrue vem na URL (hash no fluxo implícito, query no PKCE)

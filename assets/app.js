@@ -79,7 +79,9 @@ const ICON = {
   deck:'M3 4h18M4 4v11h16V4M12 15v3M8 21l4-3 4 3M7.5 12l3-3 2 2 4-4',
   board:'M3 9h18v4H3zM6 13v6M18 13v6M8 5.5a2 2 0 104 0 2 2 0 00-4 0M12 5.5a2 2 0 104 0 2 2 0 00-4 0',
   // envelope: a carta aos cotistas
-  carta:'M3 6h18v12H3zM3 6l9 7 9-7'
+  carta:'M3 6h18v12H3zM3 6l9 7 9-7',
+  // livro aberto: os manuais de processo
+  manual:'M12 6.5C10 5 7 4.5 3 4.5v14c4 0 7 .5 9 2 2-1.5 5-2 9-2v-14c-4 0-7 .5-9 2zM12 6.5v14'
 };
 const ROUTES = [
   {id:'', title:'Início', sub:'Hub de Planejamento & Controle', icon:'home', render:renderHome},
@@ -98,6 +100,7 @@ const ROUTES = [
   {id:'comite_fo', title:'Comitê de Resultados FO', sub:'Deck trimestral do Family Office', icon:'deck', render:el=>renderApresentacao(el,'comite_fo','Comitê de Resultados FO')},
   {id:'board_fo', title:'Board', sub:'Deck trimestral do Board', icon:'board', render:el=>renderApresentacao(el,'board_fo','Board')},
   {id:'carta', title:'Carta Trimestral', sub:'Carta trimestral aos cotistas, em português e inglês', icon:'carta', render:el=>renderApresentacao(el,'carta','Carta Trimestral')},
+  {id:'manual_backoffice', title:'Manual de Processos — Backoffice', sub:'Rotinas do fechamento passo a passo: scripts, caminhos e conferências', icon:'manual', render:el=>renderManual(el,'manual_backoffice','Manual de Processos — Backoffice')},
 ];
 // Rotas que o usuário logado pode abrir (Início sempre). Fora da allowlist a
 // aba nem aparece — e o dado dela nem foi baixado (ver assets/auth.js).
@@ -117,6 +120,7 @@ function temDado(id, hub){
   if(id==='senhas') return true;                  // tabelas senhas_* (cifradas) direto do Postgres
   if(id==='societario') return true;              // fala direto com o bot das estruturas societárias
   if(id==='comite_fo' || id==='board_fo' || id==='carta') return true;  // o iframe baixa o próprio <deck>.json
+  if(id==='manual_backoffice') return true;       // o iframe lê app_state e o bucket `manuais`
   return true;                                    // Projetos lê direto do Postgres
 }
 function allowed(){
@@ -140,6 +144,7 @@ const MENU = [
   {pasta:'controles', titulo:'Controles Financeiros', itens:['inadimplencia','vendas','saldo_bancario','controle_pagamentos']},
   {pasta:'apresentacoes', titulo:'Apresentações', itens:['comite_fo','board_fo','carta']},
   {pasta:'tarefas', titulo:'Kanban e Projetos', itens:['kanban','projetos','senhas']},
+  {pasta:'manuais', titulo:'Manuais', itens:['manual_backoffice']},
   'societario',
 ];
 const PASTA_ICO='M3 7.5A1.5 1.5 0 014.5 6H9.2l1.8 2h8.5A1.5 1.5 0 0121 9.5v8A1.5 1.5 0 0119.5 19h-15A1.5 1.5 0 013 17.5z';
@@ -1060,6 +1065,14 @@ function renderSocietario(el){
 function renderApresentacao(el, deck, titulo){
   el.classList.add('flush');
   el.innerHTML=`<iframe class="embed" src="assets/apresentacoes/index.html?deck=${deck}" title="${titulo}" allowfullscreen></iframe>`;
+}
+
+/* ---- Manuais (pasta "Manuais") ----
+   Uma página só (assets/manuais/) para todos, escolhida por ?manual=. Iframe com src local:
+   quem é editor grava a seção e envia print com a sessão do hub, não só lê. */
+function renderManual(el, manual, titulo){
+  el.classList.add('flush');
+  el.innerHTML=`<iframe class="embed" src="assets/manuais/index.html?manual=${manual}" title="${titulo}"></iframe>`;
 }
 
 /* ---- sidebar: desktop colapsa pra ícone, mobile vira drawer ----

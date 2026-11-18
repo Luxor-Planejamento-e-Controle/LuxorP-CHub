@@ -37,7 +37,7 @@ create table if not exists user_dashboard_access (
   email      text not null references allowed_users(email) on update cascade on delete cascade,
   dashboard  text not null check (dashboard in
                ('indicadores','dre','inadimplencia','vendas','projetos','fluxo','participacoes','plantel',
-                'saldo_bancario','controle_pagamentos','tarituba','kanban','societario','comite_fo','board_fo','carta','processos','societario_envio','senhas')),
+                'saldo_bancario','controle_pagamentos','tarituba','kanban','societario','comite_fo','board_fo','carta','processos','societario_envio','senhas','manual_backoffice')),
   granted_at timestamptz not null default now(),
   primary key (email, dashboard)
 );
@@ -54,7 +54,7 @@ alter table user_dashboard_access drop constraint if exists user_dashboard_acces
 alter table user_dashboard_access add constraint user_dashboard_access_dashboard_check
   check (dashboard in
           ('indicadores','dre','inadimplencia','vendas','projetos','fluxo','participacoes','plantel',
-           'saldo_bancario','controle_pagamentos','tarituba','kanban','societario','comite_fo','board_fo','carta','processos','societario_envio','senhas'));
+           'saldo_bancario','controle_pagamentos','tarituba','kanban','societario','comite_fo','board_fo','carta','processos','societario_envio','senhas','manual_backoffice'));
 
 -- ---------------------------------------------------------------------
 -- 3) Helpers. SECURITY DEFINER para as policies não recursarem na própria
@@ -144,6 +144,7 @@ create policy hub_data_read on storage.objects
 --      id = 'controle_pagamentos'  cadastro de fornecedores fixos
 --      id = 'tarituba'             cadastro de naturezas do Fluxo de Caixa Tarituba
 --      id = 'carta'                textos da Carta Trimestral (PT e EN) por trimestre
+--      id = 'manual_backoffice'    Manual de Processos — Backoffice (seções em markdown)
 --
 --    Mora AQUI, e não num arquivo por painel, porque a RLS é DA TABELA: as oito
 --    policies abaixo só fazem sentido lidas juntas. Enquanto estiveram em três
@@ -253,6 +254,10 @@ create policy hub_carta_update on app_state
 --   tarituba            : { versao, naturezas }  — ver assets/tarituba/tt_dados.js
 --   carta               : { versao, trimestres: {<AAAA-QN>: {pt, en, leituras}} }
 --                         — ver assets/apresentacoes/ap_deck.js (CONTEUDO)
+--   manual_backoffice   : { versao, titulo, secoes: [{id, titulo, periodicidade, md, ...}] }
+--                         — ver assets/manuais/mn_fonte.js. As DUAS policies dele estão
+--                         na seção 11, depois de manual_editores: dependem da função que
+--                         lê essa tabela, e a função precisa existir antes da policy.
 --
 -- Em tarituba, o documento vazio mantém o painel na estrutura da planilha: o job do
 -- Azure só passa a ler o cadastro quando ele tem naturezas. O seed (gerado por
@@ -271,7 +276,8 @@ insert into app_state (id, data) values
   ('saldo_bancario',      '{}'::jsonb),
   ('controle_pagamentos', '{}'::jsonb),
   ('tarituba',            '{}'::jsonb),
-  ('carta',               '{}'::jsonb)
+  ('carta',               '{}'::jsonb),
+  ('manual_backoffice',   '{}'::jsonb)
 on conflict (id) do nothing;
 
 -- Realtime: sem isto o app sobe e salva, mas os clientes não se sincronizam —
@@ -1423,3 +1429,85 @@ drop policy if exists senhas_arquivos_apagar on storage.objects;
 create policy senhas_arquivos_apagar on storage.objects
   for delete to authenticated
   using ( bucket_id = 'senhas' and (select public.hub_can('senhas')) );
+
+
+-- ---------------------------------------------------------------------
+-- 11) Manuais de processo (pasta "Manuais" do menu; pedido do Arthur, 18/11/2026).
+--     Um manual = uma aba (hoje só manual_backoffice) = um documento em app_state
+--     com o mesmo id. Prints no bucket privado `manuais`, em <manual>/<arquivo>.
+--
+--     Quem vê a aba LÊ. Quem GRAVA (texto e print) é admin ou quem está em
+--     manual_editores para aquele manual — lista fechada, escolha dele. Os e-mails
+--     vivem no seed local (sql/seed_allowlist.local.sql), nunca aqui.
+--
+--     Manual novo: id no CHECK da seção 2, no CHECK de manual_editores abaixo, linha
+--     no insert da seção 6 e as duas policies de app_state abaixo.
+-- ---------------------------------------------------------------------
+create table if not exists manual_editores (
+  email   text not null references allowed_users(email) on update cascade on delete cascade,
+  manual  text not null check (manual in ('manual_backoffice')),
+  primary key (email, manual)
+);
+
+alter table manual_editores enable row level security;
+
+drop policy if exists manual_editores_ler on manual_editores;
+create policy manual_editores_ler on manual_editores
+  for select to authenticated
+  using ( email = (select public.hub_email()) or (select public.hub_is_admin()) );
+
+drop policy if exists manual_editores_admin on manual_editores;
+create policy manual_editores_admin on manual_editores
+  for all to authenticated
+  using ( (select public.hub_is_admin()) ) with check ( (select public.hub_is_admin()) );
+
+grant select, insert, update, delete on manual_editores to authenticated;
+grant all on manual_editores to service_role;
+revoke all on manual_editores from anon;
+
+-- Precisa ver a aba E (ser admin OU estar na lista). A tela pergunta por aqui para
+-- mostrar os botões; as policies abaixo usam a mesma função.
+create or replace function public.hub_manual_pode_editar(m text) returns boolean
+language sql stable security definer set search_path = public as $$
+  select public.hub_can(m) and (
+    public.hub_is_admin() or exists (
+      select 1 from manual_editores where email = public.hub_email() and manual = m
+    )
+  )
+$$;
+grant execute on function public.hub_manual_pode_editar(text) to authenticated;
+
+drop policy if exists hub_manual_backoffice_select on app_state;
+create policy hub_manual_backoffice_select on app_state
+  for select to authenticated
+  using ( id = 'manual_backoffice' and public.hub_can('manual_backoffice') );
+
+drop policy if exists hub_manual_backoffice_update on app_state;
+create policy hub_manual_backoffice_update on app_state
+  for update to authenticated
+  using      ( id = 'manual_backoffice' and public.hub_manual_pode_editar('manual_backoffice') )
+  with check ( id = 'manual_backoffice' and public.hub_manual_pode_editar('manual_backoffice') );
+
+-- prints: a primeira pasta do caminho é o id do manual. Sem update: cada envio ganha
+-- nome novo, então nada sobrescreve print que outra seção cita.
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values ('manuais', 'manuais', false, 8388608,
+        array['image/png','image/jpeg','image/gif','image/webp'])
+on conflict (id) do update set public = false;
+
+drop policy if exists manuais_ler on storage.objects;
+create policy manuais_ler on storage.objects
+  for select to authenticated
+  using ( bucket_id = 'manuais' and public.hub_can((storage.foldername(name))[1]) );
+
+drop policy if exists manuais_enviar on storage.objects;
+create policy manuais_enviar on storage.objects
+  for insert to authenticated
+  with check ( bucket_id = 'manuais'
+               and public.hub_manual_pode_editar((storage.foldername(name))[1]) );
+
+drop policy if exists manuais_apagar on storage.objects;
+create policy manuais_apagar on storage.objects
+  for delete to authenticated
+  using ( bucket_id = 'manuais'
+          and public.hub_manual_pode_editar((storage.foldername(name))[1]) );
