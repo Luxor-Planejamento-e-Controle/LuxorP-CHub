@@ -131,9 +131,11 @@ function allowed(){
 const byId = id => allowed().find(r=>r.id===id) || ROUTES[0];
 
 /* ---- menu em pastas (13/11/2026, organização do Arthur) ----
-   A ORDEM do menu mora aqui: id solto é link no primeiro nível; objeto é pasta.
-   Aba nova que não entrar em lugar nenhum aparece no fim do primeiro nível — nunca
-   some do menu por esquecimento.
+   Aqui mora só QUEM fica em qual pasta: id solto é link no primeiro nível; objeto é pasta.
+   Aba nova que não entrar em lugar nenhum aparece solta no primeiro nível — nunca some
+   do menu por esquecimento.
+   A ORDEM é do menuDoUsuario (regra dele, 18/11/2026): Início; abas soltas em ordem
+   alfabética; pastas em ordem alfabética, com as abas de dentro também em ordem.
    Regra dele: TODO fluxo de caixa novo (como o do Tarituba) entra na pasta
    "Fluxo de Caixa". O "Fluxo de Caixa — Orçado × Realizado" do grupo fica em
    Orçado × Realizado, ao lado do DRE. */
@@ -165,7 +167,16 @@ function menuDoUsuario(){
     if(rotas.length) out.push({pasta:m.pasta, titulo:m.titulo, rotas});
   }
   for(const [id,r] of ok) if(!usados.has(id)) out.push({rota:r});
-  return out;
+  return ordenarMenu(out);
+}
+const alfa=(a,b)=>a.localeCompare(b,'pt-BR',{sensitivity:'base'});
+function ordenarMenu(out){
+  const inicio=out.filter(m=>m.rota && !m.rota.id);
+  const soltas=out.filter(m=>m.rota && m.rota.id).sort((a,b)=>alfa(a.rota.title,b.rota.title));
+  const pastas=out.filter(m=>m.pasta)
+    .map(m=>({...m, rotas:[...m.rotas].sort((a,b)=>alfa(a.title,b.title))}))
+    .sort((a,b)=>alfa(a.titulo,b.titulo));
+  return [...inicio, ...soltas, ...pastas];
 }
 
 function linkNav(r){
