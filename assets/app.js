@@ -250,13 +250,49 @@ function renderHome(el){
 function renderIndicadores(el){
   const D=window.IND_DATA;
   if(!D){el.innerHTML='<div class="empty">Dados não carregados. Rode <code>python tools/build_data.py</code>.</div>';return;}
+  const online=window.HUB && window.HUB.sb && !window.HUB.offline && window.HUB_REPROCESSAR;
   el.innerHTML=`<div class="toolbar" style="margin-bottom:14px">
       <div class="field"><label>Modo</label>${seg('indModo',['Individual','Comparar'],'Individual')}</div>
+      ${online?`<div class="field"><label>&nbsp;</label>
+        <button type="button" class="btn-ghost" id="indAtualizar" title="Roda agora, na Azure, os mesmos jobs do agendamento">Atualizar agora</button></div>
+      <div class="field"><label>&nbsp;</label><span class="hint" id="indReproc" style="align-self:center"></span></div>`:''}
     </div><div id="indBody"></div>`;
   const body=document.getElementById('indBody');
   const go=()=>{clearCharts();body.innerHTML='';(segVal('indModo')==='Comparar'?indComparar:indIndividual)(body,D);};
   bindSeg('indModo',go);
   go();
+  if(online) ligarAtualizarIndicadores();
+}
+
+/* "Atualizar agora" do Indicadores (18/11/2026): a Edge Function `reprocessar` confere
+   hub_can('indicadores') e chama o pc_indicadores na Azure, que roda os mesmos dois jobs do
+   agendamento (índices no Blob, depois o snapshot do hub) e grava `indicadores.status.json`.
+   É pelo `quando` desse arquivo que se sabe que terminou; aí o snapshot novo é baixado e a
+   aba redesenhada. */
+function ligarAtualizarIndicadores(){
+  const sb=()=>window.HUB.sb;
+  const baixar=async nome=>{
+    const r=await sb().storage.from('hub-data').download(nome);
+    return r.data ? JSON.parse(await r.data.text()) : null;
+  };
+  const status=async()=>{try{return await baixar('indicadores.status.json');}catch(e){return null;}};
+  window.HUB_REPROCESSAR.ligar({
+    painel:'indicadores',
+    botao:document.getElementById('indAtualizar'),
+    status:document.getElementById('indReproc'),
+    cliente:sb,
+    limite:25*60000,
+    aguardando:'pedido enviado — a Azure está rodando os índices e depois o painel (alguns minutos)…',
+    lerCarimbo:async()=>{const s=await status(); return s ? s.quando : null;},
+    aoConcluir:async()=>{
+      const s=await status();
+      if(s && !s.ok) return {texto:'não atualizado: '+s.mensagem, erro:true};
+      const novo=await baixar('indicadores.json');
+      if(novo) window.IND_DATA=novo;
+      router();
+      return {texto:(s && s.mensagem) || 'atualizado agora.'};
+    }
+  });
 }
 
 function indIndividual(el,D){

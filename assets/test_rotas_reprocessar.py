@@ -29,6 +29,8 @@ CERTO = {
     "AZURE_VENDAS_KEY": "chave-vendas",
     "AZURE_APRESENTACOES_URL": f"{APP}/api/pc/apresentacoes",
     "AZURE_APRESENTACOES_KEY": "chave-apresentacoes",
+    "AZURE_INDICADORES_URL": f"{APP}/api/pc/indicadores",
+    "AZURE_INDICADORES_KEY": "chave-indicadores",
 }
 
 
@@ -124,6 +126,14 @@ class TestRotas(unittest.TestCase):
                              {"url": f"{APP}/api/pc/apresentacoes", "chave": "chave-apresentacoes"}, painel)
         sem = {k: v for k, v in CERTO.items() if "APRESENTACOES" not in k}
         self.assertIn("AZURE_APRESENTACOES_URL", self.destino("board_fo", sem)["erro"])
+        self.assertEqual(self.destino("vendas", sem)["chave"], "chave-vendas")
+
+    def test_7b_indicadores_tem_o_proprio_par(self):
+        """O botão do Indicadores vai para o pc_indicadores com o próprio par de secrets."""
+        self.assertEqual(self.destino("indicadores", CERTO),
+                         {"url": f"{APP}/api/pc/indicadores", "chave": "chave-indicadores"})
+        sem = {k: v for k, v in CERTO.items() if "INDICADORES" not in k}
+        self.assertIn("AZURE_INDICADORES_URL", self.destino("indicadores", sem)["erro"])
         self.assertEqual(self.destino("vendas", sem)["chave"], "chave-vendas")
 
     def test_8_todo_botao_do_hub_tem_destino(self):

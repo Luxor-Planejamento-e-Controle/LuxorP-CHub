@@ -40,7 +40,14 @@ const APRESENTACOES = {
   rota: '/api/pc/apresentacoes',       // pc_apresentacoes, luxor-planejamento-functions (Arthur)
 }
 
+// Indicadores Financeiros (18/11/2026): a função dispara na Azure os mesmos dois Container
+// App Jobs do agendamento (financial-indicators-job e depois hub-indicadores-job).
+const INDICADORES = {
+  url: 'AZURE_INDICADORES_URL', chave: 'AZURE_INDICADORES_KEY',
+  rota: '/api/pc/indicadores',         // pc_indicadores, luxor-planejamento-functions (Arthur)
+}
 export const ROTAS = {
+  indicadores: INDICADORES,
   saldo_bancario: AUTOMACOES,
   controle_pagamentos: AUTOMACOES,
   tarituba: AUTOMACOES,

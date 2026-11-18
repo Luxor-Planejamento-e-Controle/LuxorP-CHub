@@ -245,6 +245,50 @@ def cotas_cvm_recentes(desde):
     return novas[novas["DATA"] > desde]
 
 
+# Gerencial do time de investimentos (repo luxor-data-pipelines, return_calculator): uma
+# linha por fundo por dia, e a de HOJE é regravada a cada 5 min no pregão (08h–20h). É
+# estimativa, não a cota do administrador — por isso só entra DEPOIS da última cota da
+# CVM, encadeando o Var_1D a partir dela: o histórico segue oficial e a ponta chega a hoje.
+# Pedido do Arthur, 18/11/2026. Mesma conta do Blob (container `luxorasap`).
+GERENCIAL_CONTAINER = "luxorasap"
+GERENCIAL_BLOB = "raw/parquet/input_manual/input_manual_historical_return_retornos.parquet"
+GERENCIAL_FUNDOS = {"mangalarga fic fia": "Mangalarga I", "mangalarga ii fic fia": "Mangalarga II"}
+
+
+def var_gerencial():
+    """Var_1D gerencial dos Mangalargas (índice DATA, uma coluna por fundo). Sem acesso,
+    devolve vazio e avisa: o painel fica com a CVM, não para."""
+    try:
+        from azure.storage.blob import BlobServiceClient
+        cli = BlobServiceClient.from_connection_string(azure_conn())
+        bruto = cli.get_blob_client(GERENCIAL_CONTAINER, GERENCIAL_BLOB).download_blob().readall()
+        df = pd.read_parquet(io.BytesIO(bruto))
+    except Exception as e:                                     # noqa: BLE001
+        print(f"[indicadores] {FO_DIARIO}: gerencial indisponível ({e}); segue só a CVM",
+              file=sys.stderr)
+        return pd.DataFrame()
+    fundo = df["Fundo"].astype(str).str.strip().str.lower()
+    df = pd.DataFrame({"DATA": pd.to_datetime(df["Data"], errors="coerce").dt.normalize(),
+                       "FUNDO": fundo.map(GERENCIAL_FUNDOS),
+                       "VAR": pd.to_numeric(df["Var_1D"], errors="coerce")}).dropna()
+    return (df.drop_duplicates(["DATA", "FUNDO"], keep="last")
+              .pivot(index="DATA", columns="FUNDO", values="VAR"))
+
+
+def estende_com_gerencial(q):
+    """Cotas depois da última da CVM: cota(d) = cota_CVM(último) × Π(1 + Var_1D gerencial)."""
+    v = var_gerencial()
+    if q.empty or v.empty or any(f not in v.columns for f in q.columns):
+        return q
+    v = v[list(q.columns)].dropna()
+    v = v[(v.index > q.index.max()) & (v.index <= pd.Timestamp.today().normalize())]
+    if v.empty:
+        return q
+    print(f"[indicadores] {FO_DIARIO}: CVM até {q.index.max():%d/%m}, gerencial até "
+          f"{v.index.max():%d/%m} ({len(v)} dia(s))")
+    return pd.concat([q, (1 + v).cumprod() * q.iloc[-1]])
+
+
 def build_fo_diario(gdf, qdf):
     """Resultado FO dia a dia, com o Manga andando e o resto congelado.
 
@@ -291,6 +335,7 @@ def build_fo_diario(gdf, qdf):
     # Dia em que a CVM repete a cota anterior nos dois fundos é cota que ainda não
     # chegou (o informe do mês corrente vem assim), não variação zero de um FIA.
     q = q[(q != q.shift()).any(axis=1)]
+    q = estende_com_gerencial(q)
 
     fech = sorted(d for d in pl_fo if d in fonte)
     serie = {d: r[1] for d, r in fonte.items()}
