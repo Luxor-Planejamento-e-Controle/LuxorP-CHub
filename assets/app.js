@@ -68,6 +68,8 @@ const ICON = {
   // Tarituba é um imóvel: prédio, e não `fluxo` — esse já é o Fluxo de Caixa do grupo,
   // e dois ícones iguais no menu é o problema que o comentário acima já resolveu uma vez.
   imovel:'M4 21V5l8-3v19M12 21V9l8 3v9M2 21h20M7 8h2M7 12h2M7 16h2M15 14h2M15 18h2',
+  // Shiva é a operação agro: broto, e não `imovel` nem `fluxo` (mesma regra de cima)
+  agro:'M12 21v-9M12 12c0-4.4 3.1-7.5 8-7.5 0 4.9-3.1 8-8 7.5zM12 14.5c0-3.6-2.6-6-6.5-6 0 3.9 2.6 6.4 6.5 6zM8 21h8',
   // três colunas de cards de alturas diferentes: o board, e não o checklist de `proj`
   kanban:'M4 4h4.5v16H4zM9.75 4h4.5v10h-4.5zM15.5 4H20v13h-4.5z',
   // cadeado: a aba de Senhas
@@ -94,6 +96,7 @@ const ROUTES = [
   {id:'saldo_bancario', title:'Saldo Bancário', sub:'Projeção de caixa da semana — Grupo Luxor', icon:'moeda', render:renderSaldoBancario},
   {id:'controle_pagamentos', title:'Controle de Pagamentos', sub:'Fornecedores fixos do mês e o que já foi pago', icon:'pagamentos', render:renderControlePagamentos},
   {id:'tarituba', title:'Fluxo de Caixa — Tarituba', sub:'Orçado × realizado do imóvel, mês a mês', icon:'imovel', render:renderTarituba},
+  {id:'shiva', title:'Fluxo de Caixa — Shiva', sub:'Orçado × realizado da operação agro, mês a mês', icon:'agro', render:renderShiva},
   {id:'kanban', title:'Kanban Planejamento, Controle e Concierge', sub:'Tarefas do time: a fazer, em andamento, bloqueadas e feitas', icon:'kanban', render:renderKanban},
   {id:'senhas', title:'Senhas P&C', sub:'Listagem de senhas do P&C, aberta com a senha mestra', icon:'senhas', render:renderSenhas},
   {id:'societario', title:'Estruturas Societárias', sub:'Chat, organogramas e quadro societário do Grupo Luxor', icon:'org', render:renderSocietario},
@@ -116,6 +119,7 @@ function temDado(id, hub){
   if(id==='saldo_bancario') return true;          // lê o bucket e app_state por conta própria
   if(id==='controle_pagamentos') return true;     // idem
   if(id==='tarituba') return true;                // idem
+  if(id==='shiva') return true;                   // idem
   if(id==='kanban') return true;                  // tabelas kanban_* direto do Postgres
   if(id==='senhas') return true;                  // tabelas senhas_* (cifradas) direto do Postgres
   if(id==='societario') return true;              // fala direto com o bot das estruturas societárias
@@ -142,7 +146,7 @@ const byId = id => allowed().find(r=>r.id===id) || ROUTES[0];
 const MENU = [
   '', 'indicadores',
   {pasta:'orcado', titulo:'Orçado × Realizado', itens:['fluxo','dre']},
-  {pasta:'fluxos', titulo:'Fluxo de Caixa', itens:['tarituba']},
+  {pasta:'fluxos', titulo:'Fluxo de Caixa', itens:['tarituba','shiva']},
   {pasta:'controles', titulo:'Controles Financeiros', itens:['inadimplencia','vendas','saldo_bancario','controle_pagamentos']},
   {pasta:'apresentacoes', titulo:'Apresentações', itens:['comite_fo','board_fo','carta']},
   {pasta:'tarefas', titulo:'Kanban e Projetos', itens:['kanban','projetos','senhas']},
@@ -1072,6 +1076,14 @@ function renderControlePagamentos(el){
 function renderTarituba(el){
   el.classList.add('flush');
   el.innerHTML=`<iframe class="embed" src="assets/tarituba/index.html" title="Fluxo de Caixa — Tarituba"></iframe>`;
+}
+
+/* ---- Fluxo de Caixa Shiva (mesmo padrão do Tarituba, sem o card do Trello) ----
+   Iframe com src local pelo mesmo motivo: o "Atualizar agora" e o cadastro de naturezas
+   precisam da sessão. */
+function renderShiva(el){
+  el.classList.add('flush');
+  el.innerHTML=`<iframe class="embed" src="assets/shiva/index.html" title="Fluxo de Caixa — Shiva"></iframe>`;
 }
 
 /* ---- Kanban Planejamento, Controle e Concierge (mesmo padrão) ----
