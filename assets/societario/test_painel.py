@@ -732,24 +732,20 @@ class TestAbaSocietario(unittest.TestCase):
         self.assertEqual((bot.posts[-1][2]["numero"], bot.posts[-1][2]["situacao"]), ("PA 123/2024", "Ativo"))
         self.assertEqual(erros, [])
 
-    def test_27_filtro_por_especialidade(self):
+    def test_27_busca_por_especialidade(self):
         bot = Bot()
+        bot_adv = json.loads(json.dumps(ADV))
         pg, erros = _abrir(self, bot, "advogados")
-        pg.wait_for_selector("#advEsp")
-        opcoes = pg.locator("#advEsp option").all_inner_texts()
-        self.assertEqual(opcoes, ["Todas as especialidades", "Trabalhista", "Tributário"])     # "Tributário Rio" e "SP" viram um só
-        pg.select_option("#advEsp", "Tributário")
-        nomes = [t.split("\n")[0] for t in pg.locator("#v-advogados .so-lista button").all_inner_texts()]
-        self.assertEqual(nomes, ["BETA ADVOCACIA", "BETA ADVOCACIA"])
-        pg.fill("#advBusca", "pessoa quatro")                                              # filtro e busca juntos
-        self.assertEqual(pg.locator("#v-advogados .so-lista button").count(), 1)
-        pg.fill("#advBusca", "")
-        pg.select_option("#advEsp", "Trabalhista")
-        self.assertEqual([t.split("\n")[0] for t in pg.locator("#v-advogados .so-lista button").all_inner_texts()],
-                         ["ALFA ADVOGADOS"])
-        self.assertEqual(pg.input_value("#advEsp"), "Trabalhista")                          # continua escolhido ao redesenhar
+        pg.wait_for_selector("#advBusca")
+        self.assertEqual(pg.locator("#advEsp").count(), 0)                                 # sem seletor separado
+        lista = lambda: [t.split("\n")[0] for t in pg.locator("#v-advogados .so-lista button").all_inner_texts()]
+        pg.fill("#advBusca", "tributario")                                                  # sem acento acha "Tributário"
+        self.assertEqual(lista(), ["BETA ADVOCACIA", "BETA ADVOCACIA"])
+        pg.fill("#advBusca", "trabalh")
+        self.assertEqual(lista(), ["ALFA ADVOGADOS"])
+        pg.fill("#advBusca", "nada disso")
+        self.assertIn("Nenhum escritório encontrado", pg.inner_text("#v-advogados .so-lista"))
         self.assertEqual(erros, [])
-
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
