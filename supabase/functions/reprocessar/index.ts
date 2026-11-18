@@ -22,7 +22,10 @@
 //   supabase secrets set AZURE_INADIMPLENCIA_URL=.../api/pc/inadimplencia AZURE_INADIMPLENCIA_KEY=<pc_inadimplencia>
 //   supabase secrets set AZURE_VENDAS_URL=.../api/pc/vendas               AZURE_VENDAS_KEY=<pc_vendas>
 
-import { createClient } from 'jsr:@supabase/supabase-js@2'
+// Versão FIXA (18/11/2026): com `@2` o bundle pegava a última publicada no JSR, e a 2.119.1
+// saiu apontando para um @supabase/auth-js que ainda não existia no npm — o deploy quebrou
+// sem mudança nenhuma aqui. 2.119.0 é a do último deploy verde. Subir à mão, conferindo.
+import { createClient } from 'jsr:@supabase/supabase-js@2.119.0'
 import { destino } from './rotas.js'
 
 // O JWT viaja no header Authorization, não em cookie, então o navegador nunca o manda
