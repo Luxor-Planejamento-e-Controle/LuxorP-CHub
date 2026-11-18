@@ -16,6 +16,7 @@ Uso:
     python tools/import_manual.py manual_backoffice --gravar   # sobe os prints e o texto
     python tools/import_manual.py manual_backoffice --gravar --forcar   # sobrescreve o texto
     python tools/import_manual.py manual_backoffice --secoes rotinas,saldo --gravar
+    python tools/import_manual.py manual_backoffice --remover tarituba --gravar
 
 `--gravar` recusa quando o manual do hub já tem seções: alguém pode ter editado na aba, e
 regravar desfaria isso. `--forcar` só com certeza de que pode.
@@ -78,6 +79,32 @@ def subir(url, h, manual, pasta, imgs):
         print(f"[ok] {len(imgs)} prints -> {BUCKET}/{manual}/")
 
 
+def remover(manual, ids, gravar):
+    """Tira seções do manual do hub, com a mesma guarda de versão. Os prints ficam no bucket."""
+    url, key = env()
+    h = {"Authorization": f"Bearer {key}", "apikey": key}
+    r = requests.get(f"{url}/rest/v1/app_state", params={"id": f"eq.{manual}", "select": "data,updated_at"},
+                     headers=h, timeout=60)
+    r.raise_for_status()
+    atual, versao = r.json()[0]["data"] or {}, r.json()[0]["updated_at"]
+    hub = list(atual.get("secoes") or [])
+    achadas = [x["id"] for x in hub if x["id"] in ids]
+    faltam = [x for x in ids if x not in achadas]
+    print(f"remover: {', '.join(achadas) or '(nenhuma)'}" + (f"  | não existem no hub: {', '.join(faltam)}" if faltam else ""))
+    if not gravar or not achadas:
+        print("Prévia. Para tirar: --gravar")
+        return
+    doc = {**atual, "secoes": [x for x in hub if x["id"] not in ids]}
+    agora = datetime.now(timezone.utc).isoformat()
+    r = requests.patch(f"{url}/rest/v1/app_state", params={"id": f"eq.{manual}", "updated_at": f"eq.{versao}"},
+                       json={"data": doc, "updated_at": agora},
+                       headers={**h, "Prefer": "return=representation"}, timeout=60)
+    r.raise_for_status()
+    if not r.json():
+        sys.exit("[recusado] o manual foi gravado na aba enquanto o script rodava. Rode de novo.")
+    print(f"[ok] {len(achadas)} seção(ões) removida(s); {len(doc['secoes'])} no total")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("manual", choices=MANUAIS)
@@ -85,7 +112,10 @@ def main():
     ap.add_argument("--gravar", action="store_true")
     ap.add_argument("--forcar", action="store_true")
     ap.add_argument("--secoes", help="ids separados por vírgula: troca/acrescenta só estas seções")
+    ap.add_argument("--remover", help="ids separados por vírgula: tira estas seções do manual do hub")
     a = ap.parse_args()
+    if a.remover:
+        return remover(a.manual, [x.strip() for x in a.remover.split(",") if x.strip()], a.gravar)
 
     pasta = a.pasta or ROOT / "assets" / "data" / "manuais" / a.manual
     titulo, secoes, imgs = carregar(pasta)
