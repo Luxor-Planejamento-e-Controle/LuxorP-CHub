@@ -9,7 +9,7 @@
   'use strict';
 
   var MANUAIS = {manual_backoffice: 'Manual de Processos — Backoffice'};
-  var PERIODOS = ['Mensal', 'Trimestral', 'Anual', 'Eventual', 'Referência'];
+  var PERIODOS = ['Diário', 'Semanal', 'Mensal', 'Trimestral', 'Anual', 'Eventual', 'Referência'];
 
   var manual = new URLSearchParams(location.search).get('manual');
   var F = window.MN_FONTE, MD = window.MN_MD, esc = MD.esc;
