@@ -68,7 +68,7 @@ PREFIXOS_VIA_CVM = ("Mangalarga", "Lipizzaner")
 # divulgado. Manga é ~50% do PL do FO, então o grosso da variação do mês aparece.
 # (segmento do group_hist_data, fundo na CVM) — os dois Mangalargas separados, cada
 # um com o próprio peso no PL do FO.
-FO_DIARIO = "Resultado FO diário (Mangalarga)"
+FO_DIARIO = "Resultado FO diário (CVM)"
 FO_DIARIO_GER = "Resultado FO diário (gerencial)"
 FO_DIARIO_MANGA = [("Luxor_Mangalarga_I", "Mangalarga I"),
                    ("Luxor_Mangalarga_Ii", "Mangalarga II")]
@@ -290,7 +290,7 @@ def build_fo_diario(gdf, q):
     """Resultado FO dia a dia, com o Manga andando e o resto congelado.
 
     `q` = cotas dos Mangalargas (índice DATA, uma coluna por fundo): as da CVM na série
-    "Resultado FO diário (Mangalarga)", as do gerencial na "(gerencial)".
+    "Resultado FO diário (CVM)", as do gerencial na "(gerencial)".
 
     Entre um fechamento c do FO e o seguinte, cada dia d com cota vale
         nível(d) = nível_FO(c) × (1 + Σ peso_i(c) × (cota_i(d) / cota_i(c) − 1))

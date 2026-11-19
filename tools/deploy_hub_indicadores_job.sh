@@ -12,7 +12,7 @@
 # FinancialIndicators/DEPLOY.md, seção 3, para o porquê dos horários (até
 # 14/10/2026 rodava antes do IPCA/CPI do dia sair). Até 16/11/2026 eram só os dias
 # do job de índices (1-3 e 5-16); desde então é TODO dia útil, porque a série
-# "Resultado FO diário (Mangalarga)" anda com a cota da CVM do dia. Feriado o
+# "Resultado FO diário (CVM)" anda com a cota da CVM do dia. Feriado o
 # dia_util.py do CMD barra.
 #
 # Credenciais: lidas dos .env locais na hora de rodar; nada fica no repo. São
