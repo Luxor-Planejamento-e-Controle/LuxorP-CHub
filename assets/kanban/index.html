@@ -20,7 +20,12 @@
   --pos-soft:rgba(70,182,120,.16); --neg-soft:rgba(229,103,78,.16); --warn-soft:rgba(242,193,78,.16);
   --line:rgba(255,255,255,.13); --line-strong:rgba(255,255,255,.24);
   --r:14px; --r-sm:9px; --ctl-h:34px;
-  --gutter:20px; --col-w:276px;
+  --gutter:14px; --col-w:276px;
+  /* As colunas dividem a largura do board entre si (mín. --col-min, máx.
+     --col-max) em vez de terem 276px fixos: com a largura fixa o board rolava
+     de lado mesmo com tela sobrando (Arthur, 23/11/2026). Só rola quando as
+     listas abertas não cabem nem no mínimo. --col-w fica pro celular. */
+  --col-min:210px; --col-max:380px;
   --shadow-card:0 1px 3px rgba(0,0,0,.35);
   --font-sans:"Fakt Pro",system-ui,-apple-system,"Segoe UI",Arial,sans-serif;
   --font-serif:"Fakt Slab Pro","Fakt Pro",Georgia,serif;
@@ -62,17 +67,17 @@ a{color:var(--teal-light)}
 .sync.erro{color:var(--neg)}
 
 /* ---- board ---- */
-.board{flex:1;display:flex;align-items:flex-start;gap:12px;overflow-x:auto;overflow-y:hidden;
-  padding:16px var(--gutter) 12px}
-.kcol{flex:0 0 var(--col-w);max-height:100%;display:flex;flex-direction:column;background:var(--bg-2);
-  border:1px solid var(--line);border-radius:var(--r)}
+.board{flex:1;display:flex;align-items:flex-start;gap:10px;overflow-x:auto;overflow-y:hidden;
+  padding:12px var(--gutter) 10px}
+.kcol{flex:1 1 0;min-width:var(--col-min);max-width:var(--col-max);max-height:100%;display:flex;
+  flex-direction:column;background:var(--bg-2);border:1px solid var(--line);border-radius:var(--r)}
 .kcol-head{display:flex;align-items:center;gap:8px;padding:10px 10px 6px 14px}
 .kcol-head[draggable="true"]{cursor:grab}
 .kcol.arrastando{opacity:.35}
-.ph-lista{flex:0 0 var(--col-w);border:2px dashed var(--orange);border-radius:var(--r);background:var(--orange-soft)}
+.ph-lista{flex:1 1 0;min-width:var(--col-min);max-width:var(--col-max);border:2px dashed var(--orange);border-radius:var(--r);background:var(--orange-soft)}
 .kcol-topo{padding:2px 8px 6px}
 /* lista recolhida: faixa estreita, nome na vertical */
-.kcol.recolhida{flex:0 0 44px;align-items:center;padding:8px 0;gap:8px;cursor:pointer}
+.kcol.recolhida{flex:0 0 44px;min-width:0;align-items:center;padding:8px 0;gap:8px;cursor:pointer}
 .kcol.recolhida .vertical{writing-mode:vertical-rl;font-family:var(--font-serif);font-weight:600;font-size:13.5px;
   white-space:nowrap;display:flex;gap:8px;align-items:center}
 .kcol.recolhida .vertical .n{color:var(--ink-3);font-size:12px}
@@ -92,8 +97,12 @@ a{color:var(--teal-light)}
 .composer textarea{width:100%;min-height:62px;resize:vertical;background:var(--surface);border:1px solid var(--orange);
   border-radius:9px;padding:8px 10px;outline:none}
 .composer .row{display:flex;gap:8px;margin-top:6px;align-items:center}
-.nova-lista{flex:0 0 var(--col-w);background:rgba(255,255,255,.04);border:1px dashed var(--line-strong);
-  border-radius:var(--r);padding:10px}
+/* "+ lista" é ação rara: fica uma faixa fina no fim e abre ao clicar, em vez de
+   ocupar uma coluna inteira que tirava espaço das listas de verdade */
+.nova-lista{flex:0 0 52px;background:rgba(255,255,255,.04);border:1px dashed var(--line-strong);
+  border-radius:var(--r);padding:8px;transition:flex-basis .15s}
+.nova-lista:focus-within,.empty ~ .nova-lista{flex-basis:var(--col-min)}
+.nova-lista input:not(:focus)::placeholder{color:var(--ink-2)}
 .nova-lista input{width:100%;height:var(--ctl-h);background:var(--surface);border:1px solid var(--line);
   border-radius:8px;padding:0 10px;outline:none}
 .nova-lista input:focus{border-color:var(--orange)}
@@ -316,6 +325,8 @@ a{color:var(--teal-light)}
 
 @media (max-width:760px){
   :root{--gutter:12px;--col-w:84vw}
+  .kcol,.ph-lista{flex:0 0 var(--col-w);min-width:0;max-width:none}
+  .kcol.recolhida{flex:0 0 44px}
   .dlg-body{grid-template-columns:1fr}
   .dlg-side{order:-1;flex-direction:row;flex-wrap:wrap}
   .dlg-side h4{width:100%}
