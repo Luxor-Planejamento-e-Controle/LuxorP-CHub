@@ -123,8 +123,20 @@ window.AP_DECK = (function () {
 
   /* PDF: imprime todas as páginas do trimestre num container próprio, uma por folha do
      tamanho exato da página (1280×720 px = 13,333×7,5 in; carta 888×1134 = 9,25×11,81 in).
-     Chamado de dentro do iframe, imprime só o iframe (é o que se quer). */
+
+     A impressão roda SEMPRE numa aba própria, nunca de dentro do iframe da aba do hub:
+     impresso do iframe, o Chrome ignora o @page (saía em A4, com margem branca, cabeçalho e
+     rodapé do navegador — 24/11/2026) e o link das imagens não funcionava no PDF. A aba nova
+     é a mesma página com ?imprimir=<idioma> e #<trimestre>; ela imprime sozinha e fecha. */
+  var IMPRIMIR = new URLSearchParams(location.search).get('imprimir');
   function exportarPdf() {
+    if (window.top !== window.self) {
+      var q = new URLSearchParams(location.search);
+      q.set('imprimir', ctx.lang || 'pt');
+      if (ctx.moeda) q.set('moeda', ctx.moeda);
+      window.open(location.pathname + '?' + q.toString() + '#' + periodo + '/1', '_blank');
+      return;
+    }
     var t = LAY.tam();
     $('pagina-impressa').textContent = '@media print{@page{size:' + (t.W / 96).toFixed(3) + 'in ' +
       (t.H / 96).toFixed(3) + 'in;margin:0}}';
@@ -135,6 +147,7 @@ window.AP_DECK = (function () {
       document.body.classList.remove('imprimindo');
       caixa.innerHTML = '';
       window.removeEventListener('afterprint', limpa);
+      if (IMPRIMIR) window.close();     // a aba aberta só para imprimir
     };
     window.addEventListener('afterprint', limpa);
     var imgs = Array.prototype.slice.call(caixa.querySelectorAll('img'));
@@ -365,13 +378,20 @@ window.AP_DECK = (function () {
     var m = /^#(\d{4}-Q[1-4])(?:\/(\d+))?$/.exec(location.hash || '');
     var p0 = m && spec.decks[m[1]] ? m[1] : spec.padrao;
     idx = m && m[2] ? (+m[2] - 1) : 0;
+    if (IMPRIMIR) {
+      if (ehCarta()) { ctx.lang = IMPRIMIR === 'en' ? 'en' : 'pt'; $('lang').value = ctx.lang; }
+      var moeda = new URLSearchParams(location.search).get('moeda');
+      if (moeda) ctx.moeda = moeda;
+    }
     trocaPeriodo(p0);
     // o corpo da carta é medido no navegador (maior fonte que cabe): medir antes do Roboto
     // carregar usaria a fonte reserva — desenha de novo quando ele chega
-    if (ehCarta() && document.fonts) {
-      Promise.all(['300 16px Roboto', '500 16px Roboto', 'italic 300 16px Roboto']
-        .map(function (f) { return document.fonts.load(f); })).then(render, function () {});
-    }
+    var fontes = ehCarta() && document.fonts
+      ? Promise.all(['300 16px Roboto', '500 16px Roboto', 'italic 300 16px Roboto']
+          .map(function (f) { return document.fonts.load(f); })).then(render, function () {})
+      : Promise.resolve();
+    // aba aberta pelo "Exportar PDF": imprime assim que a fonte chegar
+    if (IMPRIMIR) fontes.then(function () { exportarPdf(); });
   }
 
   return {iniciar: iniciar};
