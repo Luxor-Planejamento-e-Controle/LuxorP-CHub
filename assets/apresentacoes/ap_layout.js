@@ -184,10 +184,11 @@
     P.push(R(x, y, w, h, {fill: c.cor, raio: 10}));
     const linhas = c.linhas || [];
     const passo = o.passo || 30, alto = o.alto || 40;
-    const yNome = y + h - 22 - linhas.length * passo - alto;
-    P.push(T(x + 14, yNome, w - 24, alto, c.nome, {pt: o.ptNome || 24, va: 'm'}));
-    linhas.forEach((l, i) => P.push(T(x + 14, yNome + alto + i * passo, w - 24, passo, l,
-                                      {pt: encaixa(l, o.ptLinha || 20, w - 28, 9), va: 'm'})));
+    const dx = o.dx || 14, baixo = o.baixo || 22;      // recuo do texto e margem de baixo
+    const yNome = y + h - baixo - linhas.length * passo - alto;
+    P.push(T(x + dx, yNome, w - dx - 10, alto, c.nome, {pt: encaixa(c.nome, o.ptNome || 24, w - dx - 14, 9), va: 'm'}));
+    linhas.forEach((l, i) => P.push(T(x + dx, yNome + alto + i * passo, w - dx - 10, passo, l,
+                                      {pt: encaixa(l, o.ptLinha || 20, w - dx - 14, 9), va: 'm'})));
   }
   S.cartoes = s => {
     const P = [];
@@ -852,9 +853,12 @@
     const P = [];
     tituloCarta(P, rot(ctx, 'patrimonio'), 40);
     const bs = s.barras.map(b => Object.assign({}, b, {r: ctx.lang === 'en' ? b.r : (b.rp || b.r)}));
-    pilhas(P, {barras: bs, legenda: s.legenda}, 60, 130, 770, 300, {ptTot: 6.5, ptCat: 5.5, yLeg: 462, ptLeg: 8});
+    /* na geometria do PPTX dela: eixo em y 478 (barras de x 57 a 807), legenda em ~510,
+       cartões de 257 × 193 em y 800 — o gráfico achatado no alto deixava um buraco antes
+       de "Alocação" ("página desproporcional", 24/11/2026) */
+    pilhas(P, {barras: bs, legenda: s.legenda}, 57, 175, 750, 303, {ptTot: 7, ptCat: 6.5, yLeg: 503, ptLeg: 9});
     tituloCarta(P, rot(ctx, 'alocacao'), 690);
-    s.cartoes.forEach((c, i) => cartao(P, c, 53 + i * 265, 790, 253, 200, {ptNome: 14, ptLinha: 12.5, passo: 20, alto: 26}));
+    s.cartoes.forEach((c, i) => cartao(P, c, 37 + i * 269, 800, 257, 193, {ptNome: 18, ptLinha: 16.5, passo: 24.5, alto: 28, dx: 9, baixo: 12}));
     rodapeCarta(P);
     return P;
   };
