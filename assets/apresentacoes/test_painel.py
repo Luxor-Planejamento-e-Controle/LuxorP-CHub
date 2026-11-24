@@ -15,6 +15,7 @@ import http.server
 import io
 import json
 import pathlib
+import re
 import threading
 import unittest
 import urllib.parse
@@ -130,15 +131,24 @@ class _Silencioso(http.server.SimpleHTTPRequestHandler):
         pass
 
 
-def _abrir(caso, estado, deck="comite_fo", hash_="", admin=False):
+def _abrir(caso, estado, deck="comite_fo", hash_="", admin=False, init=None):
     pg = caso._b.new_page(viewport={"width": 1400, "height": 900}, accept_downloads=True)
     if admin:
         # no hub o iframe lê o papel em window.parent.HUB; aqui a página é o topo
         pg.add_init_script("window.HUB = {role: 'admin'};")
+    if init:
+        pg.add_init_script(init)
     erros = []
     pg.on("pageerror", lambda e: erros.append(str(e)))
     pg.on("console", lambda m: erros.append(m.text) if m.type == "error" and "Failed to load resource" not in m.text else None)
+    pg.route("**/*.supabase.co/**", _rota(estado, deck))
+    pg.goto(f"{caso._base}/apresentacoes/index.html?deck={deck}{hash_}")
+    pg.wait_for_timeout(1200)
+    return pg, erros
 
+
+def _rota(estado, deck):
+    """O Supabase de mentira: bucket, app_state, reprocessar e auth."""
     def rota(route):
         url = route.request.url
         if "/functions/v1/reprocessar" in url:
@@ -165,10 +175,7 @@ def _abrir(caso, estado, deck="comite_fo", hash_="", admin=False):
             return route.fulfill(status=200, content_type="application/json", body="{}")
         return route.fulfill(status=404, body="")
 
-    pg.route("**/*.supabase.co/**", rota)
-    pg.goto(f"{caso._base}/apresentacoes/index.html?deck={deck}{hash_}")
-    pg.wait_for_timeout(1200)
-    return pg, erros
+    return rota
 
 
 class TestApresentacoes(unittest.TestCase):
@@ -313,6 +320,49 @@ class TestApresentacoes(unittest.TestCase):
         rels = "".join(z.read(n).decode("utf-8") for n in z.namelist() if n.startswith("ppt/slides/_rels/"))
         self.assertIn("https://exemplo.com/leitura", rels)
         self.assertNotIn("javascript:", rels)
+        self.assertEqual(erros, [])
+        pg.close()
+
+    def test_12_pdf_do_iframe_abre_aba_propria(self):
+        # dentro do iframe do hub o Chrome ignora o @page: o botão abre a aba de impressão
+        pg = self._b.new_page(viewport={"width": 1400, "height": 900})
+        # a página da aba nova também imprime sozinha: aqui o print não faz nada
+        pg.context.add_init_script("window.print = () => {};")
+        pg.context.route("**/*.supabase.co/**", _rota(Estado(spec=_spec_carta()), "carta"))
+        pai = f"{self._base}/__pai_de_teste.html"
+        pg.route(pai, lambda r: r.fulfill(status=200, content_type="text/html", body=(
+            f'<iframe src="{self._base}/apresentacoes/index.html?deck=carta#2026-Q3/2" '
+            'style="width:1300px;height:850px"></iframe>')))
+        pg.goto(pai)
+        fr = pg.frame_locator("iframe")
+        fr.locator("#slide").wait_for()
+        with pg.context.expect_page() as nova:
+            fr.locator("#pdf").click()
+        url = nova.value.url
+        nova.value.close()
+        self.assertIn("deck=carta", url)
+        self.assertIn("imprimir=pt", url)
+        self.assertTrue(url.endswith("#2026-Q3/1"), url)
+        pg.close()
+
+    def test_13_aba_de_impressao_sai_no_tamanho_da_carta_com_link(self):
+        pix = ("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk"
+               "YAAAAAYAAjCB0C8AAAAASUVORK5CYII=")
+        est = Estado(spec=_spec_carta())
+        est.app_state["data"]["trimestres"]["2026-Q3"]["leituras"] = [
+            {"img": pix, "link": "https://exemplo.com/leitura", "pt": "Com link.", "en": "With link."}]
+        pg, erros = _abrir(self, est, deck="carta", hash_="&imprimir=en#2026-Q3/1",
+                           init="window.__impressoes = 0; window.print = () => { window.__impressoes++; };")
+        pg.wait_for_function("window.__impressoes > 0", timeout=10000)
+        self.assertEqual(pg.input_value("#lang"), "en")
+        self.assertEqual(pg.locator("#impressao .slide").count(), 6)
+        pg.emulate_media(media="print")
+        pdf = pg.pdf(prefer_css_page_size=True, print_background=True)
+        # folha = página da carta (9,25 × 11,8125 in = 666 × 850,5 pt), sem margem do navegador
+        caixas = re.findall(rb"/MediaBox \[0 0 ([\d.]+) ([\d.]+)\]", pdf)
+        self.assertEqual(len(caixas), 6)
+        self.assertTrue(all(abs(float(w) - 666) < 1 and abs(float(h) - 850.5) < 1 for w, h in caixas), caixas)
+        self.assertIn(b"https://exemplo.com/leitura", pdf)
         self.assertEqual(erros, [])
         pg.close()
 

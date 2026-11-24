@@ -895,9 +895,12 @@
       }
       if (p.k === 'i') {
         const src = String(p.src).startsWith('data:') ? p.src : (base || '') + p.src;
-        const img = `<img class="pi${p.cobre ? ' cobre' : ''}${p.cabe ? ' cabe' : ''}" src="${escH(src)}" alt="" style="${box}">`;
-        // imagem com link (leitura da carta): clicável na tela e no PDF impresso
-        return p.link ? `<a class="plink" href="${escH(p.link)}" target="_blank" rel="noopener">${img}</a>` : img;
+        const cls = `pi${p.cobre ? ' cobre' : ''}${p.cabe ? ' cabe' : ''}`;
+        if (!p.link) return `<img class="${cls}" src="${escH(src)}" alt="" style="${box}">`;
+        /* imagem com link (leitura da carta): o <a> É a caixa e a imagem a preenche. Com o
+           <a> só envolvendo uma imagem absoluta, ele ficava sem área e o PDF saía sem link */
+        return `<a class="plink" href="${escH(p.link)}" target="_blank" rel="noopener" style="position:absolute;${box}">` +
+          `<img class="${cls}" src="${escH(src)}" alt="" style="left:0;top:0;width:100%;height:100%"></a>`;
       }
       if (p.k2 === 'par') {
         // parágrafos justificados da carta, com o mesmo estilo que o corpoQueCabe mediu
