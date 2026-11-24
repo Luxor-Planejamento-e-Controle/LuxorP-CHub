@@ -59,6 +59,8 @@
   const T = (x, y, w, h, t, o) => Object.assign({k: 't', x, y, w, h, t: String(t == null ? '' : t)}, o || {});
   const L = (x1, y1, x2, y2, o) => Object.assign({k: 'l', x1, y1, x2, y2}, o || {});
   const I = (x, y, w, h, src, o) => Object.assign({k: 'i', x, y, w, h, src}, o || {});
+  // link de imagem (leituras da carta): só http(s) — o texto vem do banco, colado na aba
+  const linkSeguro = u => (/^https?:\/\/[^\s"'<>]+$/i.test(String(u || '').trim()) ? String(u).trim() : null);
 
   /* ---------------- números (pt-BR, como o PBI em português) ----------------
      Negativo que arredonda a zero sai "-0,0": o Arthur quer ver o sinal (11/11/2026). */
@@ -807,7 +809,7 @@
         const y = 522 + i * passo;
         // PPTX: capa em (215,2; 512,4) 160,7 × 244,2 — 10 px ACIMA da caixa de texto, que
         // fica em (415,4; 522,1) com 289,6 de largura (texto em 425,2 com 270,0, tirando a margem)
-        if (it.img) P.push(I(215.2, y - 9.7, 160.7, Math.min(244.2, passo - 30), it.img, {cabe: 1}));
+        if (it.img) P.push(I(215.2, y - 9.7, 160.7, Math.min(244.2, passo - 30), it.img, {cabe: 1, link: linkSeguro(it.link)}));
         blocoTexto(P, it.texto, 425.2, y + 4.9, 270, Math.min(242, passo - 20), ctx, {max: 12.2});
       });
     }
@@ -893,7 +895,9 @@
       }
       if (p.k === 'i') {
         const src = String(p.src).startsWith('data:') ? p.src : (base || '') + p.src;
-        return `<img class="pi${p.cobre ? ' cobre' : ''}${p.cabe ? ' cabe' : ''}" src="${escH(src)}" alt="" style="${box}">`;
+        const img = `<img class="pi${p.cobre ? ' cobre' : ''}${p.cabe ? ' cabe' : ''}" src="${escH(src)}" alt="" style="${box}">`;
+        // imagem com link (leitura da carta): clicável na tela e no PDF impresso
+        return p.link ? `<a class="plink" href="${escH(p.link)}" target="_blank" rel="noopener">${img}</a>` : img;
       }
       if (p.k2 === 'par') {
         // parágrafos justificados da carta, com o mesmo estilo que o corpoQueCabe mediu
@@ -953,6 +957,7 @@
         const data = imagens && imagens[p.src] ? imagens[p.src] : (String(p.src).startsWith('data:') ? p.src : null);
         if (!data) continue;
         const o = Object.assign({data}, g);
+        if (p.link) o.hyperlink = {url: p.link};
         if (p.cobre) o.sizing = {type: 'cover', w: g.w, h: g.h};
         if (p.cabe && imagens && imagens.__dim && imagens.__dim[p.src]) {
           // "contain": a imagem inteira dentro da caixa, centrada, sem distorcer

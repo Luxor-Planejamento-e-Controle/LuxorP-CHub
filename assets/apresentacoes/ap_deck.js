@@ -32,7 +32,7 @@ window.AP_DECK = (function () {
     var t = textos[p] || {};
     var l = t[lang] || {};
     return {destaques: l.destaques || '', atualizacoes: l.atualizacoes || '',
-            leituras: (t.leituras || []).map(function (x) { return {img: x.img, texto: x[lang] || ''}; })};
+            leituras: (t.leituras || []).map(function (x) { return {img: x.img, link: x.link || '', texto: x[lang] || ''}; })};
   }
   function ctxDe(tela) {
     return {moeda: ctx.moeda, lang: ctx.lang, tela: tela, textos: textosDe(periodo, ctx.lang)};
@@ -224,7 +224,8 @@ window.AP_DECK = (function () {
     function leituraHTML(x, i) {
       return '<div class="ed-leitura" data-i="' + i + '">' +
         '<div class="ed-capa">' + (x.img ? '<img src="' + esc(x.img) + '" alt="">' : '<span>sem imagem</span>') +
-        '<label class="ed-arq">imagem<input type="file" accept="image/*" data-img="' + i + '"></label></div>' +
+        '<label class="ed-arq">imagem<input type="file" accept="image/*" data-img="' + i + '"></label>' +
+        '<input type="url" class="ed-link" placeholder="link da imagem (https://…)" data-link="' + i + '" value="' + esc(x.link || '') + '"></div>' +
         '<label class="ed-campo"><span>Texto — PT</span><textarea rows="5" data-li="' + i + '" data-l="pt">' + esc(x.pt || '') + '</textarea></label>' +
         '<label class="ed-campo"><span>Texto — EN</span><textarea rows="5" data-li="' + i + '" data-l="en">' + esc(x.en || '') + '</textarea></label>' +
         '<button type="button" class="ed-tira" data-tira="' + i + '">remover</button></div>';
@@ -257,6 +258,9 @@ window.AP_DECK = (function () {
           if (ctx.lang !== a.dataset.l) { ctx.lang = a.dataset.l; $('lang').value = ctx.lang; }
           aplica();
         };
+      });
+      ed.querySelectorAll('input[data-link]').forEach(function (a) {
+        a.oninput = function () { t.leituras[+a.dataset.link].link = a.value.trim(); aplica(); };
       });
       ed.querySelectorAll('input[type=file]').forEach(function (f) {
         f.onchange = async function () {
@@ -351,7 +355,7 @@ window.AP_DECK = (function () {
       if (OPC.podeEditar) { $('btn-editar').hidden = false; $('btn-editar').onclick = abreEditor; }
     }
     $('stage').onclick = function (e) {
-      if (!document.body.classList.contains('play') || e.target.closest('.moeda')) return;
+      if (!document.body.classList.contains('play') || e.target.closest('.moeda, a')) return;
       go(idx + (e.clientX > window.innerWidth / 3 ? 1 : -1));
     };
     window.addEventListener('resize', fit);
