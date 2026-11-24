@@ -294,6 +294,28 @@ class TestApresentacoes(unittest.TestCase):
         self.assertEqual(erros, [])
         pg.close()
 
+    def test_11_carta_imagem_da_leitura_com_link(self):
+        pix = ("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk"
+               "YAAAAAYAAjCB0C8AAAAASUVORK5CYII=")
+        est = Estado(spec=_spec_carta())
+        est.app_state["data"]["trimestres"]["2026-Q3"]["leituras"] = [
+            {"img": pix, "link": "https://exemplo.com/leitura", "pt": "Com link.", "en": "With link."},
+            {"img": pix, "link": "javascript:alert(1)", "pt": "Link ruim.", "en": "Bad link."}]
+        pg, erros = _abrir(self, est, deck="carta", hash_="#2026-Q3/6")
+        a = pg.locator("#slide a.plink")
+        # só o http(s) vira link; o resto fica imagem sem link
+        self.assertEqual(a.count(), 1)
+        self.assertEqual(a.get_attribute("href"), "https://exemplo.com/leitura")
+        self.assertEqual(a.get_attribute("target"), "_blank")
+        with pg.expect_download(timeout=60000) as d:
+            pg.click("#pptx")
+        z = zipfile.ZipFile(io.BytesIO(pathlib.Path(d.value.path()).read_bytes()))
+        rels = "".join(z.read(n).decode("utf-8") for n in z.namelist() if n.startswith("ppt/slides/_rels/"))
+        self.assertIn("https://exemplo.com/leitura", rels)
+        self.assertNotIn("javascript:", rels)
+        self.assertEqual(erros, [])
+        pg.close()
+
     def test_7_atualizar_agora_pede_o_deck_certo(self):
         est = Estado()
         pg, erros = _abrir(self, est, deck="board_fo")
