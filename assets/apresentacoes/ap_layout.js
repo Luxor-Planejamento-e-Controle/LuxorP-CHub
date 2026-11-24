@@ -725,15 +725,18 @@
   }
   /* maior corpo (de `max` até `min`) em que os parágrafos cabem na caixa — medido no
      próprio navegador, com a mesma fonte e entrelinha da tela e do PPTX */
-  /* entrelinha e espaço entre parágrafos (em "em"), os do PPTX da carta: entrelinha exata de
-     22,43 pt num corpo de 12–12,23 pt e 3,05 pt antes + 3,05 pt depois do parágrafo */
-  const ENTRE = 1.85, ESP_PAR = 0.5;
+  /* parágrafo da carta = o do PPTX dela: entrelinha exata de 22,43 pt num corpo de 12–12,23 pt,
+     3,05 pt antes e 3,05 pt depois (ESP_PAR é a soma, em "em") e recuo de 1ª linha de 256825
+     EMU (27 px). No PPTX o recuo vai como espaços (o pptxgenjs não tem recuo de 1ª linha). */
+  const ENTRE = 1.85, ESP_PAR = 0.5, RECUO = 27, RECUO_PPTX = '\u2003\u2002\u2009';
+  const estiloPar = () => `margin:0;padding:${ESP_PAR / 2}em 0;text-indent:${RECUO}px;text-align:justify`;
   function corpoQueCabe(paras, w, h, max, min, fonte) {
     if (typeof document === 'undefined' || !paras.length) return max;
     const d = document.createElement('div');
-    d.style.cssText = `position:absolute;left:-99999px;top:0;width:${w}px;line-height:${ENTRE};` +
-      `font-family:'${fonte}','Segoe UI',Arial,sans-serif;text-align:justify`;
-    d.innerHTML = paras.map(r => `<p style="margin:0 0 ${ESP_PAR}em">${'  ' + r.map(x => escH(x.t)).join('')}</p>`).join('');
+    // mede com a MESMA fonte da tela (fonteCSS): 'Roboto Light' entre aspas não existe no
+    // roboto.css (lá é 'Roboto' peso 300) e mediria com a fonte reserva
+    d.style.cssText = `position:absolute;left:-99999px;top:0;width:${w}px;line-height:${ENTRE};${fonteCSS({fonte})}`;
+    d.innerHTML = paras.map(r => `<p style="${estiloPar()}">${r.map(runHTML).join('')}</p>`).join('');
     document.body.appendChild(d);
     let pt = max;
     for (; pt > min; pt -= 0.25) {
@@ -782,14 +785,19 @@
     const P = [];
     const tx = (ctx.textos || {});
     P.push(R(0, 0, 130, 1134, {fill: CARTA.fundo}));
-    // título vertical, lendo de baixo para cima, centrado na faixa
-    P.push(T(0, 0, 1067, 90, rot(ctx, s.slot), {pt: 36.7, al: 'c', va: 'm', c: CARTA.ouro, fonte: FONTE_CARTA_T, sp: 2,
-                                                  rot: -90, rx: 65, ry: 567 - 1067 / 2}));
+    /* título vertical, lendo de baixo para cima, na geometria do PPTX dela: caixa de
+       1066,6 × 89,8 px centrada em (77,8; 602), menos a margem interna padrão (0,1" e 0,05"),
+       alinhada à direita (= encosta no ALTO da página depois de girar) e embaixo (= à direita
+       da faixa) */
+    P.push(T(0, 0, 1047.4, 80.2, rot(ctx, s.slot), {pt: 36.7, al: 'r', va: 'b', c: CARTA.ouro, fonte: FONTE_CARTA_T,
+                                                     sp: 3.05, rot: -90, rx: 77.8, ry: 602 - 1047.4 / 2}));
+    /* corpo: caixa do PPTX em x 170, y 68,9, 661,8 de largura, menos a margem interna
+       (9,8 px dos lados, 4,9 px em cima) — sem ela a coluna saía larga e quebrava diferente */
     const leituras = s.slot === 'atualizacoes' ? (tx.leituras || []).filter(x => x.img || x.texto) : [];
     if (!leituras.length) {
-      blocoTexto(P, tx[s.slot], 170, 69, 661, 1010, ctx);
+      blocoTexto(P, tx[s.slot], 179.8, 73.8, 642.2, 1005, ctx);
     } else {
-      blocoTexto(P, tx[s.slot], 170, 69, 661, 380, ctx, {max: 12.2});
+      blocoTexto(P, tx[s.slot], 179.8, 73.8, 642.2, 375, ctx, {max: 12.2});
       // 20 pt cabe o título em português (34 letras); o inglês (50) invadia a faixa da esquerda
       const lido = rot(ctx, 'lido');
       P.push(T(88, 460, 826, 44, lido, {pt: Math.min(20, +(20 * 40 / lido.length).toFixed(1)), al: 'c', va: 'm',
@@ -797,8 +805,10 @@
       const passo = Math.min(294, 560 / leituras.length);
       leituras.slice(0, 3).forEach((it, i) => {
         const y = 522 + i * passo;
-        if (it.img) P.push(I(215, y + 7, 159, Math.min(242, passo - 30), it.img, {cabe: 1}));
-        blocoTexto(P, it.texto, 416, y, 290, Math.min(252, passo - 20), ctx, {max: 12.2});
+        // PPTX: capa em (215,2; 512,4) 160,7 × 244,2 — 10 px ACIMA da caixa de texto, que
+        // fica em (415,4; 522,1) com 289,6 de largura (texto em 425,2 com 270,0, tirando a margem)
+        if (it.img) P.push(I(215.2, y - 9.7, 160.7, Math.min(244.2, passo - 30), it.img, {cabe: 1}));
+        blocoTexto(P, it.texto, 425.2, y + 4.9, 270, Math.min(242, passo - 20), ctx, {max: 12.2});
       });
     }
     rodapeCarta(P, true);
@@ -886,10 +896,10 @@
         return `<img class="pi${p.cobre ? ' cobre' : ''}${p.cabe ? ' cabe' : ''}" src="${escH(src)}" alt="" style="${box}">`;
       }
       if (p.k2 === 'par') {
-        // parágrafos justificados da carta; o recuo da 1ª linha são dois em-spaces, igual no PPTX
+        // parágrafos justificados da carta, com o mesmo estilo que o corpoQueCabe mediu
         const st = `${box};font-size:${(p.pt * PT).toFixed(2)}px;color:#${p.c || CARTA.tinta};${fonteCSS(p)};line-height:${ENTRE}`;
         return `<div class="ppar" style="${st}">` + p.paras.map(r =>
-          `<p style="margin:0 0 ${ESP_PAR}em;text-align:justify">  ${r.map(runHTML).join('')}</p>`).join('') + '</div>';
+          `<p style="${estiloPar()}">${r.map(runHTML).join('')}</p>`).join('') + '</div>';
       }
       /* texto girado (rótulo do eixo X do Leverage): a caixa fica de pé com o fim do
          texto em (rx, ry) — mesma conta do PPTX, que gira em torno do centro */
@@ -956,8 +966,9 @@
       if (p.k2 === 'par') {
         const runs = [];
         p.paras.forEach(r => r.forEach((x, j) => runs.push({
-          text: (j === 0 ? '  ' : '') + x.t,
-          options: {bold: !!x.b, italic: !!x.i, breakLine: j === r.length - 1, paraSpaceAfter: +(p.pt * ESP_PAR).toFixed(2)}})));
+          text: (j === 0 ? RECUO_PPTX : '') + x.t,
+          options: {bold: !!x.b, italic: !!x.i, breakLine: j === r.length - 1,
+                    paraSpaceBefore: +(p.pt * ESP_PAR / 2).toFixed(2), paraSpaceAfter: +(p.pt * ESP_PAR / 2).toFixed(2)}})));
         sl.addText(runs, Object.assign({}, g, {fontFace: p.fonte, fontSize: +p.pt.toFixed(2), color: p.c || CARTA.tinta,
           // entrelinha EXATA em pontos, como no PPTX original: o "múltiplo" do PowerPoint é
           // sobre a altura natural da fonte (~1,17 em no Roboto) e não bateria com a tela
