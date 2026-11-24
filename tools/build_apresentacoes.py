@@ -210,7 +210,9 @@ def blob_cliente():
     conn = azure_conn()
     if conn:
         return BlobServiceClient.from_connection_string(conn)
-    if not os.environ.get("WEBSITE_INSTANCE_ID"):
+    # IDENTITY_ENDPOINT é o que o Flex Consumption define (WEBSITE_INSTANCE_ID não existe
+    # lá — o botão caía aqui); mesma regra do ControleInadimplencia, que roda no mesmo app
+    if not (os.environ.get("IDENTITY_ENDPOINT") or os.environ.get("WEBSITE_INSTANCE_ID")):
         sys.exit("Falta AZURE_STORAGE_CONNECTION_STRING (ambiente ou .env do FinancialIndicators).")
     from azure.identity import ManagedIdentityCredential
     return BlobServiceClient("https://azblobstoragebz.blob.core.windows.net",
