@@ -270,7 +270,7 @@ class TestPainelFpg(_ComNavegador):
         pg.click("#btn-atualizar")
         pg.wait_for_timeout(1500)
         self.assertEqual(est.pedidos, [{"painel": "fpg"}])
-        self.assertIn("13 minutos", pg.text_content("#reproc-status"))
+        self.assertIn("20 minutos", pg.text_content("#reproc-status"))
         pg.close()
 
     def test_5_primeira_publicacao_pela_tela(self):

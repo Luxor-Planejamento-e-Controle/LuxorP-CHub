@@ -308,9 +308,11 @@ window.FPG_HUB = (function () {
       botao: document.getElementById('btn-atualizar'),
       status: document.getElementById('reproc-status'),
       cliente: cliente,
-      aguardando: 'pedido enviado — a consulta ao Bimer leva uns 13 minutos. '
+      aguardando: 'pedido enviado — a consulta ao Bimer leva uns 20 minutos. '
                   + 'Pode fechar e voltar depois.',
-      limite: 25 * 60000,
+      // 22 min medidos rodando local (24/11/2026); acima do teto de 30 da função, a tela não
+      // desiste antes do Azure
+      limite: 35 * 60000,
       lerCarimbo: async function () {
         var d = await tentar(ARQ);
         return d ? d.meta.gerado_em : null;
@@ -337,7 +339,7 @@ window.FPG_HUB = (function () {
       } catch (e) {
         mostrarErro('O painel ainda não foi publicado no hub, ou você não tem acesso a ele (' +
                     e.message + '). Ele é publicado toda segunda às 10h30 — ou agora, pelo ' +
-                    '"Atualizar agora" acima (uns 13 minutos).');
+                    '"Atualizar agora" acima (uns 20 minutos).');
         return;
       }
     }
