@@ -356,6 +356,9 @@ class TestApresentacoes(unittest.TestCase):
         pg.wait_for_function("window.__impressoes > 0", timeout=10000)
         self.assertEqual(pg.input_value("#lang"), "en")
         self.assertEqual(pg.locator("#impressao .slide").count(), 6)
+        # o "Salvar como PDF" sugere o título da página: o mesmo nome do PPTX
+        self.assertEqual(pg.title(), "Carta_Trimestral_English_3Q2026")
+        self.assertTrue(pg.locator("#dica-pdf").is_visible())
         pg.emulate_media(media="print")
         pdf = pg.pdf(prefer_css_page_size=True, print_background=True)
         # folha = página da carta (9,25 × 11,8125 in = 666 × 850,5 pt), sem margem do navegador

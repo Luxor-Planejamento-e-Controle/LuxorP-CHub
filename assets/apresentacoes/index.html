@@ -47,6 +47,11 @@ body.play .barra,body.play #reproc-status{display:none}
 body.play #stage{background:#000;cursor:pointer}
 body.play .slide{box-shadow:none}
 #impressao{display:none}
+/* aba aberta só para imprimir: lembra o destino certo (some na impressão) */
+#dica-pdf{position:fixed;left:0;right:0;top:0;z-index:30;padding:14px 18px;background:var(--orange);color:#1a1a1a;
+  font-size:14px;text-align:center}
+#dica-pdf[hidden]{display:none}
+@media print{#dica-pdf{display:none!important}}
 @media print{
   /* o tamanho da folha (@page) vem de #pagina-impressa: muda entre slide e carta */
   body.imprimindo{display:block;overflow:visible;background:#fff}
@@ -105,6 +110,7 @@ body:has(#editor:not([hidden])) #stage{margin-bottom:58vh}
 <div id="reproc-status"></div>
 <div id="stage"></div>
 <div id="impressao"></div>
+<div id="dica-pdf" hidden>Em <b>Destino</b>, escolha <b>Salvar como PDF</b>. Impressora de PDF do Windows sai em A4, com borda branca e sem os links.</div>
 <div id="editor" hidden></div>
 <style id="pagina-impressa"></style>
 

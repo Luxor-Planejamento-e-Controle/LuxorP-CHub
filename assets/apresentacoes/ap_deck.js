@@ -127,7 +127,12 @@ window.AP_DECK = (function () {
      A impressão roda SEMPRE numa aba própria, nunca de dentro do iframe da aba do hub:
      impresso do iframe, o Chrome ignora o @page (saía em A4, com margem branca, cabeçalho e
      rodapé do navegador — 24/11/2026) e o link das imagens não funcionava no PDF. A aba nova
-     é a mesma página com ?imprimir=<idioma> e #<trimestre>; ela imprime sozinha e fecha. */
+     é a mesma página com ?imprimir=<idioma> e #<trimestre>; ela imprime sozinha e fecha.
+
+     O destino TEM de ser o "Salvar como PDF" do navegador: impressora de PDF do Windows
+     (PScript5 + Ghostscript) ignora o tamanho da página, sai em A4 com borda e descarta os
+     links — a aba de impressão avisa. O nome sugerido é o título da página, que aqui vira
+     o mesmo do PPTX (Carta_Trimestral_Portugues_3Q2026). */
   var IMPRIMIR = new URLSearchParams(location.search).get('imprimir');
   function exportarPdf() {
     if (window.top !== window.self) {
@@ -143,8 +148,12 @@ window.AP_DECK = (function () {
     var caixa = $('impressao');
     caixa.innerHTML = slides.map(function (s) { return caixaSlide(s, LAY.html(LAY.prims(s, ctxDe(false)), '')); }).join('');
     document.body.classList.add('imprimindo');
+    var tituloAntes = document.title;
+    document.title = nomeArquivo();      // nome que o "Salvar como PDF" sugere
+    if (IMPRIMIR) $('dica-pdf').hidden = false;
     var limpa = function () {
       document.body.classList.remove('imprimindo');
+      document.title = tituloAntes;
       caixa.innerHTML = '';
       window.removeEventListener('afterprint', limpa);
       if (IMPRIMIR) window.close();     // a aba aberta só para imprimir
