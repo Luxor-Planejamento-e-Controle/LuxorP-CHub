@@ -53,6 +53,7 @@ export const ROTAS = {
   tarituba: AUTOMACOES,
   shiva: AUTOMACOES,
   passivo: AUTOMACOES,
+  fpg: AUTOMACOES,
   inadimplencia: INADIMPLENCIA,
   vendas: VENDAS,
   comite_fo: APRESENTACOES,

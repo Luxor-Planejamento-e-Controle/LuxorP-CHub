@@ -32,6 +32,8 @@ const HUB_DATASETS = {
   shiva: null,
   // idem (sem card)
   passivo: null,
+  // idem (sem card); o cadastro e as movimentações manuais são app_state, lidos no iframe
+  fpg: null,
   // tabelas kanban_* (ver sql/hub_schema.sql, seção 8), lidas e gravadas pelo iframe
   kanban: null,
   // tabelas senhas_* (seção 10), cifradas; a senha mestra é pedida no iframe
