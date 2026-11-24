@@ -902,13 +902,18 @@ def s_receita_manga(b, d, m):
 # tradução são colados na própria aba (app_state 'carta') e entram no navegador.
 # As imagens fixas (logo da capa, Propósito e Valores em PT e EN) ficam no Blob, em
 # LuxorControlDatabase/apresentacoes/carta/, e vão uma vez só no JSON (spec["imagens"]).
-IMAGENS_CARTA = {
-    "carta_logo": ("apresentacoes/carta/logo_luxor.svg", "image/svg+xml"),
-    "carta_proposito_pt": ("apresentacoes/carta/proposito_pt.png", "image/png"),
-    "carta_valores_pt": ("apresentacoes/carta/valores_pt.png", "image/png"),
-    "carta_proposito_en": ("apresentacoes/carta/proposito_en.png", "image/png"),
-    "carta_valores_en": ("apresentacoes/carta/valores_en.png", "image/png"),
-}
+#
+# Propósito/Missão e Valores têm VERSÃO: a v2 (11/2026, propósito novo e 6 valores) vale
+# do 3T26 em diante, em apresentacoes/carta/v2/. Chave própria por versão porque o mapa
+# spec["imagens"] é um só para todos os trimestres — trocar o arquivo da v1 mudaria a
+# carta do 1T/2T, que já foi enviada com os valores antigos.
+VERSOES_PROPOSITO = [(pd.Timestamp("2026-09-30"), "_v2", "apresentacoes/carta/v2/"),
+                     (pd.Timestamp.min, "", "apresentacoes/carta/")]
+IMAGENS_CARTA = {"carta_logo": ("apresentacoes/carta/logo_luxor.svg", "image/svg+xml")}
+for _desde, _suf, _pasta in VERSOES_PROPOSITO:
+    for _q in ("proposito", "valores"):
+        for _l in ("pt", "en"):
+            IMAGENS_CARTA[f"carta_{_q}_{_l}{_suf}"] = (f"{_pasta}{_q}_{_l}.png", "image/png")
 
 
 def _imagem(b, chave):
@@ -924,8 +929,9 @@ def s_carta_capa(b, d, m):
 
 
 def s_carta_proposito(b, d, m):
-    return {"t": "carta_proposito", "img": {k.rsplit("_", 1)[0].replace("carta_", "") + "_" + k.rsplit("_", 1)[1]:
-                                             _imagem(b, k) for k in IMAGENS_CARTA if k != "carta_logo"}}
+    suf = next(s for desde, s, _ in VERSOES_PROPOSITO if pd.Timestamp(d) >= desde)
+    return {"t": "carta_proposito", "img": {f"{q}_{l}": _imagem(b, f"carta_{q}_{l}{suf}")
+                                             for q in ("proposito", "valores") for l in ("pt", "en")}}
 
 
 def s_carta_retornos(b, d, m):
