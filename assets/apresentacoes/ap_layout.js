@@ -22,8 +22,10 @@
   const pagina = p => { W = (p && p.w) || 1280; H = (p && p.h) || 720; };
   const FONTE = 'Calibri';                        // fonte do corpo do tema, nos dois decks
   const FONTE_TAB = FONTE;                        // a planilha do fluxo de caixa (Budget FO)
-  const FONTE_CARTA = 'Aptos';                    // corpo e títulos da carta (tema do PPTX dela)
-  const FONTE_CARTA_T = 'Roboto Medium';          // capa e títulos verticais da carta
+  /* as fontes que o PPTX da carta usa de fato nos textos (o tema diz Aptos, mas toda caixa
+     sobrescreve); na tela vêm do roboto.css, no PPTX o PowerPoint resolve pelo nome */
+  const FONTE_CARTA = 'Roboto Light';             // corpo da carta
+  const FONTE_CARTA_T = 'Roboto Medium';          // capa e todos os títulos da carta
   const COR = {
     fundo: '103E44', branco: 'FFFFFF', laranja: 'FFA400', vermelho: 'FF0000', teal: '1D6E79',
     tealEsc: '215968', cinzaKR: 'D9D9D9', ini: 'F2A900', neg: 'FF2D16', fim: '3E7D8C',
@@ -694,7 +696,7 @@
   };
   const rot = (ctx, k) => (ROT[ctx.lang] || ROT.pt)[k];
   const tituloCarta = (P, t, y, h) =>
-    P.push(T(34, y, 821, h || 56, t, {pt: 24.5, al: 'c', va: 'm', c: CARTA.ouro, fonte: FONTE_CARTA, sp: 2.5}));
+    P.push(T(34, y, 821, h || 56, t, {pt: 24.5, al: 'c', va: 'm', c: CARTA.ouro, fonte: FONTE_CARTA_T, sp: 3}));
   function rodapeCarta(P, branca) {
     if (branca) {
       P.push(L(140, 1108, 800, 1108, {c: CARTA.ouro, esp: 1}));
@@ -723,7 +725,9 @@
   }
   /* maior corpo (de `max` até `min`) em que os parágrafos cabem na caixa — medido no
      próprio navegador, com a mesma fonte e entrelinha da tela e do PPTX */
-  const ENTRE = 1.2, ESP_PAR = 0.55;    // entrelinha e espaço depois do parágrafo (em "em")
+  /* entrelinha e espaço entre parágrafos (em "em"), os do PPTX da carta: entrelinha exata de
+     22,43 pt num corpo de 12–12,23 pt e 3,05 pt antes + 3,05 pt depois do parágrafo */
+  const ENTRE = 1.85, ESP_PAR = 0.5;
   function corpoQueCabe(paras, w, h, max, min, fonte) {
     if (typeof document === 'undefined' || !paras.length) return max;
     const d = document.createElement('div');
@@ -786,7 +790,10 @@
       blocoTexto(P, tx[s.slot], 170, 69, 661, 1010, ctx);
     } else {
       blocoTexto(P, tx[s.slot], 170, 69, 661, 380, ctx, {max: 12.2});
-      P.push(T(88, 460, 826, 44, rot(ctx, 'lido'), {pt: 20, al: 'c', va: 'm', c: CARTA.ouro, fonte: FONTE_CARTA, sp: 2}));
+      // 20 pt cabe o título em português (34 letras); o inglês (50) invadia a faixa da esquerda
+      const lido = rot(ctx, 'lido');
+      P.push(T(88, 460, 826, 44, lido, {pt: Math.min(20, +(20 * 40 / lido.length).toFixed(1)), al: 'c', va: 'm',
+                                        c: CARTA.ouro, fonte: FONTE_CARTA_T, sp: 3}));
       const passo = Math.min(294, 560 / leituras.length);
       leituras.slice(0, 3).forEach((it, i) => {
         const y = 522 + i * passo;
@@ -854,8 +861,9 @@
   /* aspas SIMPLES: isto vai dentro de style="…" — aspas duplas fechavam o atributo e
      tudo depois da fonte (alinhamento inclusive) sumia */
   function fonteCSS(p) {
-    if (p.fonte === FONTE_CARTA) return `font-family:Aptos,'Segoe UI',Arial,sans-serif;font-weight:${p.b ? 700 : 400}`;
-    if (p.fonte === FONTE_CARTA_T) return `font-family:'Roboto Medium',Roboto,'Segoe UI',Arial,sans-serif;font-weight:500`;
+    // 'Roboto' é a do roboto.css (variável 300–700); o peso escolhe Light/Medium
+    if (p.fonte === FONTE_CARTA) return `font-family:Roboto,'Segoe UI',Arial,sans-serif;font-weight:${p.b ? 700 : 300}`;
+    if (p.fonte === FONTE_CARTA_T) return `font-family:Roboto,'Segoe UI',Arial,sans-serif;font-weight:500`;
     return `font-family:Calibri,Carlito,Arial,sans-serif;font-weight:${p.b ? 700 : 400}`;
   }
   const runHTML = r => {
@@ -951,7 +959,9 @@
           text: (j === 0 ? '  ' : '') + x.t,
           options: {bold: !!x.b, italic: !!x.i, breakLine: j === r.length - 1, paraSpaceAfter: +(p.pt * ESP_PAR).toFixed(2)}})));
         sl.addText(runs, Object.assign({}, g, {fontFace: p.fonte, fontSize: +p.pt.toFixed(2), color: p.c || CARTA.tinta,
-          align: 'justify', valign: 'top', margin: 0, lineSpacingMultiple: ENTRE, fit: 'none'}));
+          // entrelinha EXATA em pontos, como no PPTX original: o "múltiplo" do PowerPoint é
+          // sobre a altura natural da fonte (~1,17 em no Roboto) e não bateria com a tela
+          align: 'justify', valign: 'top', margin: 0, lineSpacing: +(p.pt * ENTRE).toFixed(2), fit: 'none'}));
         continue;
       }
       // '+mn-lt' é a fonte do corpo do tema (Calibri): o PowerPoint mostra "Calibri (Corpo)"

@@ -362,6 +362,12 @@ window.AP_DECK = (function () {
     var p0 = m && spec.decks[m[1]] ? m[1] : spec.padrao;
     idx = m && m[2] ? (+m[2] - 1) : 0;
     trocaPeriodo(p0);
+    // o corpo da carta é medido no navegador (maior fonte que cabe): medir antes do Roboto
+    // carregar usaria a fonte reserva — desenha de novo quando ele chega
+    if (ehCarta() && document.fonts) {
+      Promise.all(['300 16px Roboto', '500 16px Roboto', 'italic 300 16px Roboto']
+        .map(function (f) { return document.fonts.load(f); })).then(render, function () {});
+    }
   }
 
   return {iniciar: iniciar};
