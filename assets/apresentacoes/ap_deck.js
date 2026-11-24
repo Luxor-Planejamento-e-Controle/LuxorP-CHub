@@ -16,7 +16,7 @@ window.AP_DECK = (function () {
   var ctx = {moeda: null, lang: 'pt', tela: true};
   /* CONTEUDO da carta, por trimestre:
      { "2026-Q3": { pt: {destaques, atualizacoes}, en: {destaques, atualizacoes},
-                    leituras: [{img, pt, en}] } } */
+                    leituras: [{img, link, pt, en}] } }   (link: clicar na imagem abre) */
   var textos = {};
 
   function $(id) { return document.getElementById(id); }

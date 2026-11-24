@@ -6,7 +6,9 @@ script faz a ponta e a volta, no MESMO formato que o editor da aba grava
 (ver assets/apresentacoes/ap_deck.js, CONTEUDO):
 
     {"2026-Q3": {"pt": {"destaques", "atualizacoes"}, "en": {...},
-                 "leituras": [{"img": "data:image/jpeg;base64,...", "pt", "en"}]}}
+                 "leituras": [{"img": "data:image/jpeg;base64,...", "link", "pt", "en"}]}}
+
+(`link`: clicar na imagem da leitura abre o endereço — na aba, no PDF e no PPTX.)
 
 Fluxo:
     python tools/carta_textos.py extrair "<pptx do CEO>"      # -> assets/data/carta/<período>/
@@ -55,7 +57,8 @@ CAMPOS = ("destaques", "atualizacoes")
 CABECALHO = (
     "<!-- Carta Trimestral {periodo}: textos para `python tools/carta_textos.py gravar {periodo}`.\n"
     "     Uma linha = um parágrafo; linha em branco é ignorada; **negrito** e *itálico* valem.\n"
-    "     leituraN.img = arquivo da imagem nesta pasta. Não mude os títulos `## ...`. -->\n"
+    "     leituraN.img = arquivo da imagem nesta pasta; leituraN.link = endereço aberto ao clicar\n"
+    "     na imagem (opcional). Não mude os títulos `## ...`. -->\n"
 )
 
 
@@ -70,7 +73,7 @@ def norm(s: str) -> str:
 def chaves(n_leituras: int) -> list[str]:
     ks = [f"{c}.{l}" for c in CAMPOS for l in ("pt", "en")]
     for i in range(1, n_leituras + 1):
-        ks += [f"leitura{i}.img", f"leitura{i}.pt", f"leitura{i}.en"]
+        ks += [f"leitura{i}.img", f"leitura{i}.link", f"leitura{i}.pt", f"leitura{i}.en"]
     return ks
 
 
@@ -140,8 +143,15 @@ def _titulo(sh, chave) -> str | None:
     return None
 
 
+def _link(sh) -> str:
+    try:
+        return (sh.click_action.hyperlink.address or "").strip()
+    except Exception:
+        return ""
+
+
 def ler_pptx(arq: Path) -> tuple[str, dict, list]:
-    """-> (idioma, {destaques, atualizacoes}, [{blob, ext, texto}])"""
+    """-> (idioma, {destaques, atualizacoes}, [{blob, ext, link, texto}])"""
     from pptx import Presentation
     prs = Presentation(str(arq))
     largura = prs.slide_width
@@ -183,10 +193,10 @@ def ler_pptx(arq: Path) -> tuple[str, dict, list]:
                 if foto:
                     usadas.add(id(foto[0]))
                 leituras.append({"blob": foto[1] if foto else None, "ext": foto[2] if foto else None,
-                                 "texto": _paragrafos(t)})
+                                 "link": _link(foto[0]) if foto else "", "texto": _paragrafos(t)})
             for f in fotos:              # imagem sem texto do lado também é leitura
                 if id(f[0]) not in usadas:
-                    leituras.append({"blob": f[1], "ext": f[2], "texto": ""})
+                    leituras.append({"blob": f[1], "ext": f[2], "link": _link(f[0]), "texto": ""})
     if not idioma:
         sys.exit("[erro] não achei 'Destaques e Prioridades' nem 'Highlights and Priorities' no PPTX.")
     return idioma, campos, leituras[:MAX_LEITURAS]
@@ -222,6 +232,7 @@ def extrair(a):
                 nome = f"leitura{i}.{l['ext']}"
                 (pasta / nome).write_bytes(l["blob"])
                 sec[f"leitura{i}.img"] = nome
+            sec[f"leitura{i}.link"] = l["link"] or antigas.get(f"leitura{i}.link", "")
             sec[f"leitura{i}.{idioma}"] = l["texto"]
             outro = "en" if idioma == "pt" else "pt"
             sec[f"leitura{i}.{outro}"] = antigas.get(f"leitura{i}.{outro}", "")
@@ -230,7 +241,8 @@ def extrair(a):
     for c in CAMPOS:
         print(f"  {c:<13} {len(campos.get(c, '')):>5} car." + ("" if c in campos else "  (não achado)"))
     for i, l in enumerate(leituras, 1):
-        print(f"  leitura{i:<6} {len(l['texto']):>5} car.  imagem: {'sim' if l['blob'] else 'não'}")
+        print(f"  leitura{i:<6} {len(l['texto']):>5} car.  imagem: {'sim' if l['blob'] else 'não'}"
+              + (f"  link: {l['link']}" if l["link"] else ""))
 
 
 # --------------------------------------------------------------------------
@@ -274,11 +286,14 @@ def montar(periodo: str) -> dict:
     tri = {l: {c: sec.get(f"{c}.{l}", "") for c in CAMPOS} for l in ("pt", "en")}
     tri["leituras"] = []
     n = 1
-    while any(f"leitura{n}.{x}" in sec for x in ("img", "pt", "en")):
+    while any(f"leitura{n}.{x}" in sec for x in ("img", "link", "pt", "en")):
         img = sec.get(f"leitura{n}.img", "").strip()
         if img and not (pasta / img).exists():
             sys.exit(f"[erro] leitura{n}.img: {img} não está em {pasta.relative_to(ROOT)}")
-        item = {"img": data_url(pasta / img) if img else None,
+        link = sec.get(f"leitura{n}.link", "").strip()
+        if link and not re.fullmatch(r"https?://[^\s\"'<>]+", link):
+            sys.exit(f"[erro] leitura{n}.link precisa ser um endereço http(s) completo: {link!r}")
+        item = {"img": data_url(pasta / img) if img else None, "link": link,
                 "pt": sec.get(f"leitura{n}.pt", ""), "en": sec.get(f"leitura{n}.en", "")}
         if item["img"] or item["pt"] or item["en"]:
             tri["leituras"].append(item)
@@ -294,7 +309,7 @@ def resumo(tri: dict) -> list[str]:
         out.append(f"  {l.upper()}  " + "  ".join(f"{c} {len(tri.get(l, {}).get(c) or ''):>5} car." for c in CAMPOS))
     for i, x in enumerate(tri.get("leituras") or [], 1):
         out.append(f"  leitura{i}  PT {len(x.get('pt') or ''):>4} car.  EN {len(x.get('en') or ''):>4} car.  "
-                   f"imagem {'sim' if x.get('img') else 'não'}")
+                   f"imagem {'sim' if x.get('img') else 'não'}" + (f"  link {x['link']}" if x.get("link") else ""))
     return out
 
 
@@ -361,6 +376,7 @@ def baixar(a):
             nome = f"leitura{i}.{'jpg' if m.group(1) == 'jpeg' else m.group(1)}"
             (pasta / nome).write_bytes(base64.b64decode(m.group(2)))
             sec[f"leitura{i}.img"] = nome
+        sec[f"leitura{i}.link"] = x.get("link") or ""
         sec[f"leitura{i}.pt"], sec[f"leitura{i}.en"] = x.get("pt", ""), x.get("en", "")
     escreve_md(md, periodo, sec)
     print(f"hub -> {md.relative_to(ROOT)}")
