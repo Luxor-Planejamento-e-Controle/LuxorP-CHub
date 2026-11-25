@@ -407,6 +407,28 @@ class TestKanban(unittest.TestCase):
         self.assertEqual(f, {"id": "i2"})
         self.assertEqual(c, {"concluido": True})
 
+    def test_12b_marcar_muda_a_tela_na_hora(self):
+        pg = self.pg
+        n0 = len(self.fake.escritas)
+        # clique e leitura no MESMO evaluate: o que aparece já é a tela antes de qualquer rede
+        r = pg.evaluate("""() => {
+          document.querySelector('[data-item="i3"] input[type=checkbox]').click();
+          const feito = document.querySelector('[data-item="i3"]').classList.contains('feito');
+          const barra = document.querySelector('.ckl-bar').innerText;
+          const board = document.querySelector('.kcard[data-id="c-fech"]').innerText;
+          document.querySelector('[data-item="i3"] input[type=checkbox]').click();   // desmarca logo em seguida
+          return {feito, barra, board};
+        }""")
+        self.assertTrue(r["feito"], "risca o item sem esperar o banco")
+        self.assertIn("100%", r["barra"])
+        self.assertIn("3/3", r["board"], "contador do card no board acompanha")
+        pg.wait_for_timeout(600)
+        patches = [(f["id"], c["concluido"]) for m, t, f, c in self.fake.escritas[n0:]
+                   if m == "PATCH" and t == "kanban_checkitens"]
+        self.assertEqual(patches, [("i3", True), ("i3", False)], "grava na ordem dos cliques")
+        self.assertFalse(pg.is_checked('[data-item="i3"] input[type=checkbox]'))
+        self.assertIn("2/3", pg.inner_text('.kcard[data-id="c-fech"]'))
+
     def test_13_comentar_nao_manda_autor(self):
         pg = self.pg
         pg.fill("#novoComent", "pronto, enviado")

@@ -20,12 +20,10 @@
   --pos-soft:rgba(70,182,120,.16); --neg-soft:rgba(229,103,78,.16); --warn-soft:rgba(242,193,78,.16);
   --line:rgba(255,255,255,.13); --line-strong:rgba(255,255,255,.24);
   --r:14px; --r-sm:9px; --ctl-h:34px;
-  --gutter:14px; --col-w:276px;
-  /* As colunas dividem a largura do board entre si (mín. --col-min, máx.
-     --col-max) em vez de terem 276px fixos: com a largura fixa o board rolava
-     de lado mesmo com tela sobrando (Arthur, 23/11/2026). Só rola quando as
-     listas abertas não cabem nem no mínimo. --col-w fica pro celular. */
-  --col-min:210px; --col-max:380px;
+  /* Coluna com largura FIXA e board rolando de lado. Em 23/11/2026 as colunas
+     passaram a dividir a tela para não rolar, mas com 7 listas o card ficou estreito
+     demais; em 25/11/2026 o Arthur decidiu: card largo, rolagem horizontal pode. */
+  --gutter:14px; --col-w:300px;
   --shadow-card:0 1px 3px rgba(0,0,0,.35);
   --font-sans:"Fakt Pro",system-ui,-apple-system,"Segoe UI",Arial,sans-serif;
   --font-serif:"Fakt Slab Pro","Fakt Pro",Georgia,serif;
@@ -69,12 +67,12 @@ a{color:var(--teal-light)}
 /* ---- board ---- */
 .board{flex:1;display:flex;align-items:flex-start;gap:10px;overflow-x:auto;overflow-y:hidden;
   padding:12px var(--gutter) 10px}
-.kcol{flex:1 1 0;min-width:var(--col-min);max-width:var(--col-max);max-height:100%;display:flex;
+.kcol{flex:0 0 var(--col-w);max-height:100%;display:flex;
   flex-direction:column;background:var(--bg-2);border:1px solid var(--line);border-radius:var(--r)}
 .kcol-head{display:flex;align-items:center;gap:8px;padding:10px 10px 6px 14px}
 .kcol-head[draggable="true"]{cursor:grab}
 .kcol.arrastando{opacity:.35}
-.ph-lista{flex:1 1 0;min-width:var(--col-min);max-width:var(--col-max);border:2px dashed var(--orange);border-radius:var(--r);background:var(--orange-soft)}
+.ph-lista{flex:0 0 var(--col-w);border:2px dashed var(--orange);border-radius:var(--r);background:var(--orange-soft)}
 .kcol-topo{padding:2px 8px 6px}
 /* lista recolhida: faixa estreita, nome na vertical */
 .kcol.recolhida{flex:0 0 44px;min-width:0;align-items:center;padding:8px 0;gap:8px;cursor:pointer}
@@ -103,7 +101,7 @@ a{color:var(--teal-light)}
    ocupar uma coluna inteira que tirava espaço das listas de verdade */
 .nova-lista{flex:0 0 52px;background:rgba(255,255,255,.04);border:1px dashed var(--line-strong);
   border-radius:var(--r);padding:8px;transition:flex-basis .15s}
-.nova-lista:focus-within,.empty ~ .nova-lista{flex-basis:var(--col-min)}
+.nova-lista:focus-within,.empty ~ .nova-lista{flex-basis:var(--col-w)}
 .nova-lista input:not(:focus)::placeholder{color:var(--ink-2)}
 .nova-lista input{width:100%;height:var(--ctl-h);background:var(--surface);border:1px solid var(--line);
   border-radius:8px;padding:0 10px;outline:none}
@@ -253,6 +251,11 @@ a{color:var(--teal-light)}
 .item{display:flex;align-items:flex-start;gap:9px;padding:4px 6px;border-radius:7px}
 .item:hover{background:var(--surface)}
 .item input[type=checkbox]{margin-top:3px;width:15px;height:15px;accent-color:var(--orange);flex:0 0 auto}
+/* alvo de clique maior que a caixinha de 15px (marcar "pouco responsivo", 25/11/2026) */
+.item .marca{flex:0 0 auto;display:grid;place-items:center;width:30px;height:28px;margin:-4px -4px -4px -8px;
+  border-radius:6px;cursor:pointer}
+.item .marca:hover{background:var(--surface-2)}
+.item .marca input[type=checkbox]{margin:0;width:17px;height:17px;cursor:pointer}
 .item .txt{flex:1;font-size:13.5px;overflow-wrap:anywhere;cursor:text}
 .item.feito .txt{text-decoration:line-through;color:var(--ink-3)}
 .item .acoes{display:flex;gap:2px;opacity:0}
@@ -1330,7 +1333,7 @@ function renderChecklist(cl) {
           <button class="btn-acao btn-mini" data-a="salvar-item" data-item="${esc(it.id)}" type="button">Salvar</button>
           <button class="btn btn-mini" data-a="cancelar-item" type="button">Cancelar</button></div></div></div>`
       : `<div class="item${it.concluido ? ' feito' : ''}" data-item="${esc(it.id)}" draggable="true">
-        <input type="checkbox" data-a="marcar" ${it.concluido ? 'checked' : ''} aria-label="Concluído">
+        <label class="marca"><input type="checkbox" data-a="marcar" ${it.concluido ? 'checked' : ''} aria-label="Concluído"></label>
         <span class="txt md" data-a="editar-item">${md(it.nome).replace(/^<p>|<\/p>$/g, '')}</span>
         ${it.membro_id && IX.mbr.get(it.membro_id) ? avatar(IX.mbr.get(it.membro_id)) : ''}
         <span class="acoes">
@@ -1698,12 +1701,7 @@ $('#modal').addEventListener('click', async ev => {
       if (!confirm('Excluir este comentário?')) return;
       await tentar(() => KB_FONTE.excluirComentario(coment.id), false);
       return recarregarTudo();
-    case 'marcar': {
-      const it = A.checklists.flatMap(x => x.itens).find(x => x.id === itemId);
-      it.concluido = el.checked;
-      await tentar(() => KB_FONTE.atualizarItem(itemId, { concluido: el.checked }), false);
-      return recarregarTudo();
-    }
+    case 'marcar': return marcarItem(itemId, el.checked);
     case 'editar-item': editandoItem = itemId; return renderCard();
     case 'cancelar-item': editandoItem = null; renderCard(); return depoisDeEditar();
     case 'salvar-item': {
@@ -1935,6 +1933,45 @@ async function restaurarCard(c) {
 async function recarregarTudo() {
   await recarregar();
   if (S.aberto) await recarregarCard();
+}
+
+/* ---------- marcar item do checklist ----------
+   A tela muda na hora e o banco grava por trás. Antes cada clique esperava gravar,
+   recarregava o board inteiro e o card (~1s), e o eco do tempo real redesenhava o card
+   de novo: clique que caía no meio do redesenho se perdia (Arthur, 25/11/2026).
+   As gravações saem em fila, na ordem dos cliques; enquanto houver alguma pendente o
+   aoMudar não recarrega (o banco ainda não tem o que a tela mostra). */
+const ecoItem = new Map();      // itemId -> concluido que eu gravei e o tempo real ainda não devolveu
+let filaItens = Promise.resolve(), gravandoItens = 0;
+function marcarItem(itemId, feito) {
+  const A = S.aberto; if (!A) return;
+  const todos = A.checklists.flatMap(k => k.itens);
+  const it = todos.find(x => x.id === itemId);
+  if (!it) return;
+  it.concluido = feito;
+  ecoItem.set(itemId, feito);
+  // redesenha só este checklist (o card inteiro re-hidrataria imagens e piscaria)
+  const cl = A.checklists.find(k => k.itens.includes(it));
+  const velho = cl && $(`.ckl[data-ckl="${CSS.escape(cl.id)}"]`);
+  if (velho) {
+    const t = document.createElement('template');
+    t.innerHTML = renderChecklist(cl).trim();
+    const novo = t.content.firstElementChild;
+    velho.replaceWith(novo);
+    hidratar(novo);
+  }
+  const resumo = S.cards.find(x => x.id === A.card.id);     // o "3/5" do card no board
+  if (resumo) { resumo.itens = KB.progresso(todos); renderBoard(); }
+  gravandoItens++;
+  filaItens = filaItens
+    .then(() => KB_FONTE.atualizarItem(itemId, { concluido: feito }))
+    .catch(async e => {
+      console.error(e);
+      ecoItem.clear();
+      toast(e.message || String(e), true);
+      await recarregarTudo();
+    })
+    .finally(() => { gravandoItens--; });
 }
 function depoisDeEditar() { if (pendente) { pendente = false; recarregarTudo(); } }
 
@@ -2346,10 +2383,16 @@ async function recarregar() {
 /* Mudança de outra pessoa: espera a rajada passar e recarrega. Se houver edição aberta
    no card, não pisa no que está sendo digitado — recarrega quando a edição terminar. */
 let tMudanca = null;
-function aoMudar() {
+function aoMudar(tabela, p) {
+  // eco do item que eu mesmo marquei: a tela já está certa, não redesenha
+  const n = p && p.new;
+  if (tabela === 'kanban_checkitens' && n && ecoItem.has(n.id) && ecoItem.get(n.id) === n.concluido) {
+    ecoItem.delete(n.id);
+    return;
+  }
   clearTimeout(tMudanca);
   tMudanca = setTimeout(async () => {
-    if (arrastado || arrastadoLista || arrastadoItem) return aoMudar();
+    if (arrastado || arrastadoLista || arrastadoItem || gravandoItens) return aoMudar();
     await recarregar();
     if (S.aberto) { if (emEdicao()) pendente = true; else await recarregarCard(); }
   }, 400);
