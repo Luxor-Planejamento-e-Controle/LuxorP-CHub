@@ -143,6 +143,7 @@ create policy hub_data_read on storage.objects
 --      id = 'saldo_bancario'       saldo de cada conta, entradas, provisões
 --      id = 'controle_pagamentos'  cadastro de fornecedores fixos
 --      id = 'tarituba'             cadastro de naturezas do Fluxo de Caixa Tarituba
+--      id = 'tarituba_manuais'     movimentações manuais do Fluxo de Caixa Tarituba
 --      id = 'shiva'                cadastro de naturezas do Fluxo de Caixa Shiva
 --      id = 'passivo'              cadastro de naturezas do Fluxo de Caixa Passivo Hoteleiro
 --      id = 'fpg'                  cadastro de naturezas do Fluxo de Caixa FPG
@@ -150,7 +151,7 @@ create policy hub_data_read on storage.objects
 --      id = 'carta'                textos da Carta Trimestral (PT e EN) por trimestre
 --      id = 'manual_backoffice'    Manual de Processos — Backoffice (seções em markdown)
 --
---    Mora AQUI, e não num arquivo por painel, porque a RLS é DA TABELA: as dezoito
+--    Mora AQUI, e não num arquivo por painel, porque a RLS é DA TABELA: as vinte
 --    policies abaixo só fazem sentido lidas juntas. Enquanto estiveram em três
 --    arquivos, cada um declarou uma policy válida para a tabela inteira sem saber
 --    das outras — e policies permissivas SOMAM (OR). O resultado era acesso
@@ -234,6 +235,21 @@ create policy hub_tarituba_update on app_state
   using      ( id = 'tarituba' and public.hub_can('tarituba') )
   with check ( id = 'tarituba' and public.hub_can('tarituba') );
 
+-- Movimentações manuais do Tarituba (11/2026, como na FPG): o papel da aba Base da
+-- planilha, num documento à parte do cadastro — cada tela tem a sua guarda de versão, e
+-- lançar um ajuste não recusa quem está editando o cadastro ao mesmo tempo. Mesma regra:
+-- quem vê a aba lança.
+drop policy if exists hub_tarituba_manuais_select on app_state;
+create policy hub_tarituba_manuais_select on app_state
+  for select to authenticated
+  using ( id = 'tarituba_manuais' and public.hub_can('tarituba') );
+
+drop policy if exists hub_tarituba_manuais_update on app_state;
+create policy hub_tarituba_manuais_update on app_state
+  for update to authenticated
+  using      ( id = 'tarituba_manuais' and public.hub_can('tarituba') )
+  with check ( id = 'tarituba_manuais' and public.hub_can('tarituba') );
+
 -- Shiva: mesma regra do Tarituba — quem vê a aba mantém o cadastro dela.
 drop policy if exists hub_shiva_select on app_state;
 create policy hub_shiva_select on app_state
@@ -306,7 +322,11 @@ create policy hub_carta_update on app_state
 --   projetos            : lista de projetos            -> '[]'
 --   saldo_bancario      : { contas, entradas, provisoes }
 --   controle_pagamentos : { fornecedores }
---   tarituba            : { versao, naturezas }  — ver assets/tarituba/tt_dados.js
+--   tarituba            : { versao, naturezas, resumo }  — ver assets/tarituba/tt_dados.js
+--                         (até 11/2026 sem `resumo` e com `bimer` em texto: o painel e a
+--                         tela aceitam os dois formatos)
+--   tarituba_manuais    : { versao, movimentos: [...] } — o mesmo formato de fpg_manuais;
+--                         o que cada tipo soma mora em shared_tarituba/manuais.py
 --   shiva               : { versao, naturezas, resumo }  — ver assets/shiva/sh_dados.js
 --                         (`resumo` = as linhas da página Resumo, com o "exceto")
 --   passivo             : { versao, naturezas, resumo }  — ver assets/passivo/pc_dados.js
@@ -327,7 +347,7 @@ create policy hub_carta_update on app_state
 -- planilha: o job do Azure só passa a ler o cadastro quando ele tem naturezas. O seed
 -- (gerado por `cadastro_tarituba.py` / `cadastro_shiva.py` / `cadastro_passivo.py` /
 -- `cadastro_fpg.py` no repo Automacoes) só grava se a linha ainda estiver vazia. Em
--- fpg_manuais, vazio = nenhuma movimentação.
+-- tarituba_manuais e fpg_manuais, vazio = nenhuma movimentação.
 --
 -- Em saldo_bancario, a chave de `entradas` e `provisoes` é a QUARTA-FEIRA da
 -- semana: a projeção sempre foi de quarta a quarta, e guardar por semana preserva
@@ -342,6 +362,7 @@ insert into app_state (id, data) values
   ('saldo_bancario',      '{}'::jsonb),
   ('controle_pagamentos', '{}'::jsonb),
   ('tarituba',            '{}'::jsonb),
+  ('tarituba_manuais',    '{}'::jsonb),
   ('shiva',               '{}'::jsonb),
   ('passivo',             '{}'::jsonb),
   ('fpg',                 '{}'::jsonb),

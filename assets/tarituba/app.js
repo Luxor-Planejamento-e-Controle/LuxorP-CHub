@@ -1,9 +1,23 @@
-/* Painel de Fluxo de Caixa do Tarituba — rascunho.
+/* Painel de Fluxo de Caixa do Tarituba.
 
-   TRÊS PÁGINAS espelhando as três abas da planilha (pedido do Leonardo,
-   18/09/2026): Resumo, Receitas e Despesas. A hierarquia de grupos das duas
-   últimas é EXTRAÍDA da planilha pelo `extrair_tarituba.py`, não escrita aqui —
-   senão as duas divergem no primeiro grupo que alguém criar lá.
+   O painel ORIGINAL (set/2026), que já passou por várias rodadas de revisão da
+   Controladoria — os comentários de histórico abaixo explicam por que cada coisa
+   é como é. O Passivo, o Shiva e a FPG nasceram de cópias dele e ganharam coisas
+   novas; em 11/2026 este arquivo voltou a ser cópia do do Shiva, mais o genérico
+   da FPG (movimentações manuais, rolagem preservada ao abrir um detalhe, PDF em A4
+   paginado, avisos só no Resumo). O que veio com isso:
+     - as linhas abaixo de Receita/Despesa Total vêm de `D.resumo` (as fórmulas da
+       aba Resumo, ou o cadastro), não mais dos grupos de nível 1 (`linhasResumo`);
+     - as contas bancárias são uma lista (`D.saldos.contas`), não três campos
+       fixos — no Tarituba são três;
+     - um lançamento pode ter vindo de outra natureza do Bimer (de-para): o
+       detalhe mostra a natureza de origem (`cod_bimer`);
+     - o mês sem export do Bimer é PRÉVIA da API, marcada no cabeçalho;
+     - sem o botão do card do Trello (decisão do Leonardo, 11/2026).
+
+   QUATRO PÁGINAS espelhando as abas da planilha: Resumo, Resumo Simplificado,
+   Receitas e Despesas. A hierarquia de grupos vem da planilha (ou do cadastro de
+   naturezas do Hub) pelo `extrair_tarituba.py`, não escrita aqui.
 
    Identidade do Hub P&C (theme.css vendorizado de `Hub de Visualização/assets/`).
    ATENÇÃO: não copiar o vendor/ do painel do Haras — ele migrou para outra
@@ -20,6 +34,8 @@
 'use strict';
 
 const D = window.TARITUBA_DATA;
+/* Ponte com o Hub (botão do Trello, cadastro) — só existe lá; por file:// é undefined. */
+const HUB = window.TARITUBA_HUB;
 
 /* ── tokens (espelham o theme.css do hub) ── */
 const C = {
@@ -79,11 +95,11 @@ const S = {
      `medidaFluxo` do Resumo logo abaixo: a página já abre comparando
      orçado × realizado, que é o que se quer olhar primeiro. */
   medida: 'ambos',   // 'real' | 'orc' | 'ambos'
-  /* Não existe mais estado de "esconder sem uso" (botão removido a pedido do
-     Leonardo, 21/09). As naturezas sem orçamento e sem movimento aparecem
-     SEMPRE, esmaecidas — poder escondê-las repetiria o erro que o painel
-     existe para expor: RESGATES E APLICAÇÕES e TRANSF. ENTRE BANCOS sumiram da
-     planilha por não terem linha, e ninguém notou por um ano. */
+  /* Não existe estado de "esconder sem uso" (botão removido a pedido do
+     Leonardo, 21/09, no Tarituba). As naturezas sem orçamento e sem movimento
+     aparecem SEMPRE, esmaecidas — poder escondê-las repetiria o erro que o
+     painel existe para expor: natureza do plano sem linha na planilha some do
+     fluxo sem erro nenhum aparecer. */
   /* Detalhe aberto por natureza — Map cod -> {ini,fim,tipo} (meses 1-12,
      inclusive nos dois lados; tipo 'real'|'orc'). Era um Set (só cod, sempre
      o ano inteiro); virou Map em 24/09 porque agora se clica na CÉLULA —
@@ -132,6 +148,13 @@ function parseValor(txt) {
 const MESES = D ? D.meses.map(m => m.rot) : [];
 const NF = D ? D.qual.meses_fechados : 0;
 const ABERTO = i => i + 1 > NF;
+/* Mês com realizado da API, ainda SEM o export do Bimer (21/10/2026: o export é a fonte; a
+   API é prévia até ele chegar). Marcado no cabeçalho de toda tabela e explicado na faixa
+   do topo — o número desse mês ainda pode mudar quando a Controladoria exportar. */
+const PREVIA = i => !!(D && D.meses[i] && D.meses[i].fonte === 'api');
+const TITULO_PREVIA = 'prévia pela API do Bimer — ainda sem o export do mês';
+const rotMes = i => `${MESES[i]}${ABERTO(i) ? '*' : ''}` +
+  (PREVIA(i) ? `<span class="previa" title="${TITULO_PREVIA}">prévia</span>` : '');
 const soma = (a, i = 0, f = 12) => a.slice(i, f).reduce((x, y) => x + (y || 0), 0);
 const natDe = {};
 if (D) D.nat.forEach(n => { natDe[n.cod] = n; });
@@ -158,7 +181,14 @@ if (D) D.nat.forEach(n => { natDe[n.cod] = n; });
        computador vê branco. No dia em que a planilha sair, o saldo precisa de
        um lugar durável (planilha via ajudante local, ou tabela no Supabase,
        como os colchões do Controle de Pagamentos). */
-const CHAVE_SALDOS = 'tarituba.saldos.' + (D ? D.meta.ano : '');
+/* As CONTAS são as da planilha (`D.saldos.contas`, lidas pelo rótulo das linhas
+   entre "Saldo Final Disponivel" e "Total Conta…"). O valor local é guardado por
+   `id` da conta ({c1: 123.45, ...}). */
+const CONTAS = D ? D.saldos.contas : [];
+/* `.v2` (11/2026): o painel antigo guardava os saldos com ids fixos (corrente, caixa,
+   aplicacao) na chave sem versão; lidos com os ids de agora (c1, c2…) dariam total zero. */
+const CHAVE_SALDOS = 'tarituba.saldos.v2.' + (D ? D.meta.ano : '');
+const totalContas = vals => Math.round(CONTAS.reduce((s, c) => s + ((vals || {})[c.id] || 0), 0) * 100) / 100;
 
 function lerLocais() {
   /* localStorage pode LANÇAR (janela anônima, site data bloqueado, captura de
@@ -183,17 +213,18 @@ function gravarLocal(mes, valores) {
 function saldoDoMes(i) {
   const daPlanilha = D.saldos.mensal[i];
   const local = lerLocais()[i + 1];
-  const campos = ['corrente', 'caixa', 'aplicacao'];
 
   if (daPlanilha.preenchido) {
-    const diverge = local && campos.some(c =>
-      Math.abs((local[c] || 0) - (daPlanilha[c] || 0)) > 0.005);
-    return Object.assign({}, daPlanilha, { origem: 'planilha', diverge: !!diverge });
+    const diverge = local && CONTAS.some(c =>
+      Math.abs((local[c.id] || 0) - (daPlanilha.valores[c.id] || 0)) > 0.005);
+    /* `fonte: 'extrato'` (como no Shiva, no Passivo e na FPG): as linhas de banco vieram
+       dos extratos (`do_extrato`, ids das linhas); as outras seguem digitadas. Para o local é
+       igual à planilha — o que está no payload ganha. */
+    return Object.assign({}, daPlanilha,
+      { origem: daPlanilha.fonte === 'extrato' ? 'extrato' : 'planilha', diverge: !!diverge });
   }
   if (local) {
-    const total = campos.reduce((s, c) => s + (local[c] || 0), 0);
-    return Object.assign({ mes: i + 1 }, local,
-      { preenchido: true, total: Math.round(total * 100) / 100, origem: 'local' });
+    return { mes: i + 1, valores: local, preenchido: true, total: totalContas(local), origem: 'local' };
   }
   return Object.assign({}, daPlanilha, { origem: null });
 }
@@ -217,8 +248,9 @@ const lancDe = {};
 if (D && D.detalhe) D.detalhe.forEach(l => {
   (lancDe[l.cod] = lancDe[l.cod] || []).push(l);
 });
+// as movimentações manuais (sem data de baixa) vão para o fim do mês
 Object.values(lancDe).forEach(lst => lst.sort((a, b) =>
-  (a.data_baixa || '').localeCompare(b.data_baixa || '')));
+  (a.mes - b.mes) || (a.data_baixa || '9').localeCompare(b.data_baixa || '9')));
 
 /* itens de orçamento por natureza — pedido da chefe, 25/09: "fazer pro
    orçado a mesma coisa que fizemos pro realizado" (o clique que abre o
@@ -240,6 +272,24 @@ function kpi(label, val, sub, delta, deltaCls) {
     <div class="label">${label}</div><div class="val">${val}</div>
     ${sub ? `<div class="sub">${sub}</div>` : ''}
     ${delta ? `<div class="delta ${deltaCls || ''}">${delta}</div>` : ''}</div>`;
+}
+/* Saldo inicial × saldo das contas em 31/12 do ano anterior (`saldos.ano_anterior`, só a
+   partir de 2027): [delta, classe] do KPI. Com o extrato de dezembro, o inicial É esse saldo
+   e quem confere é o digitado na planilha. */
+function kpiInicial(ini) {
+  const a = D.saldos.ano_anterior;
+  if (!a) return [];
+  if (a.total == null) return [`sem saldo de 31/12/${a.ano} para conferir`, 'neg'];
+  if (D.saldos.inicial_fonte === 'extrato') {
+    const p = D.saldos.inicial_planilha;
+    if (p == null) return [`extratos de 31/12/${a.ano} · planilha sem saldo inicial`, ''];
+    const d = p - ini;
+    return Math.abs(d) < 0.005 ? [`extratos de 31/12/${a.ano} · ✓ planilha confere`, 'pos']
+      : [`extratos de 31/12/${a.ano} · planilha ${fmt.sig(d)}`, 'neg'];
+  }
+  const dif = ini - a.total;
+  return Math.abs(dif) < 0.005 ? [`✓ confere com 31/12/${a.ano}`, 'pos']
+    : [`${fmt.sig(dif)} vs 31/12/${a.ano} (${fmt.rs(a.total)})`, 'neg'];
 }
 function seg(id, opts, val) {
   return `<div class="seg" id="${id}">` + opts.map(o =>
@@ -265,9 +315,10 @@ function linhaSaldo(rot, campo, saldos, klass, par) {
   // Sem tom de coluna (pedido da chefe, 24/09): saldo bancário nunca tem
   // orçamento, então o par orç/real nem fazia sentido de comparação aqui — só
   // ocupava uma coluna com "·". Ela pediu para tirar a cor da tabela inteira.
+  // `campo` é o id de uma conta ('c1'…) ou 'total'.
   return `<tr class="confere ${klass || ''}"><td class="l">${rot}</td>` +
     saldos.map(sd => {
-      const v = sd[campo];
+      const v = campo === 'total' ? sd.total : (sd.valores || {})[campo];
       /* Saldo bancário não tem orçamento: no modo par a coluna Orçado fica
          vazia. É o `x` que a planilha escreve nessas linhas. `.ini` marca a
          primeira coluna do bloco do mês (pedido da chefe, 28/09 — separação
@@ -276,8 +327,18 @@ function linhaSaldo(rot, campo, saldos, klass, par) {
       const iniSolo = par ? '' : 'ini';
       if (v == null) return vazia + `<td class="${iniSolo}">·</td>`;
       const local = sd.origem === 'local';
-      return vazia + `<td class="${[iniSolo, local ? 'vlocal' : ''].filter(Boolean).join(' ')}"${local
-        ? ' title="digitado no painel — ainda não está na planilha"' : ''}>${fmt.n(v)}</td>`;
+      /* saldo lido do extrato: só a LINHA que veio dele (na Tarituba, a reserva e Adiantamento
+         Fornecedor seguem digitados); a dica diz de onde, e mostra o digitado
+         na planilha quando ele é diferente (o aviso da extração diz o mesmo) */
+      const doExtrato = sd.origem === 'extrato' && (sd.do_extrato || []).includes(campo);
+      let titulo = local ? 'digitado no painel — ainda não está na planilha' : '';
+      if (doExtrato) {
+        const p = (sd.planilha || {})[campo];
+        titulo = 'lido do extrato do banco' + (sd.arquivos ? ` (${sd.arquivos.join('; ')})` : '') +
+          (p != null && Math.abs(p - v) > 0.005 ? ` — na planilha: ${fmt.n(p)}` : '');
+      }
+      return vazia + `<td class="${[iniSolo, local ? 'vlocal' : '', doExtrato ? 'vextrato' : '']
+        .filter(Boolean).join(' ')}"${titulo ? ` title="${esc(titulo)}"` : ''}>${fmt.n(v)}</td>`;
     }).join('') + '</tr>';
 }
 
@@ -289,11 +350,10 @@ function formSaldo(mes) {
      mês divergente a planilha ganha (`origem` é 'planilha'), e era justamente ali que o
      aviso prometia "pode ser apagado" e o botão não existia. */
   const local = lerLocais()[mes];
-  const totalLocal = local
-    ? ['corrente', 'caixa', 'aplicacao'].reduce((s, c) => s + (local[c] || 0), 0) : null;
+  const totalLocal = local ? totalContas(local) : null;
   const campo = (id, rot, v) => `
-    <label class="f-campo"><span>${rot}</span>
-      <input type="text" inputmode="decimal" id="sld-${id}"
+    <label class="f-campo"><span>${esc(rot)}</span>
+      <input type="text" inputmode="decimal" id="sld-${id}" data-conta="${id}"
              value="${v == null ? '' : fmt.n(v)}" placeholder="0,00"></label>`;
   return `<div class="card form-saldo" id="form-saldo">
     <div class="card-title"><div>
@@ -303,9 +363,7 @@ function formSaldo(mes) {
       <button type="button" class="btn-ghost" id="sld-fechar" style="margin-left:auto">Fechar</button>
     </div>
     <div class="f-linha">
-      ${campo('corrente', 'Conta corrente', atual.corrente)}
-      ${campo('aplicacao', 'Aplicação', atual.aplicacao)}
-      ${campo('caixa', 'Fundo fixo', atual.caixa)}
+      ${CONTAS.map(c => campo(c.id, c.nome.replace(/^Saldo\s+/i, ''), (atual.valores || {})[c.id])).join('')}
       <div class="f-acao">
         <button type="button" class="btn-acao" id="sld-salvar">Salvar</button>
         ${local
@@ -318,7 +376,7 @@ function formSaldo(mes) {
     <div class="f-previa" id="sld-previa"></div>
     <div class="hint" style="margin-top:10px">
       ⚠ Guardado <b>só neste navegador</b>, não na planilha — enquanto os dois
-      convivem, o registro oficial continua sendo a aba <b>Resumo Tarituba</b>.
+      convivem, o registro oficial continua sendo a aba <b>Resumo Tarituba</b> da planilha.
     </div>
   </div>`;
 }
@@ -328,10 +386,15 @@ function formSaldo(mes) {
    orçamento cobre o ano inteiro, ao contrário do realizado. Fatorado de
    `pagResumo()` em 25/09 porque o Resumo Simplificado também precisa do
    mesmo encadeamento (para o Saldo Final de cada bloco de período), e ter
-   dois cálculos do mesmo saldo orçado é como ter duas fontes da verdade. */
+   dois cálculos do mesmo saldo orçado é como ter duas fontes da verdade.
+
+   SEM arredondar a cada passo (19/10/2026, Passivo): a planilha encadeia o valor
+   cheio, e a variação orçada carrega fração de centavo (orçamento anual/12).
+   Arredondando mês a mês o erro acumulava 1 centavo a partir de junho — medido
+   célula a célula pelo `conferir_planilha.py`. A exibição já arredonda. */
 function calcFimOrc(ini) {
   const out = []; let acc = ini;
-  for (let i = 0; i < 12; i++) { acc = Math.round((acc + D.serie.orc_variacao[i]) * 100) / 100; out.push(acc); }
+  for (let i = 0; i < 12; i++) { acc += D.serie.orc_variacao[i]; out.push(acc); }
   return out;
 }
 
@@ -380,10 +443,10 @@ function pagResumo(el) {
      alterar a outra sem ninguém pedir. */
   const modo = S.medidaFluxo;              // 'ambos' | 'real' | 'orc'
   const par = modo === 'ambos';
-  const recSub = subtotaisNivel1('receitas', 'real');
-  const recSubO = subtotaisNivel1('receitas', 'orc');
-  const desSub = subtotaisNivel1('despesas', 'real');
-  const desSubO = subtotaisNivel1('despesas', 'orc');
+  const recSub = linhasResumo('receitas');
+  const desSub = linhasResumo('despesas');
+  const foraResumo = (D.qual.fora_do_resumo || {}).receitas || [];
+  const foraResumoD = (D.qual.fora_do_resumo || {}).despesas || [];
 
   /* `.ini` marca a PRIMEIRA coluna de cada bloco (mês, acumulado, ou o bloco
      Ano de pagBloco) — pedido da chefe, 28/09: "a separação dos meses não
@@ -394,8 +457,8 @@ function pagResumo(el) {
      3 colunas) e cada um teria uma paridade diferente — frágil de acertar
      por seletor, e foi exatamente esse desalinhamento que deixou os meses
      "normais" sem borda nenhuma na versão anterior. CSS em index.html. */
-  const cab = MESES.map((m, i) =>
-    `<th class="mescab ini ${ABERTO(i) ? 'aberto' : ''}"${par ? ' colspan="2"' : ''}>${m}${ABERTO(i) ? '*' : ''}</th>`).join('');
+  const cab = MESES.map((_, i) =>
+    `<th class="mescab ini ${ABERTO(i) ? 'aberto' : ''}"${par ? ' colspan="2"' : ''}>${rotMes(i)}</th>`).join('');
   // sem o tom de coluna — cabeçalho da tabela "Saldo final e confronto"
   const subcabSemCor = par
     ? MESES.map(() => '<th class="sub ini">orç</th><th class="sub">real</th>').join('')
@@ -408,7 +471,7 @@ function pagResumo(el) {
      sozinho seria repetir janeiro. */
   const cabAcumArr = [], subcabAcumArr = [];
   MESES.forEach((m, i) => {
-    cabAcumArr.push(`<th class="mescab ini ${ABERTO(i) ? 'aberto' : ''}"${par ? ' colspan="2"' : ''}>${m}${ABERTO(i) ? '*' : ''}</th>`);
+    cabAcumArr.push(`<th class="mescab ini ${ABERTO(i) ? 'aberto' : ''}"${par ? ' colspan="2"' : ''}>${rotMes(i)}</th>`);
     subcabAcumArr.push(par ? '<th class="sub ini c-orc">orç</th><th class="sub c-real">real</th>' : '<th class="sub ini"></th>');
     if (i > 0) {
       const rotAcum = `${MESES[0]}–${m}`;
@@ -477,6 +540,11 @@ function pagResumo(el) {
     }).join('');
     return `<tr class="${klass || ''}"><td class="l">${rot}</td>${cels}</tr>`;
   };
+  /* sublinha do Resumo: recuo pela profundidade relativa (Salários fica dentro de
+     Pessoal, que fica dentro de Despesas Tarituba — na aba é só a ordem) */
+  const sublinha = (g, base) => linha(
+    `<span class="recuo-${Math.min(g.recuo, 3)}">${esc(g.nome)}</span>`,
+    g.orc, g.real, `sub1 ${base}`, { comAcum: true });
 
   el.innerHTML = `
   ${pendentes.length ? `
@@ -504,7 +572,7 @@ function pagResumo(el) {
   <div class="aviso-saldo info">
     <span class="ic">ⓘ</span>
     <div><b>${soLocais.map(i => MESES_LONGO[i]).join(', ')}:</b> saldo digitado só neste
-    navegador — ainda não está na planilha. Confira e lance na aba Resumo Tarituba.</div>
+    navegador — ainda não está na planilha. Confira e lance na aba Resumo da planilha.</div>
     ${soLocais.map(i => `<button type="button" class="btn-ghost btn-saldo"
         data-mes="${i + 1}">Editar ${MESES[i]}</button>`).join('')}
   </div>` : ''}
@@ -522,7 +590,7 @@ function pagResumo(el) {
     <div id="g-fluxo"></div>
   </div>
   <div class="grid-kpi">
-    ${kpi('Saldo inicial do ano', fmt.rs(ini), 'posição de 1º de janeiro')}
+    ${kpi('Saldo inicial do ano', fmt.rs(ini), 'posição de 1º de janeiro', ...kpiInicial(ini))}
     ${kpi('Variação acumulada', fmt.sig(varAcum),
         `jan–${MESES[NF - 1]} · orçado ${fmt.sig(orcAcum)}`,
         `${seta(desvioAcum)} ${fmt.sig(desvioAcum)} vs orçado`, cls(desvioAcum))}
@@ -550,7 +618,11 @@ function pagResumo(el) {
       <div class="hint">As mesmas linhas da aba <b>Resumo Tarituba</b>, com o
       acumulado desde janeiro depois de cada mês (colunas em itálico).
       Sinal de caixa: entrada <b class="pos">+</b>, saída <b class="neg">−</b>.
-      <b>*</b> marca mês sem lançamento.</div></div>
+      <b>*</b> marca mês sem lançamento.${(() => {
+        const n = ((D.manuais || {}).movimentos || []).length;
+        return n ? ` Inclui <b>${n} movimentaç${n === 1 ? 'ão' : 'ões'} manua${n === 1 ? 'l' : 'is'}</b>
+          (no detalhe das células, marcadas “manual”).` : '';
+      })()}</div></div>
       <div style="margin-left:auto">${seg('seg-fluxo',
         [{ v: 'ambos', t: 'Orçado × realizado' }, { v: 'real', t: 'Realizado' },
          { v: 'orc', t: 'Orçado' }], modo)}</div>
@@ -564,21 +636,31 @@ function pagResumo(el) {
         <tbody>
           ${linha('Saldo inicial', iniMes, iniMes, 'saldo', { semAberto: true, comAcum: true, stubAcum: true })}
           ${linha('Receita Total', s.orc_receita, s.receita, 'total receita', { comAcum: true })}
-          ${recSub.map((g, k) => linha(g.nome, (recSubO[k] || {}).valores, g.valores, 'sub1 receita', { comAcum: true })).join('')}
+          ${recSub.map(g => sublinha(g, 'receita')).join('')}
           ${linha('Despesa Total', s.orc_despesa, s.despesa, 'total despesa', { comAcum: true })}
-          ${desSub.map((g, k) => linha(g.nome, (desSubO[k] || {}).valores, g.valores, 'sub1 despesa', { comAcum: true })).join('')}
+          ${desSub.map(g => sublinha(g, 'despesa')).join('')}
           ${linha('Variação Líquida', s.orc_variacao, s.variacao, 'variacao', { comAcum: true })}
           ${par ? '' : linha('Desvio vs orçado', null, desvio, '', { colorir: true, semAberto: true, comAcum: true })}
         </tbody>
       </table>
     </div>
+    ${foraResumo.length || foraResumoD.length ? `<div class="hint" style="margin-top:12px">
+      ⚠ ${[...foraResumo, ...foraResumoD].map(c => `<b>${esc(c)} ${esc((natDe[c] || {}).nome || '')}</b>`).join(', ')}
+      não ${foraResumo.length + foraResumoD.length === 1 ? 'está' : 'estão'} em nenhuma sublinha
+      da aba Resumo da planilha, cujo total é a soma das sublinhas. Aqui o total soma
+      todas as naturezas da aba — se ${foraResumo.length + foraResumoD.length === 1 ? 'ela tiver' : 'elas tiverem'}
+      movimento, painel e planilha divergem nesse total.</div>` : ''}
   </div>
 
   <div class="card">
     <div class="card-title">
       <div><h2>Saldo final e confronto com os bancos</h2>
-      <div class="hint">O saldo que o fluxo calculou, contra os saldos que a
-      Controladoria digita mês a mês. Segue a mesma vista (${par ? 'Orçado × realizado'
+      <div class="hint">O saldo que o fluxo calculou, contra os saldos das contas — ${
+        D.saldos.mensal.some(m => m.fonte === 'extrato')
+          ? `as lidas dos extratos em ${D.saldos.mensal
+              .filter(m => m.fonte === 'extrato').map(m => MESES[m.mes - 1]).join(', ')}
+              (sublinhadas; passe o mouse para ver o arquivo), as demais digitadas pela Controladoria`
+          : 'digitados pela Controladoria mês a mês'}. Segue a mesma vista (${par ? 'Orçado × realizado'
         : modo === 'orc' ? 'Orçado' : 'Realizado'}) selecionada acima.</div></div>
     </div>
     <div class="tbl-wrap">
@@ -591,10 +673,8 @@ function pagResumo(el) {
           ${linha('Saldo Final Disponível', fimOrc, fimMes, 'fechofinal', { semAberto: true, semCor: true })}
         </tbody>
         <tbody>
-          ${linhaSaldo('Saldo Conta Corrente', 'corrente', saldos, '', par)}
-          ${linhaSaldo('Saldo Conta Aplicação', 'aplicacao', saldos, '', par)}
-          ${linhaSaldo('Saldo Fundo Fixo', 'caixa', saldos, '', par)}
-          ${linhaSaldo('Total Conta Tarituba e Outros', 'total', saldos, 'forte', par)}
+          ${CONTAS.map(c => linhaSaldo(esc(c.nome), c.id, saldos, '', par)).join('')}
+          ${linhaSaldo(esc(D.saldos.rotulo_total || 'Total das contas'), 'total', saldos, 'forte', par)}
         </tbody>
         <tbody>
           ${linha('Saldo Anterior', iniMes, iniMes, 'confere', { semAberto: true, semCor: true })}
@@ -637,11 +717,8 @@ function pagResumo(el) {
   const salvar = document.getElementById('sld-salvar');
   if (salvar) {
     salvar.addEventListener('click', () => {
-      const v = {
-        corrente: campoValor('corrente'),
-        aplicacao: campoValor('aplicacao'),
-        caixa: campoValor('caixa')
-      };
+      const v = {};
+      CONTAS.forEach(c => { v[c.id] = campoValor(c.id); });
       if (!gravarLocal(S.formMes, v)) {
         alert('Não consegui gravar neste navegador (armazenamento bloqueado). '
             + 'O valor não foi salvo.');
@@ -661,8 +738,7 @@ function pagResumo(el) {
   const previa = document.getElementById('sld-previa');
   if (previa) {
     const calc = () => {
-      const tot = ['corrente', 'aplicacao', 'caixa']
-        .reduce((a, id) => a + campoValor(id), 0);
+      const tot = CONTAS.reduce((a, c) => a + campoValor(c.id), 0);
       const calculado = s.saldo_fim[S.formMes - 1];
       const dif = Math.round((calculado - tot) * 100) / 100;
       previa.innerHTML = `Total informado <b>${fmt.n(tot)}</b> · o fluxo calculou
@@ -670,8 +746,8 @@ function pagResumo(el) {
         <b class="${Math.abs(dif) < 0.005 ? 'pos' : 'neg'}">${
           Math.abs(dif) < 0.005 ? 'fecha (0,00)' : fmt.sig(dif)}</b>`;
     };
-    ['corrente', 'aplicacao', 'caixa'].forEach(id => {
-      const inp = document.getElementById('sld-' + id);
+    CONTAS.forEach(c => {
+      const inp = document.getElementById('sld-' + c.id);
       if (inp) inp.addEventListener('input', calc);
     });
     calc();
@@ -701,11 +777,10 @@ function pagResumo(el) {
     },
     xAxis: axis({ type: 'category', data: MESES }),
     yAxis: [axis({ type: 'value', axisLabel: { color: C.ink3, formatter: v => fmt.k(v) } }),
-            /* EIXO DO SALDO ANCORADO NOS DADOS, não em zero. O saldo vai de
-               R$ 559 mil a R$ 416 mil — queda de 26%, que é a história do ano.
-               Com o eixo partindo de zero a linha fica praticamente reta e o
-               movimento desaparece. Folga de 15% para a linha não encostar nas
-               bordas, arredondada a 10k. */
+            /* EIXO DO SALDO ANCORADO NOS DADOS, não em zero (decisão do
+               Tarituba: com o eixo partindo de zero a linha fica praticamente
+               reta e o movimento desaparece). Folga de 15% para a linha não
+               encostar nas bordas, arredondada a 10k. */
             axis({ type: 'value', position: 'right', splitLine: { show: false },
                    min: faixaSaldo.min, max: faixaSaldo.max,
                    axisLabel: { color: C.ink3, formatter: v => fmt.k(v) } })],
@@ -769,7 +844,9 @@ function pagSimplificado(el) {
       com realizado para comparar.</div></div>`;
     return;
   }
-  const mes = Math.min(Math.max(S.mesSimples || NF, 1), NF);
+  // padrão: o último mês FECHADO PELO EXPORT (é o do card); sem export nenhum, o último com dado
+  const ultExport = D.meses.reduce((u, m, i) => (m.fonte === 'export' ? i + 1 : u), 0);
+  const mes = Math.min(Math.max(S.mesSimples || ultExport || NF, 1), NF);
   const fimOrc = calcFimOrc(ini);
 
   /* Δ em R$ K (pedido da chefe, formato do exemplo; rótulo virou "Δ k" em
@@ -875,7 +952,7 @@ function pagSimplificado(el) {
 
   const nomeMes = MESES[mes - 1];
   const opcoesMes = MESES.slice(0, NF).map((m, i) =>
-    `<option value="${i + 1}"${i + 1 === mes ? ' selected' : ''}>${m}</option>`).join('');
+    `<option value="${i + 1}"${i + 1 === mes ? ' selected' : ''}>${m}${PREVIA(i) ? ' (prévia)' : ''}</option>`).join('');
 
   el.innerHTML = `
   <div class="card">
@@ -887,12 +964,12 @@ function pagSimplificado(el) {
       <div style="margin-left:auto;display:flex;align-items:center;gap:8px">
         <label class="label" for="sel-mes-simples" style="margin:0">Mês de comparação</label>
         <select id="sel-mes-simples">${opcoesMes}</select>
-        ${window.TARITUBA_HUB ? `<button type="button" class="btn-ghost" id="btn-card-trello"
+        ${HUB && HUB.ligarCard ? `<button type="button" class="btn-ghost" id="btn-card-trello"
           title="Cria no Trello o card do mês selecionado, com o PDF desta tabela">
           Criar card no Trello</button>` : ''}
       </div>
     </div>
-    ${window.TARITUBA_HUB ? '<div class="sub" id="card-status" style="margin:-4px 0 10px;text-align:right"></div>' : ''}
+    ${HUB && HUB.ligarCard ? '<div class="sub" id="card-status" style="margin:-4px 0 10px;text-align:right"></div>' : ''}
     <div class="tbl-wrap">
       <table class="data wide fluxo par">
         <thead>
@@ -938,8 +1015,9 @@ function pagSimplificado(el) {
      do clique: o card é do mês que está na tela naquele momento. O PDF é gerado
      no Azure a partir do painel PUBLICADO — os mesmos números desta tabela. */
   const btnCard = document.getElementById('btn-card-trello');
-  if (btnCard && window.TARITUBA_HUB) {
-    window.TARITUBA_HUB.ligarCard(btnCard, document.getElementById('card-status'), () => mes);
+  /* `ligarCard` só existe no Hub: a ponte local (tt_local.js) tem o cadastro, não o card */
+  if (btnCard && HUB && HUB.ligarCard) {
+    HUB.ligarCard(btnCard, document.getElementById('card-status'), () => mes);
   }
 
   /* clique por LINHA pra destrinchar (pedido do Leonardo, 25/09) — delegado
@@ -1016,8 +1094,12 @@ function linhaNatureza(cod, n, morta, marca, celulas, tO, tR, nCols) {
     return cel(valor, classes, false, titulo, attrs);
   };
 
-  const principal = `<tr class="nat ${morta ? 'morta' : ''} ${rangeAberto ? 'open' : ''}">
-    <td class="l"><span class="nome">${cod} ${n.nome}</span>${marca}
+  /* O rótulo é o da PLANILHA (decisão de 19/10: as linhas continuam como estão);
+     o nome do Bimer vai na dica quando difere — é por ele que se acha o lançamento lá. */
+  const dica = n.nome_bimer && n.nome_bimer.toUpperCase() !== (n.nome || '').toUpperCase()
+    ? ` title="No Bimer: ${esc(n.nome_bimer)}"` : '';
+  const principal = `<tr class="nat ${morta ? 'morta' : ''} ${rangeAberto ? 'open' : ''}" data-cod="${esc(cod)}">
+    <td class="l"><span class="nome"${dica}>${cod} ${esc(n.nome)}</span>${marca}
       ${podeAnoReal ? `<span class="cont">${lancsAno.length}</span>` : ''}</td>
     ${celulas(n.orc, n.real, cod)}
     ${celAno(tO, 'orc', itensOrcAno, 'ini c-orc')}${celAno(tR, 'real', lancsAno, 'c-real')}
@@ -1069,10 +1151,19 @@ function linhaNatureza(cod, n, morta, marca, celulas, tO, tR, nCols) {
 
   const linhas = lancs.map(l => `
     <div class="lanc-linha">
-      <div class="d-data">${dataBr(l.data_baixa)}</div>
+      ${/* movimentação manual (o papel da aba Base): sem baixa, marcada */
+        l.fonte === 'manual'
+          ? `<div class="d-data"><span class="chip-manual" title="Movimentação manual de ${MESES_LONGO[l.mes - 1]} — Movimentações manuais">manual</span></div>`
+        /* baixa corrigida no extrator (data errada no Bimer, sem conserto lá) */
+        : l.data_baixa_bimer
+          ? `<div class="d-data" title="Data corrigida: no Bimer a baixa está em ${dataBr(l.data_baixa_bimer)}/${l.data_baixa_bimer.slice(0, 4)}">${dataBr(l.data_baixa)}*</div>`
+          : `<div class="d-data">${dataBr(l.data_baixa)}</div>`}
       <div class="d-tit" title="${(l.titulo || '').replace(/"/g, '&quot;')}">${l.titulo || ''}</div>
       <div class="d-forn" title="${(l.fornecedor || '').replace(/"/g, '&quot;')}">${l.fornecedor || '<i>sem contraparte</i>'}</div>
-      <div class="d-obs" title="${(l.observacao || '').replace(/"/g, '&quot;')}">${l.observacao || ''}</div>
+      <div class="d-obs" title="${(l.observacao || '').replace(/"/g, '&quot;')}">${
+        /* de-para: lançamento de outra natureza do Bimer somado nesta linha */
+        l.cod_bimer && l.cod_bimer !== l.cod
+          ? `<span class="via" title="Natureza ${esc(l.cod_bimer)} no Bimer, somada nesta linha como na planilha">via ${esc(l.cod_bimer)}</span> ` : ''}${esc(l.observacao || '')}</div>
       <div class="d-val">${fmt.n(l.valor)}</div>
     </div>`).join('');
 
@@ -1087,27 +1178,45 @@ function linhaNatureza(cod, n, morta, marca, celulas, tO, tR, nCols) {
     </div></td></tr>`;
 }
 
-/* Subtotais de nível 1 de uma aba — as linhas que a aba `Resumo Tarituba`
-   puxa com `=Receitas!D5` e `=Despesas!D5`.
+/* Sublinhas do Resumo de uma aba — as linhas que a aba `Resumo Tarituba` puxa
+   abaixo de Receita Total e Despesa Total (`=Receitas!D5` …).
 
-   Lidos da estrutura e não escritos à mão: se alguém criar um terceiro bloco de
-   receita na planilha, ele aparece aqui sozinho. Nível 1 porque é o que a
-   planilha referencia — o nível 0 é o total, que já é a linha de cima. */
-function subtotaisNivel1(aba, campo) {
+   A aba escolhe à mão (naturezas e grupos de níveis diferentes, fora da ordem da
+   aba), então a lista vem pronta em `D.resumo[aba]` — da planilha ou do cadastro.
+   Cada linha é uma natureza (`ref.cod`) ou um grupo (`ref.grupo`), este com
+   `ref.exceto` opcional (do Shiva, onde `Despesas Administrativas` tira os
+   Dividendos a Pagar, que o Resumo mostra numa linha própria; o Tarituba não usa).
+
+   Tudo sai do CONJUNTO de naturezas da linha. Os valores são a soma delas, e
+   `recuo` = quantas OUTRAS linhas contêm esse conjunto com folga (no Shiva,
+   Administrativas menos dividendos ficava dentro de Despesas - Shiva → 1). No
+   Tarituba as sublinhas não se contêm: todas com recuo 0. Referência que não acha nada devolve zeros em vez de sumir: linha
+   faltando no Resumo é pior que linha zerada, e o extrator já valida. */
+function linhasResumo(aba) {
   const lista = (D.estrutura && D.estrutura[aba]) || [];
-  const out = [];
-  lista.forEach((no, i) => {
-    if (no.tipo === 'grupo' && no.nivel === 1) {
-      out.push({ nome: no.nome, valores: somaGrupo(lista, i, campo) });
-    }
+  const codsDe = ref => {
+    if (ref.cod) return lista.some(n => n.tipo === 'natureza' && n.cod === ref.cod) ? [ref.cod] : [];
+    const i = lista.findIndex(n => n.tipo === 'grupo' && n.nome === ref.grupo);
+    if (i < 0) return [];
+    const fora = new Set(ref.exceto || []), cods = [];
+    for (let j = i + 1; j < lista.length && lista[j].nivel > lista[i].nivel; j++)
+      if (lista[j].tipo === 'natureza' && !fora.has(lista[j].cod)) cods.push(lista[j].cod);
+    return cods;
+  };
+  // SEM arredondar a soma (ver `somaGrupo`): só a exibição arredonda
+  const soma = (cods, campo) => {
+    const out = new Array(12).fill(0);
+    cods.forEach(c => { const n = natDe[c]; if (n) for (let m = 0; m < 12; m++) out[m] += n[campo][m]; });
+    return out;
+  };
+  const out = (D.resumo && D.resumo[aba] || []).map(ln => {
+    const cods = codsDe(ln.ref || {});
+    return { nome: ln.rotulo, cods: new Set(cods), orc: soma(cods, 'orc'), real: soma(cods, 'real') };
   });
-  /* Receitas tem os dois blocos em nível 1; Despesas tem um só ("Despesas
-     Tarituba"), que é o caso de a raiz ter um único filho. Se não houver nível
-     1 nenhum, devolve o total da raiz para a linha não sumir. */
-  if (!out.length) {
-    const raiz = lista.findIndex(n => n.tipo === 'grupo');
-    if (raiz >= 0) out.push({ nome: lista[raiz].nome, valores: somaGrupo(lista, raiz, campo) });
-  }
+  const contem = (a, b) => a.cods.size > b.cods.size && [...b.cods].every(c => a.cods.has(c));
+  out.forEach(g => {
+    g.recuo = g.cods.size ? out.filter(o => o !== g && contem(o, g)).length : 0;
+  });
   return out;
 }
 
@@ -1167,7 +1276,7 @@ function pagBloco(el, aba) {
      definida". Ver o mesmo comentário em `pagResumo()`; CSS em index.html. */
   const colsMesArr = [], subMesArr = [];
   iMeses.forEach((i, k) => {
-    colsMesArr.push(`<th class="grupo ini ${ABERTO(i) ? 'aberto' : ''}" colspan="${nColunas}">${MESES[i]}${ABERTO(i) ? '*' : ''}</th>`);
+    colsMesArr.push(`<th class="grupo ini ${ABERTO(i) ? 'aberto' : ''}" colspan="${nColunas}">${rotMes(i)}</th>`);
     subMesArr.push(S.medida === 'ambos'
       ? '<th class="sub ini c-orc">orç</th><th class="sub c-real">real</th>' : '<th class="sub ini"></th>');
     if (k > 0) {
@@ -1254,7 +1363,7 @@ function pagBloco(el, aba) {
     const morta = !n.tem_orc && !n.tem_mov;
     const tO = soma(n.orc), tR = soma(n.real, 0, NF);
     const marca = no.fora_do_bloco
-      ? ` <span class="flag" title="O código pende de 13.2 = TOTAL DE PAGAMENTOS, mas a linha está na aba Receitas da planilha. Reproduzido onde a planilha põe.">⚠ bloco</span>` : '';
+      ? ` <span class="flag" title="Código de ${ehReceita ? 'pagamento' : 'recebimento'}, mas a linha está na aba ${ehReceita ? 'Receitas' : 'Despesas'} da planilha. Reproduzido onde a planilha põe.">⚠ bloco</span>` : '';
     return linhaNatureza(no.cod, n, morta, marca, celulas, tO, tR, nCols);
   }).join('');
 
@@ -1358,6 +1467,12 @@ function pagBloco(el, aba) {
      quando cod+ini+fim+tipo são todos iguais ao que já estava aberto. */
   const tabela = el.querySelector('table.data.nat');
   if (tabela) {
+    /* A ROLAGEM DA CAIXA SOBREVIVE ao clique (pedido do Leonardo, 29/10/2026): o render()
+       reconstrói a tabela e a caixa voltava ao início (janeiro, topo) — clicar em outubro
+       abria o detalhe debaixo de janeiro, e rolar de volta até outubro levava o detalhe
+       embora. Agora a caixa volta para onde estava, o detalhe fica fixo na parte visível ao
+       rolar para os lados (`.lanc` sticky, CSS), e se ele abrir abaixo do fim visível da
+       caixa, ela desce só o necessário. */
     const abrirFaixa = td => {
       const cod = td.dataset.cod;
       const ini = parseInt(td.dataset.ini, 10), fim = parseInt(td.dataset.fim, 10);
@@ -1365,7 +1480,25 @@ function pagBloco(el, aba) {
       const atual = S.aberta.get(cod);
       if (atual && atual.ini === ini && atual.fim === fim && atual.tipo === tipo) S.aberta.delete(cod);
       else S.aberta.set(cod, { ini, fim, tipo });
+      const caixa = tabela.closest('.tbl-wrap');
+      const pos = caixa ? { x: caixa.scrollLeft, y: caixa.scrollTop } : null;
       render();
+      const nova = document.querySelector('table.data.nat');
+      const caixaNova = nova && nova.closest('.tbl-wrap');
+      if (!pos || !caixaNova) return;
+      caixaNova.scrollLeft = pos.x;
+      caixaNova.scrollTop = pos.y;
+      const linha = nova.querySelector(`tr[data-cod="${cod}"]`);
+      const det = linha && linha.nextElementSibling && linha.nextElementSibling.classList.contains('detalhe')
+        ? linha.nextElementSibling : null;
+      if (!det) return;
+      const cab = nova.tHead ? nova.tHead.offsetHeight : 0;
+      const fimDet = det.offsetTop + det.offsetHeight;
+      const fimVisivel = caixaNova.scrollTop + caixaNova.clientHeight;
+      if (fimDet > fimVisivel) {
+        // desce até o detalhe caber, sem passar do ponto em que a linha clicada some sob o cabeçalho
+        caixaNova.scrollTop = Math.min(fimDet - caixaNova.clientHeight, linha.offsetTop - cab);
+      }
     };
     tabela.addEventListener('click', e => {
       const td = e.target.closest('td.clic');
@@ -1404,7 +1537,7 @@ function renderAvisos(el) {
     <div class="hint">Cada um destes erra <b>para menos</b> — por isso viram aviso
     em vez de silêncio.</div></div></div>
     <div class="notes">${Object.entries(porTipo).map(([t, lst]) => `
-      <div class="note ${t === 'baixa-parcial' || t === 'pagina-recusada-pela-api' ? 'alerta' : ''}">
+      <div class="note ${['baixa-parcial', 'pagina-recusada-pela-api'].includes(t) ? 'alerta' : ''}">
         <span class="ic">⚠</span><div><b>${t}</b> · ${lst.length}×<br>${lst[0].msg}</div></div>`).join('')}
     </div>
   </div>`;
@@ -1420,10 +1553,21 @@ const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c =>
 function renderPendentes() {
   const el = document.getElementById('banner-slot');
   if (!el) return;
+  // as faixas de aviso só no Resumo (Leonardo, 29/10/2026): nas outras abas repetiam o
+  // mesmo recado e empurravam a tabela para baixo
+  if (S.pagina !== 'resumo') { el.innerHTML = ''; return; }
+  const previa = D.meses.filter(m => m.fonte === 'api').map(m => MESES_LONGO[m.n - 1]);
+  const txtPrevia = previa.join(', ');
+  const faixaPrevia = previa.length ? `<div class="aviso-saldo">
+    <span class="ic">ⓘ</span>
+    <div><b>${txtPrevia.charAt(0).toUpperCase() + txtPrevia.slice(1)}: prévia.</b> O realizado ${previa.length === 1 ? 'deste mês' : 'destes meses'}
+      vem da API do Bimer porque ainda não há o export na pasta “Base Fluxo de Caixa”;
+      quando ele chegar, os números passam a ser os do export e podem mudar.</div>
+  </div>` : '';
   const p = D.pendentes || [];
-  if (!p.length) { el.innerHTML = ''; return; }
-  const abrir = window.TARITUBA_HUB && window.TARITUBA_HUB.abrirCadastro;
-  el.innerHTML = `<div class="aviso-saldo alerta">
+  if (!p.length) { el.innerHTML = faixaPrevia; return; }
+  const abrir = HUB && HUB.abrirCadastro;
+  el.innerHTML = faixaPrevia + `<div class="aviso-saldo alerta">
     <span class="ic">⚠</span>
     <div><b>${p.length} natureza${p.length === 1 ? '' : 's'} com lançamento fora do cadastro:</b>
       ${p.map(x => `${esc(x.cod)} ${esc(x.nome)} (${fmt.n(x.valor)})`).join('; ')}.
@@ -1432,7 +1576,7 @@ function renderPendentes() {
     ${abrir ? '<button type="button" class="btn-ghost" id="btn-pend-cadastro">Classificar</button>' : ''}
   </div>`;
   const b = document.getElementById('btn-pend-cadastro');
-  if (b) b.addEventListener('click', () => window.TARITUBA_HUB.abrirCadastro());
+  if (b) b.addEventListener('click', () => HUB.abrirCadastro());
 }
 
 /* ── casca ── */
@@ -1445,10 +1589,22 @@ function render() {
   if (S.pagina === 'resumo') pagResumo(alvo);
   else if (S.pagina === 'simples') pagSimplificado(alvo);
   else pagBloco(alvo, S.pagina);
-  renderAvisos(document.getElementById('b-avisos'));
+  if (S.pagina === 'resumo') renderAvisos(document.getElementById('b-avisos'));
   document.querySelectorAll('#nav-pag button').forEach(b =>
     b.classList.toggle('on', b.dataset.v === S.pagina));
+  congelarCabecalhos(view);
 }
+
+/* Cabeçalho congelado (CSS em index.html): a 2ª linha do cabeçalho gruda logo abaixo
+   da 1ª, e a altura da 1ª é MEDIDA aqui depois de desenhar — muda com a fonte, o
+   modo (Ambos/Realizado/Orçado) e o zoom, então um número fixo erraria. */
+function congelarCabecalhos(raiz) {
+  raiz.querySelectorAll('table.data').forEach(t => {
+    const cab = t.tHead && t.tHead.rows[0];
+    if (cab) t.style.setProperty('--h-cab1', cab.getBoundingClientRect().height + 'px');
+  });
+}
+window.addEventListener('resize', () => congelarCabecalhos(document));
 
 /* ═══════════════════ EXPORTAR PDF (29/09, pedido do Leonardo) ═══════════════════
 
@@ -1474,31 +1630,154 @@ function todasAsChavesSimples() {
   return chaves;
 }
 
-/* Mede a tabela de verdade (10 colunas, bem mais estreita que a Ambos de
-   Receitas/Despesas) e escreve um `@page` do tamanho exato — mesma
-   disciplina de "medir, não chutar" da 1ª versão do PDF. */
+/* A4 deitado, em várias páginas (29/10, pedido do Leonardo) — o mesmo do PDF
+   do card (pdf_resumo.py). Antes era 1 página sob medida pra tabela inteira:
+   na FPG (95 linhas) virava uma tira que o leitor encolhia até não dar pra ler.
+   Mede a largura de verdade e, se a tabela não couber na folha, reduz o
+   conteúdo inteiro (`zoom`) — as colunas ficam iguais em toda página. O
+   cabeçalho da tabela o Chrome já repete sozinho em cada página (thead). */
 function ajustarPaginaImpressao() {
-  const t = document.querySelector('#pg-imp-simples table');
-  const largura = Math.max(900, t ? t.scrollWidth : 0);
   const el = document.getElementById('pg-imp-simples');
-  const altura = Math.max(900, el ? el.scrollHeight : 0);
-  const padCard = 40;           // padding do `.card` (18px de cada lado) + folga
+  const t = el && el.querySelector('table');
   const margemMm = 10;
-  const margemPx = margemMm * 96 / 25.4; // 10mm em px CSS, pros dois lados
-  // +250px de folga: mesmo achado da 1ª versão (`break-inside:avoid` empurra
-  // o card inteiro se faltar espaço pra QUALQUER parte dele, e `scrollHeight`
-  // não reflete isso) — aqui é só 1 card, risco bem menor, mas a folga não
-  // custa nada numa página que já é feita sob medida.
-  const folga = 250;
-  const larguraPagina = Math.ceil(largura + padCard + margemPx * 2 + folga);
-  const alturaPagina = Math.ceil(altura + padCard + margemPx * 2 + folga);
+  const util = (297 - 2 * margemMm) * 96 / 25.4; // largura útil da folha, em px CSS
+  // na tela a tabela estica até a janela: mede a largura NATURAL dela (+ o
+  // padding do card), senão uma janela larga encolheria o PDF à toa
+  let largura = 0;
+  if (t) {
+    const folga = el.scrollWidth - t.offsetWidth; // padding do card em volta da tabela
+    const antes = t.style.width;
+    t.style.width = 'max-content';
+    largura = t.offsetWidth + folga;
+    t.style.width = antes;
+  }
+  const escala = largura > util ? Math.floor(util / largura * 1000) / 1000 : 1;
   let estilo = document.getElementById('estilo-impressao');
   if (!estilo) {
     estilo = document.createElement('style');
     estilo.id = 'estilo-impressao';
     document.head.appendChild(estilo);
   }
-  estilo.textContent = `@page{size:${larguraPagina}px ${alturaPagina}px;margin:${margemMm}mm}`;
+  estilo.textContent = `@page{size:A4 landscape;margin:${margemMm}mm}
+@media print{#pg-imp-simples{zoom:${escala}}
+#pg-imp-simples tr{break-inside:avoid}
+#pg-imp-simples tr.quebra{break-before:page}}`;
+  return { escala, larguraUtil: util, alturaUtil: (210 - 2 * margemMm) * 96 / 25.4 };
+}
+
+/* ONDE QUEBRAR (29/10, pedido do Leonardo) — as MESMAS regras do PDF do card
+   (`paginar` em pdf_resumo.py; mudou lá, muda aqui): a receita numa página
+   só dela; entre as quebras que cabem, a que parte menos grupos (o nome do
+   grupo não fica numa página e as naturezas em outra); grupo maior que uma
+   folha repete o nome com "(continuação)" no topo da seguinte. As alturas são
+   medidas na tela (a impressão só aplica o zoom); 3% de folga porque, se a
+   conta passar de uma linha, o Chrome quebra antes e sobra uma página quase vazia. */
+const NIVEL_IMP = { saldo: 0, variacao: 0, saldo_final: 0, total_receita: 0, total_despesa: 0,
+  sub1_receita: 1, sub1_despesa: 1, grp1: 2, grp2: 3, grp3: 4, nat: 5 };
+const QUEBRA_ANTES_IMP = new Set(['total_despesa']);
+const MIN_ULTIMA_IMP = 6, MIN_CHEIA_IMP = 0.4;
+const ehTitulo = t => /^(total_|sub1_|grp)/.test(t);
+
+function tipoDaLinha(tr) {
+  const c = tr.classList;
+  const lado = c.contains('receita') ? 'receita' : 'despesa';
+  if (c.contains('fechofinal')) return 'saldo_final';
+  if (c.contains('saldo')) return 'saldo';
+  if (c.contains('variacao')) return 'variacao';
+  if (c.contains('total')) return 'total_' + lado;
+  if (c.contains('sub1')) return 'sub1_' + lado;
+  for (const n of [1, 2, 3]) if (c.contains('n' + n)) return 'grp' + n;
+  return 'nat';
+}
+
+function gruposAbertos(tipos) {
+  const abertos = [];
+  let pilha = [];
+  tipos.forEach((t, c) => {
+    pilha = pilha.filter(h => NIVEL_IMP[tipos[h]] < NIVEL_IMP[t]);
+    abertos.push(pilha);
+    if (ehTitulo(t)) pilha = pilha.concat([c]);
+  });
+  abertos.push([]);
+  return abertos;
+}
+
+const repeteNoTopo = (tipos, abertos, c) =>
+  c < tipos.length && tipos[c] === 'nat' && abertos[c].length ? abertos[c][abertos[c].length - 1] : null;
+
+function paginar(alturas, tipos, cabePrimeira, cabeDemais, reservaFinal) {
+  const n = alturas.length, abertos = gruposAbertos(tipos);
+  const somar = (a, b) => alturas.slice(a, b).reduce((x, y) => x + y, 0);
+  const forcadas = tipos.map((t, i) => (QUEBRA_ANTES_IMP.has(t) && i > 0 ? i : -1)).filter(i => i > 0);
+  const minUltima = somar(n - MIN_ULTIMA_IMP, n) + reservaFinal <= cabeDemais ? MIN_ULTIMA_IMP : 1;
+  const faixas = [];
+  let ini = 0;
+  while (ini < n) {
+    let cabe = faixas.length ? cabeDemais : cabePrimeira;
+    const rep = faixas.length ? repeteNoTopo(tipos, abertos, ini) : null;
+    if (rep !== null) cabe -= alturas[rep];
+    const limite = forcadas.find(q => q > ini) ?? n;
+    if (limite === n && somar(ini, n) + reservaFinal <= cabe) { faixas.push([ini, n]); break; }
+    let fim = ini, usado = 0;
+    while (fim < limite && (fim === ini || usado + alturas[fim] <= cabe)) usado += alturas[fim++];
+    if (!(fim === limite && limite < n)) {
+      fim = Math.max(ini + 1, Math.min(fim, n - minUltima));
+      const cands = [];
+      for (let c = ini + 1; c <= fim; c++) cands.push(c);
+      const cheias = cands.filter(c => somar(ini, c) >= MIN_CHEIA_IMP * cabe);
+      fim = (cheias.length ? cheias : cands).reduce((melhor, c) =>
+        (abertos[c].length < abertos[melhor].length ||
+         (abertos[c].length === abertos[melhor].length && c > melhor)) ? c : melhor);
+    }
+    faixas.push([ini, fim]);
+    ini = fim;
+  }
+  return { faixas, abertos };
+}
+
+function paginarImpressao({ escala, larguraUtil, alturaUtil }) {
+  const el = document.getElementById('pg-imp-simples');
+  const t = el && el.querySelector('table');
+  if (!t) return;
+  // mede como sai no papel: painel e barra do topo na largura da folha, e a barra
+  // sem o menu e os botões (o @media print os esconde). Medindo a barra como está
+  // na tela, numa janela estreita ela quebrava em 2 linhas (124px; na folha são 78)
+  const barra = document.querySelector('.topbar');
+  const sumir = barra ? [...barra.querySelectorAll('#nav-slot, button')] : [];
+  const antes = [el.style.width, barra && barra.style.width, sumir.map(x => x.style.display)];
+  el.style.width = `${larguraUtil / escala}px`;
+  if (barra) barra.style.width = `${larguraUtil}px`;
+  sumir.forEach(x => { x.style.display = 'none'; });
+  const trs = [...t.tBodies[0].rows];
+  const tipos = trs.map(tipoDaLinha);
+  const alturas = trs.map(tr => tr.getBoundingClientRect().height);
+  const topo = trs[0].getBoundingClientRect().top;
+  const fimTabela = t.getBoundingClientRect().bottom;
+  const folha = alturaUtil / escala * 0.97;   // altura da folha em px da tabela (antes do zoom)
+  // 1ª página: o topo do site (fora do zoom) e o título do card + cabeçalho (dentro).
+  // Na impressão só a barra do topo fica acima do painel — menu, faixas e o espaço
+  // de `.content` somem; medir `el.top` na tela contava 268px em vez de 78 (medido).
+  const site = barra ? barra.getBoundingClientRect().height : 0;
+  const { faixas, abertos } = paginar(alturas, tipos,
+    folha - site / escala - (topo - el.getBoundingClientRect().top),
+    folha - t.tHead.getBoundingClientRect().height,
+    el.getBoundingClientRect().bottom - fimTabela);
+  el.style.width = antes[0];
+  if (barra) barra.style.width = antes[1];
+  sumir.forEach((x, i) => { x.style.display = antes[2][i]; });
+  faixas.slice(1).forEach(([ini]) => {
+    const rep = repeteNoTopo(tipos, abertos, ini);
+    if (rep === null) { trs[ini].classList.add('quebra'); return; }
+    const cont = trs[rep].cloneNode(true);
+    cont.classList.add('quebra', 'continuacao');
+    const rot = cont.querySelector('td.l');
+    rot.className = 'l';
+    ['data-chave', 'tabindex', 'role', 'aria-expanded'].forEach(a => rot.removeAttribute(a));
+    rot.textContent = `${trs[rep].querySelector('td.l').textContent.replace(/[▸▾]/g, '').trim()} (continuação)`;
+    // só o nome: os valores do grupo já saíram na página anterior
+    [...cont.cells].slice(1).forEach(td => { td.textContent = ''; td.className = td.className.replace(/\b(pos|neg|na)\b/g, ''); });
+    trs[ini].before(cont);
+  });
 }
 
 /* Guarda só `S.simplesAbertos` — é o único campo que este export muda (o
@@ -1519,7 +1798,7 @@ function exportarPdfSimplificado() {
      recurso: no Chrome headless usado pelos testes deste projeto, rAF nunca
      dispara, então `window.print()` nunca era chamado. */
   setTimeout(() => {
-    ajustarPaginaImpressao();
+    paginarImpressao(ajustarPaginaImpressao());
     window.print();
   }, 150);
 }
@@ -1555,14 +1834,24 @@ function boot() {
     `realizado: ${D.meta.fontes.realizado} · orçado: ${D.meta.fontes.orcado} · saldos: ${D.meta.fontes.saldos}` +
     ` · estrutura: ${origem}`;
 
-  /* "Editar cadastro de naturezas" só no Hub (TARITUBA_HUB, de tt_fonte.js): é lá que o
-     cadastro mora e grava. Solto por file:// não há onde gravar. */
+  /* "Editar cadastro de naturezas": só quando há onde gravar — no Hub (Supabase) ou servido
+     pelo abrir_painel.py (tt_local.js, arquivo local). Solto por file:// não há. */
   const btnCad = document.getElementById('btn-cadastro');
   if (btnCad) {
-    if (window.TARITUBA_HUB && window.TARITUBA_HUB.abrirCadastro) {
+    if (HUB && HUB.abrirCadastro) {
       btnCad.hidden = false;
-      btnCad.addEventListener('click', () => window.TARITUBA_HUB.abrirCadastro());
+      btnCad.addEventListener('click', () => HUB.abrirCadastro());
     } else btnCad.hidden = true;
+  }
+  /* "Movimentações manuais" (28/10/2026): mesma regra — só quando há onde gravar */
+  const btnMan = document.getElementById('btn-manuais');
+  if (btnMan) {
+    const n = ((D.manuais || {}).movimentos || []).length;
+    if (HUB && HUB.abrirManuais) {
+      btnMan.hidden = false;
+      if (n) btnMan.textContent = `Movimentações (${n})`;
+      btnMan.addEventListener('click', () => HUB.abrirManuais());
+    } else btnMan.hidden = true;
   }
   render();
 }

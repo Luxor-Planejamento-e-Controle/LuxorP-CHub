@@ -1,29 +1,34 @@
-/* De onde o painel do Tarituba lê, e o que só existe no hub: os botões "Atualizar agora"
- * e "Criar card no Trello" e o cadastro de naturezas (app_state, id 'tarituba').
+/* De onde o painel do Tarituba lê, e o que só existe no hub: o botão "Atualizar agora",
+ * o cadastro de naturezas (app_state, id 'tarituba') e as movimentações manuais (app_state,
+ * id 'tarituba_manuais'). Até 11/2026 esta ponte também ligava o botão "Criar card no
+ * Trello"; agora é cópia da da Tarituba (tarituba_fonte.js), que veio desta pelo Passivo e pelo Shiva:
+ *
+ *   - SEM o botão "Criar card no Trello" (decisão do Leonardo, 24/11/2026: o Tarituba fica
+ *     como os outros fluxos até o card ir para o Kanban do hub). Sem `ligarCard` aqui, o
+ *     app.js nem desenha o botão.
+ *   - o documento do cadastro tem `resumo` além de `naturezas` (as linhas da página Resumo).
+ *     O cadastro do Tarituba gravado em 16/10/2026 NÃO tem: o editor abre com as linhas que
+ *     o painel publicado mostra (as da aba Resumo da planilha), e gravar passa a guardá-las —
+ *     sem isso, a primeira gravação apagaria as sublinhas do Resumo.
+ *   - MOVIMENTAÇÕES MANUAIS (vieram da Tarituba): o papel da aba Base da planilha — avulsa,
+ *     reclassificação, mudar mês —, gravadas aqui no app_state 'tarituba_manuais' e lidas
+ *     pelo job do Azure, que as soma nas naturezas. O carimbo (id, ano, quem, quando) é
+ *     posto AQUI, a partir do que está gravado, como o abrir_painel.py faz no local.
  *
  *   painel   bucket privado `hub-data`, `tarituba.json` — o mesmo payload que o
- *            extrair_dados.py gera na máquina, publicado pelo Azure toda segunda e pelo
+ *            extrair_tarituba.py gera na máquina, publicado pelo Azure toda segunda e pelo
  *            "Atualizar agora".
  *
- *   card     `tarituba.card.json` — o resultado do último "Criar card no Trello": link do
- *            card, ou o motivo de não ter saído. É por ele que a tela sabe que o pedido
- *            terminou (o carimbo muda), mesmo se a aba for fechada no meio.
- *
- * O app.js do painel lê `window.TARITUBA_DATA` no TOPO do arquivo, então ele só é
- * carregado depois que o dado chegou — por isso este arquivo injeta o <script> do app.js
- * em vez de o index.html listá-lo.
- *
- * O CARD É GERADO NO AZURE A PARTIR DESTE MESMO ARQUIVO PUBLICADO: o PDF sai com os
- * números que estão na tela. Se o painel estiver velho, o caminho é "Atualizar agora"
- * antes. Nenhuma chave passa por aqui: o pedido vai para a Edge Function `reprocessar`,
- * que confere hub_can('tarituba') de quem clicou.
+ * O app.js do painel lê `window.TARITUBA_DATA` no TOPO do arquivo, então ele só é carregado
+ * depois que o dado chegou — por isso este arquivo injeta o <script> do app.js em vez de o
+ * index.html listá-lo. Nenhuma chave passa por aqui: o pedido vai para a Edge Function
+ * `reprocessar`, que confere hub_can('tarituba') de quem clicou.
  */
 window.TARITUBA_HUB = (function () {
   'use strict';
 
   var BUCKET = 'hub-data';
   var ARQ = 'tarituba.json';
-  var ARQ_CARD = 'tarituba.card.json';
   var _sb = null;
 
   function cliente() {
@@ -71,57 +76,6 @@ window.TARITUBA_HUB = (function () {
     });
   }
 
-  /* "Criar card no Trello" — chamado pelo app.js a cada render do Resumo Simplificado.
-   * `mesFn` é lido no clique: o card é do mês que está na tela naquele momento. */
-  function ligarCard(botao, status, mesFn) {
-    if (!window.HUB_REPROCESSAR) return;
-    window.HUB_REPROCESSAR.ligar({
-      painel: 'tarituba',
-      botao: botao,
-      status: status,
-      cliente: cliente,
-      corpo: function () { return { acao: 'card_trello', mes: mesFn() }; },
-      rotulo: 'criando card…',
-      aguardando: 'pedido enviado — o Azure está gerando o PDF e o card…',
-      limite: 3 * 60000,
-      lerCarimbo: async function () {
-        var c = await tentar(ARQ_CARD);
-        return c ? c.gerado_em : null;
-      },
-      aoConcluir: async function () {
-        var c = await tentar(ARQ_CARD);
-        if (!c) return { texto: 'o pedido terminou, mas o resultado não pôde ser lido.', erro: true };
-        if (!c.ok) return { texto: 'card não criado: ' + c.erro, erro: true };
-        return {
-          texto: (c.card_novo ? 'Card criado' : 'PDF novo anexado ao card que já existia')
-                 + ' em "' + c.lista + '" (painel de ' + c.dados_de + ').',
-          link: c.card_url,
-          rotuloLink: 'abrir no Trello'
-        };
-      }
-    });
-  }
-
-  /* ------------------------------------------------ cadastro de naturezas
-   *
-   * `app_state`, id 'tarituba' — a mesma tabela do cadastro do Controle de Pagamentos, com
-   * policy por hub_can('tarituba'): quem vê a aba edita (decisão do Leonardo, 16/10/2026).
-   * O job do Azure lê este documento com a service_role e monta o painel a partir dele.
-   *
-   * `_versao` é o updated_at no instante em que a TELA abriu: o UPDATE só casa se a linha
-   * ainda estiver nessa versão, então duas pessoas com o cadastro aberto não apagam o
-   * trabalho uma da outra em silêncio (mesma guarda do cp_fonte.js). */
-  var DOC = 'tarituba';
-  var _versao = null;
-
-  async function lerCadastro() {
-    var r = await cliente().from('app_state').select('data, updated_at').eq('id', DOC).maybeSingle();
-    if (r.error) throw new Error('app_state: ' + r.error.message);
-    if (!r.data) throw new Error('o documento do cadastro não existe no hub (falta o SQL de implantação)');
-    _versao = r.data.updated_at;
-    return window.TT_DADOS.normalizar(r.data.data);
-  }
-
   async function quemSou() {
     try {
       var s = await cliente().auth.getSession();
@@ -129,9 +83,62 @@ window.TARITUBA_HUB = (function () {
     } catch (e) { return null; }
   }
 
-  /* Grava o cadastro inteiro, carimbando só o que MUDOU — carimbar tudo a cada gravação
-   * tornaria `atualizado_em` inútil para responder "quem mexeu nesta natureza". */
-  async function salvarCadastro(naturezas) {
+  /* Troca o painel pela tela do cadastro (ou das movimentações), no mesmo lugar (como o
+   * "Editar cadastro" do Controle de Pagamentos) e volta com "← Voltar ao painel". */
+  var ESCONDER = ['nav-slot', 'btn-export-pdf', 'btn-atualizar', 'btn-cadastro', 'btn-manuais',
+                  'banner-slot', 'reproc-status'];
+
+  function mostrarPainel(sim) {
+    ESCONDER.forEach(function (id) {
+      var el = document.getElementById(id);
+      if (el) el.hidden = !sim;
+    });
+  }
+
+  function telaDeErro(view, titulo, msg) {
+    view.innerHTML = '<div class="card"><h2></h2><div class="hint"></div>' +
+      '<button type="button" class="btn-ghost" id="tarituba-voltar-erro" style="margin-top:12px">' +
+      '← Voltar ao painel</button></div>';
+    view.querySelector('h2').textContent = titulo;
+    view.querySelector('.hint').textContent = msg;
+    document.getElementById('tarituba-voltar-erro').onclick = voltarAoPainel;
+  }
+
+  /* ------------------------------------------------ cadastro de naturezas
+   *
+   * `app_state`, id 'tarituba' — policy por hub_can('tarituba'): quem vê a aba edita.
+   * O job do Azure lê este documento com a service_role e monta o painel a partir dele (vazio
+   * = estrutura da planilha).
+   *
+   * `_versao` é o updated_at no instante em que a TELA abriu: o UPDATE só casa se a linha
+   * ainda estiver nessa versão, então duas pessoas com o cadastro aberto não apagam o
+   * trabalho uma da outra em silêncio. */
+  var DOC = 'tarituba';
+  var _versao = null;
+
+  async function lerCadastro() {
+    var r = await cliente().from('app_state').select('data, updated_at').eq('id', DOC).maybeSingle();
+    if (r.error) throw new Error('app_state: ' + r.error.message);
+    if (!r.data) throw new Error('o documento do cadastro não existe no hub (falta o SQL de implantação)');
+    var bruto = r.data.data || {};
+    /* o cadastro de 16/10/2026 não tem `resumo`: abre com as linhas do painel publicado */
+    var D = window.TARITUBA_DATA || {};
+    if (!bruto.resumo && D.resumo) bruto = Object.assign({}, bruto, { resumo: D.resumo });
+    var doc = TT_DADOS.normalizar(bruto);
+    /* Vazio, o editor abriria uma lista em branco e quem gravasse criaria o cadastro do
+     * zero sem a estrutura da planilha. O ponto de partida é o seed (cadastro_tarituba.py). */
+    if (!doc.naturezas.length) {
+      throw new Error('o cadastro ainda não foi semeado no hub — o painel segue a estrutura da ' +
+                      'planilha até o seed (gerado pelo cadastro_tarituba.py) rodar');
+    }
+    _versao = r.data.updated_at;
+    return doc;
+  }
+
+  /* Grava o cadastro inteiro (naturezas + linhas do Resumo), carimbando só a natureza que
+   * MUDOU — carimbar tudo a cada gravação tornaria `atualizado_em` inútil para responder
+   * "quem mexeu nesta natureza". */
+  async function salvarCadastro(conteudo) {
     var sb = cliente();
     var lido = await sb.from('app_state').select('data').eq('id', DOC).maybeSingle();
     if (lido.error) throw new Error('app_state: ' + lido.error.message);
@@ -143,12 +150,12 @@ window.TARITUBA_HUB = (function () {
     var chave = function (n) {
       return JSON.stringify([n.ordem, n.aba, n.cod, n.nome, n.bimer, n.path]);
     };
-    var novas = naturezas.map(function (n) {
+    var novas = conteudo.naturezas.map(function (n) {
       var v = antes[n.cod];
       if (v && chave(v) === chave(n)) return v;
       return Object.assign({}, n, { atualizado_em: agora, atualizado_por: email });
     });
-    var novo = Object.assign({}, estado, { versao: 1, naturezas: novas });
+    var novo = Object.assign({}, estado, { versao: 1, naturezas: novas, resumo: conteudo.resumo });
     var r = await sb.from('app_state').update({ data: novo, updated_at: agora })
       .eq('id', DOC).eq('updated_at', _versao).select('id, updated_at');
     if (r.error) throw new Error('não foi possível gravar: ' + r.error.message);
@@ -157,19 +164,7 @@ window.TARITUBA_HUB = (function () {
                       'Nada foi sobrescrito — volte ao painel, abra o cadastro de novo e refaça.');
     }
     _versao = r.data[0].updated_at || agora;
-    return window.TT_DADOS.normalizar(novo);
-  }
-
-  /* Troca o painel pela tela do cadastro, no mesmo lugar (como o "Editar cadastro" do
-   * Controle de Pagamentos) e volta com "← Voltar ao painel". */
-  var ESCONDER = ['nav-slot', 'btn-export-pdf', 'btn-atualizar', 'btn-cadastro', 'banner-slot',
-                  'reproc-status'];
-
-  function mostrarPainel(sim) {
-    ESCONDER.forEach(function (id) {
-      var el = document.getElementById(id);
-      if (el) el.hidden = !sim;
-    });
+    return TT_DADOS.normalizar(novo);
   }
 
   async function abrirCadastro() {
@@ -182,11 +177,7 @@ window.TARITUBA_HUB = (function () {
     try {
       doc = await lerCadastro();
     } catch (e) {
-      view.innerHTML = '<div class="card"><h2>Cadastro indisponível</h2><div class="hint"></div>' +
-        '<button type="button" class="btn-ghost" id="tt-voltar-erro" style="margin-top:12px">' +
-        '← Voltar ao painel</button></div>';
-      view.querySelector('.hint').textContent = e.message;
-      document.getElementById('tt-voltar-erro').onclick = voltarAoPainel;
+      telaDeErro(view, 'Cadastro indisponível', e.message);
       return;
     }
     var D = window.TARITUBA_DATA || {};
@@ -195,7 +186,121 @@ window.TARITUBA_HUB = (function () {
       pendentes: D.pendentes || [],
       origem: (D.meta && D.meta.estrutura && D.meta.estrutura.origem) || 'planilha',
       gerado_em: D.meta && D.meta.gerado_em
+      // sem `remonta`: no hub o cadastro vale a partir da próxima publicação do Azure
     }, { salvar: salvarCadastro, voltar: voltarAoPainel });
+  }
+
+  /* ------------------------------------------------ movimentações manuais
+   *
+   * `app_state`, id 'tt_manuais' — {versao, movimentos: [...]}; mesma policy e a mesma
+   * guarda de versão do cadastro. As regras do que cada tipo soma moram no repo Automacoes
+   * (`shared_tarituba/manuais.py`), que o job usa; aqui só o que o abrir_painel.py faz ao gravar:
+   * conferir a forma e carimbar. A tela não deixa escolher natureza nem mês fora da lista,
+   * então a conferência daqui é a da forma (motivo, valor, meses, de ≠ para). */
+  var DOC_MAN = 'tt_manuais';
+  var _versaoMan = null;
+  var CAMPOS_MOV = ['tipo', 'mes', 'cod', 'de', 'para', 'de_mes', 'para_mes', 'valor', 'motivo'];
+  var CARIMBO = ['id', 'ano', 'criado_em', 'criado_por', 'atualizado_em', 'atualizado_por'];
+  var TIPOS = { avulsa: 1, reclassificacao: 1, mudar_mes: 1 };
+
+  async function lerManuais() {
+    var r = await cliente().from('app_state').select('data, updated_at').eq('id', DOC_MAN).maybeSingle();
+    if (r.error) throw new Error('app_state: ' + r.error.message);
+    if (!r.data) throw new Error('o documento das movimentações não existe no hub (falta o SQL de implantação)');
+    _versaoMan = r.data.updated_at;
+    var d = r.data.data || {};
+    return { versao: 1, movimentos: Array.isArray(d.movimentos) ? d.movimentos : [] };
+  }
+
+  /* A mesma regra do `abrir_painel._carimbar_manuais`: movimentação nova (sem id) ganha id,
+   * `ano` (o do painel), `criado_em` e `criado_por`; a que já existia mantém o carimbo e, se
+   * mudou, ganha `atualizado_em`/`atualizado_por`. O carimbo vem SEMPRE do que está gravado,
+   * nunca do que a tela mandou. */
+  function carimbar(movimentos, antes, quem, agora, ano) {
+    var porId = {};
+    antes.forEach(function (m) { porId[m.id] = m; });
+    var prox = antes.reduce(function (mx, m) { return typeof m.id === 'number' && m.id > mx ? m.id : mx; }, 0) + 1;
+    return movimentos.map(function (m) {
+      var dado = {};
+      CAMPOS_MOV.forEach(function (k) {
+        if (m[k] !== undefined && m[k] !== null && m[k] !== '') dado[k] = m[k];
+      });
+      if (typeof dado.motivo === 'string') dado.motivo = dado.motivo.trim();
+      var velho = porId[m.id];
+      if (!velho) {
+        return Object.assign(dado, { id: prox++, ano: ano, criado_em: agora, criado_por: quem });
+      }
+      var carimbo = {};
+      CARIMBO.forEach(function (k) { if (velho[k] !== undefined) carimbo[k] = velho[k]; });
+      var mudou = CAMPOS_MOV.some(function (k) { return JSON.stringify(velho[k]) !== JSON.stringify(dado[k]); });
+      return Object.assign(dado, carimbo, mudou ? { atualizado_em: agora, atualizado_por: quem } : {});
+    });
+  }
+
+  function problemas(movimentos, mesesFechados, ano) {
+    var p = [];
+    movimentos.forEach(function (m) {
+      var quem = 'movimentação ' + (m.id || '');
+      if (!TIPOS[m.tipo]) { p.push(quem + ': tipo ' + m.tipo); return; }
+      if (!String(m.motivo || '').trim()) p.push(quem + ': falta o motivo');
+      if (typeof m.valor !== 'number' || Math.abs(m.valor) < 0.005) p.push(quem + ': valor tem de ser diferente de zero');
+      var lim = (m.ano || 2026) === ano ? mesesFechados : 12;
+      (m.tipo === 'mudar_mes' ? ['de_mes', 'para_mes'] : ['mes']).forEach(function (c) {
+        if (!(m[c] >= 1 && m[c] <= lim)) p.push(quem + ': ' + c + ' fora de 1..' + lim + ' (só meses com realizado)');
+      });
+      if (m.tipo === 'reclassificacao' && m.de === m.para) p.push(quem + ': reclassificação para a mesma natureza');
+      if (m.tipo === 'mudar_mes' && m.de_mes === m.para_mes) p.push(quem + ': mudança para o mesmo mês');
+    });
+    return p;
+  }
+
+  async function salvarManuais(movimentos) {
+    var sb = cliente();
+    var D = window.TARITUBA_DATA || {};
+    var ano = D.meta && D.meta.ano;
+    var lido = await sb.from('app_state').select('data').eq('id', DOC_MAN).maybeSingle();
+    if (lido.error) throw new Error('app_state: ' + lido.error.message);
+    var antes = ((lido.data && lido.data.data) || {}).movimentos || [];
+    // hora local sem fuso, no formato do abrir_painel.py (isoformat timespec=seconds)
+    var d = new Date();
+    var agora = new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 19);
+    var novos = carimbar(movimentos, antes, await quemSou(), agora, ano);
+    var p = problemas(novos, (D.qual && D.qual.meses_fechados) || 0, ano);
+    if (p.length) throw new Error(p.slice(0, 3).join('; '));
+    var novo = { versao: 1, movimentos: novos };
+    var r = await sb.from('app_state').update({ data: novo, updated_at: new Date().toISOString() })
+      .eq('id', DOC_MAN).eq('updated_at', _versaoMan).select('id, updated_at');
+    if (r.error) throw new Error('não foi possível gravar: ' + r.error.message);
+    if (!r.data || !r.data.length) {
+      throw new Error('outra pessoa gravou as movimentações enquanto esta tela estava aberta. ' +
+                      'Nada foi sobrescrito — volte ao painel, abra as movimentações de novo e refaça.');
+    }
+    _versaoMan = r.data[0].updated_at;
+    return novo;
+  }
+
+  async function abrirManuais() {
+    var view = document.getElementById('view');
+    if (typeof clearCharts === 'function') clearCharts();
+    mostrarPainel(false);
+    view.innerHTML = '<div class="card"><div class="hint">carregando as movimentações…</div></div>';
+    window.scrollTo(0, 0);
+    var doc;
+    try {
+      doc = await lerManuais();
+    } catch (e) {
+      telaDeErro(view, 'Movimentações indisponíveis', e.message);
+      return;
+    }
+    var D = window.TARITUBA_DATA || {};
+    window.TT_MANUAIS.abrir(view, {
+      doc: doc,
+      nats: (D.nat || []).map(function (n) { return { cod: n.cod, nome: n.nome, bloco: n.bloco }; }),
+      meses: D.meses || [],
+      meses_fechados: (D.qual && D.qual.meses_fechados) || 0,
+      ano: D.meta && D.meta.ano
+      // sem `remonta`: no hub a movimentação vale a partir da próxima publicação do Azure
+    }, { salvar: salvarManuais, voltar: voltarAoPainel });
   }
 
   function voltarAoPainel() {
@@ -211,9 +316,10 @@ window.TARITUBA_HUB = (function () {
       botao: document.getElementById('btn-atualizar'),
       status: document.getElementById('reproc-status'),
       cliente: cliente,
-      aguardando: 'pedido enviado — a consulta ao Bimer leva uns 10 minutos. '
+      aguardando: 'pedido enviado — a consulta ao Bimer leva uns 11 minutos. '
                   + 'Pode fechar e voltar depois.',
-      limite: 20 * 60000,
+      // ~11–13 min no Azure (medido desde 10/2026); a tela espera até o teto de 30 da função
+      limite: 30 * 60000,
       lerCarimbo: async function () {
         var d = await tentar(ARQ);
         return d ? d.meta.gerado_em : null;
@@ -225,15 +331,14 @@ window.TARITUBA_HUB = (function () {
 
   async function boot() {
     /* file:// (demo local do hub, ver CONTRIBUTING): sem sessão e sem bucket — o dado vem
-     * de ../data/tarituba.js (`window.TARITUBA_DATA = {...}`), que é git-ignorado, se
-     * alguém o tiver copiado do painel local. */
+     * de ../data/tarituba.js (`window.TARITUBA_DATA = {...}`), que é git-ignorado, se alguém o tiver
+     * copiado do painel local. */
     if (location.protocol === 'file:') {
       try { await script('../data/tarituba.js'); } catch (e) { /* cai no bucket abaixo */ }
     }
-    /* ANTES de baixar o dado, de propósito: é este botão que faz a PRIMEIRA publicação.
-     * Ligado só depois do dado, ele aparecia na tela de "Painel indisponível" e não fazia
-     * nada — o painel nunca publicado não tinha como se publicar pela tela (achado no
-     * primeiro uso, 02/10/2026). O carimbo de antes é null, e qualquer publicação o muda. */
+    /* ANTES de baixar o dado, de propósito (lição do Tarituba, 02/10/2026): é este botão
+     * que faz a PRIMEIRA publicação. Ligado só depois do dado, ele aparecia na tela de
+     * "Painel indisponível" e não fazia nada. */
     ligarAtualizar();
     if (!window.TARITUBA_DATA) {
       try {
@@ -241,7 +346,7 @@ window.TARITUBA_HUB = (function () {
       } catch (e) {
         mostrarErro('O painel ainda não foi publicado no hub, ou você não tem acesso a ele (' +
                     e.message + '). Ele é publicado toda segunda às 9h — ou agora, pelo ' +
-                    '"Atualizar agora" acima (uns 10 minutos).');
+                    '"Atualizar agora" acima (uns 11 minutos).');
         return;
       }
     }
@@ -251,5 +356,7 @@ window.TARITUBA_HUB = (function () {
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
   else boot();
 
-  return { ligarCard: ligarCard, cliente: cliente, abrirCadastro: abrirCadastro };
+  return { cliente: cliente, abrirCadastro: abrirCadastro, abrirManuais: abrirManuais,
+           // para o teste do painel conferir o carimbo sem o Supabase
+           _carimbar: carimbar, _problemas: problemas };
 })();
