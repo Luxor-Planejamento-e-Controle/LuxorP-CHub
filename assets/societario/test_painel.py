@@ -75,6 +75,7 @@ ADV = {"arquivo": "Listagem Advogados Parceiros.xlsx", "atualizado_em": "2026-11
 PROCS = {"arquivo": "Processos em andamento.xlsx", "atualizado_em": "2026-11-13T16:00:00-03:00", "andamentos_configurado": True,
          "processos": [
              {"id": "P-0001", "documento": "00.000.000/0001-00", "situacao": "Ativo", "numero_cnj": True,
+              "tipo": "Processo Judicial", "esfera": "Federal", "data_inicio": "2025-08-08", "observacoes": "Solicitamos perícia",
               "andamento_cnj": {"encontrado": True, "tribunal": "TRT1", "classe": "Ação Trabalhista", "orgao": "1ª Vara do Trabalho",
                                 "consultado_em": "2026-11-16T08:00:00-03:00",
                                 "movimentos": [{"data": "2026-11-12T10:30:00", "nome": "Audiência designada"},
@@ -86,6 +87,7 @@ PROCS = {"arquivo": "Processos em andamento.xlsx", "atualizado_em": "2026-11-13T
               "proximo_prazo": "Audiência de instrução", "data_proximo_prazo": (date.today() + timedelta(days=3)).isoformat(),
               "linha": 2},
              {"id": "P-0002", "documento": None, "situacao": "Inativo", "numero_cnj": False, "andamento_cnj": None,
+              "tipo": "PerdComp", "esfera": "Estadual",
               "numero": None, "empresa": "Empresa Beta", "polo": "Autor", "parte_contraria": None, "area": "Tributário",
               "objeto": "Recuperação de ICMS <b>x</b>", "tribunal": None, "escritorio": "ALFA ADVOGADOS", "advogado": None,
               "valor_causa": None, "risco": "Remoto", "fase": None, "ultima_movimentacao": None,
@@ -419,19 +421,26 @@ class TestAbaSocietario(unittest.TestCase):
         pg.wait_for_selector("#btnProcessos", state="visible")
         pg.click("#btnProcessos")
         pg.wait_for_selector("#v-processos .so-ficha h2")
-        self.assertEqual(pg.locator("#v-processos .so-kpis .val").all_inner_texts(), ["2", "1", "0", "1", "1"])
-        ficha = pg.inner_text("#v-processos .so-ficha").replace(" ", " ")
+        kpis = [t.replace("\xa0", " ") for t in pg.locator("#v-processos .so-kpis .val").all_inner_texts()]
+        self.assertEqual(kpis, ["2", "1", "1", "1", "R$ 150.000,50"])             # total, um por Tipo, prazo 7 dias, valor
+        rotulos = [t.upper() for t in pg.locator("#v-processos .so-kpis .label").all_inner_texts()]
+        self.assertEqual(rotulos[1:3], ["PERDCOMP", "PROCESSO JUDICIAL"])
+        ficha = pg.inner_text("#v-processos .so-ficha").replace("\xa0", " ")
+        for trecho in ("Processo Judicial", "Federal", "08/08/2025", "Solicitamos perícia"):
+            self.assertIn(trecho, ficha)
         for trecho in ("Reclamação trabalhista", "0000001-00.2025.5.01.0001", "Empresa Alfa", "Réu", "Pessoa X",
-                       "1ª Vara do Trabalho RJ", "R$ 150.000,50", "Instrução", "03/11/2026 — Audiência redesignada",
+                       "1ª Vara do Trabalho RJ", "R$ 150.000,50", "Instrução", "03/11/2026", "Audiência redesignada",
                        "Audiência de instrução", "Processos em andamento.xlsx"):
             self.assertIn(trecho, ficha)
         self.assertIn("em 3 dias", ficha.lower())
         self.assertIn("RISCO PROVÁVEL", ficha.upper())
 
-        pg.click("#v-processos .so-kpis [data-k='remoto']")
+        pg.click("#v-processos .so-kpis [data-k='tipo:PerdComp']")                    # o contador filtra pelo Tipo
         self.assertEqual(pg.locator("#v-processos .so-lista button").count(), 1)
         self.assertIn("<b>x</b>", pg.inner_text("#v-processos .so-lista"))            # texto da planilha não vira HTML
-        pg.click("#v-processos .so-kpis [data-k='remoto']")
+        self.assertIn("(FILTRO)", pg.inner_text("#v-processos .so-kpis").upper())
+        pg.click("#v-processos .so-kpis [data-k='tipo:PerdComp']")
+        self.assertEqual(pg.locator("#v-processos .so-lista button").count(), 2)
         pg.select_option("#pcArea", "Trabalhista")
         self.assertEqual(pg.locator("#v-processos .so-lista button").count(), 1)
         pg.select_option("#pcArea", "")
@@ -723,7 +732,7 @@ class TestAbaSocietario(unittest.TestCase):
         self.assertEqual(pg.locator("#pcCnj").count(), 0)                         # sem número CNJ, sem cartão
         pg.click("#novoProcesso")
         self.assertEqual([pg.inner_text(f"label:has(#f_{c}) span") for c in ("empresa", "documento", "area", "numero")],
-                         ["EMPRESA OU PESSOA FÍSICA", "CNPJ OU CPF", "TIPO DE PROCESSO", "NÚMERO DO PROCESSO"])
+                         ["ESTRUTURA (EMPRESA OU PESSOA FÍSICA)", "CNPJ OU CPF", "CLASSE", "NÚMERO DO PROCESSO"])
         pg.click("#fSalvar")
         pg.wait_for_function("document.querySelector('#fStatus').textContent.includes('Informe o número')")
         pg.fill("#f_numero", "PA 123/2024")

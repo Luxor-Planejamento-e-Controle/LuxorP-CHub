@@ -363,8 +363,8 @@
   }
 
   /* ---------- Processos (GET /hub/processos; só para hub_can('processos')) ---------- */
-  var processosData = null, procsFiltro = { kpi: 'todos', area: '', escritorio: '', empresa: '', situacao: '', busca: '' };
-  function tituloProc(p) { return p.objeto || [p.area, p.numero].filter(Boolean).join(' · ') || '(sem descrição)'; }
+  var processosData = null, procsFiltro = { tipo: '', area: '', esfera: '', escritorio: '', empresa: '', situacao: '', risco: '', prazo: false, busca: '' };
+  function tituloProc(p) { return p.objeto || [p.tipo || p.area, p.numero].filter(Boolean).join(' · ') || '(sem descrição)'; }
   function riscoClasse(r) {
     var k = sem(r);
     return k.indexOf('provav') === 0 ? 'provavel' : k.indexOf('possiv') === 0 ? 'possivel' : k.indexOf('remot') === 0 ? 'remoto' : 'sem';
@@ -391,40 +391,52 @@
     var v = $('#v-processos'), todos = processosData.processos || [], f = procsFiltro, b = sem(f.busca);
     if (!todos.length) { v.innerHTML = '<div class="so-muted">Nenhum processo na planilha.</div>'; return; }
     var prazo7 = function (p) { var d = diasAte(p.data_proximo_prazo); return d != null && d >= 0 && d <= 7; };
-    var conta = { todos: todos.length, provavel: 0, possivel: 0, remoto: 0, prazo: 0 };
-    todos.forEach(function (p) { var c = riscoClasse(p.risco); if (conta[c] != null) conta[c]++; if (prazo7(p)) conta.prazo++; });
     var opcoes = function (campo) {
       var vs = [];
       todos.forEach(function (p) { if (p[campo] && vs.indexOf(p[campo]) < 0) vs.push(p[campo]); });
       return vs.sort(function (x, y) { return String(x).localeCompare(String(y), 'pt-BR'); });
     };
+    // contadores: o total e um por Tipo (Processo Judicial, Administrativo, PerdComp…) — clicar filtra
+    var tipos = {};
+    todos.forEach(function (p) { if (p.tipo) tipos[p.tipo] = (tipos[p.tipo] || 0) + 1; });
+    var tiposOrd = Object.keys(tipos).sort(function (x, y) { return tipos[y] - tipos[x] || x.localeCompare(y, 'pt-BR'); }).slice(0, 4);
+    if (f.tipo && !tipos[f.tipo]) f.tipo = '';
+    var nPrazo = todos.filter(prazo7).length;
+    if (!nPrazo) f.prazo = false;
+    var FILTROS = [['pcArea', 'area', 'Todas as classes'], ['pcEsfera', 'esfera', 'Todas as esferas'],
+      ['pcEscritorio', 'escritorio', 'Todos os jurídicos'], ['pcEmpresa', 'empresa', 'Todas as estruturas'],
+      ['pcSituacao', 'situacao', 'Ativos e inativos'], ['pcRisco', 'risco', 'Todos os riscos']]
+      .filter(function (x) { return opcoes(x[1]).length; });
     var vis = todos.map(function (p, i) { return { p: p, i: i }; }).filter(function (x) {
       var p = x.p;
-      if (f.kpi === 'prazo' && !prazo7(p)) return false;
-      if (['provavel', 'possivel', 'remoto'].indexOf(f.kpi) >= 0 && riscoClasse(p.risco) !== f.kpi) return false;
-      if (f.area && p.area !== f.area) return false;
-      if (f.escritorio && p.escritorio !== f.escritorio) return false;
-      if (f.empresa && p.empresa !== f.empresa) return false;
-      if (f.situacao && p.situacao !== f.situacao) return false;
-      return !b || sem([p.objeto, p.numero, p.empresa, p.documento, p.area, p.parte_contraria, p.escritorio, p.advogado, p.fase, p.situacao].join(' ')).indexOf(b) >= 0;
+      if (f.prazo && !prazo7(p)) return false;
+      if (f.tipo && p.tipo !== f.tipo) return false;
+      for (var k = 0; k < FILTROS.length; k++) { var c = FILTROS[k][1]; if (f[c] && p[c] !== f[c]) return false; }
+      return !b || sem([p.objeto, p.numero, p.empresa, p.documento, p.tipo, p.area, p.esfera, p.parte_contraria, p.escritorio,
+        p.advogado, p.fase, p.situacao, p.observacoes].join(' ')).indexOf(b) >= 0;
     });
     var sel = todos[+idDoHash()] || (vis[0] && vis[0].p) || todos[0];
-    var kpi = function (k, rot, cls) {
-      return '<div class="card kpi' + (f.kpi === k ? ' on' : '') + '" data-k="' + k + '"><div class="label">' + rot +
-        '</div><div class="val ' + (cls || '') + '">' + conta[k] + '</div></div>';
+    var valor = vis.reduce(function (t, x) { return t + (typeof x.p.valor_causa === 'number' ? x.p.valor_causa : 0); }, 0);
+    var kpi = function (k, rot, n, on, cls) {
+      return '<div class="card kpi' + (on ? ' on' : '') + '" data-k="' + esc(k) + '"><div class="label">' + esc(rot) +
+        '</div><div class="val ' + (cls || '') + '">' + n + '</div></div>';
     };
+    var kpis = [kpi('todos', 'Processos', todos.length, !f.tipo && !f.prazo)]
+      .concat(tiposOrd.map(function (t) { return kpi('tipo:' + t, t, tipos[t], f.tipo === t); }))
+      .concat(nPrazo ? [kpi('prazo', 'Prazo em até 7 dias', nPrazo, f.prazo, 'prazo')] : [])
+      .concat(['<div class="card kpi"><div class="label">Valor' + (vis.length < todos.length ? ' (filtro)' : '') +
+        '</div><div class="val">' + esc(reais(valor) || 'R$ 0,00') + '</div></div>']);
     var sel_ = function (id, campo, rot) {
       return '<select class="so-sel" id="' + id + '"><option value="">' + rot + '</option>' + opcoes(campo).map(function (o) {
         return '<option value="' + esc(o) + '"' + (o === f[campo] ? ' selected' : '') + '>' + esc(o) + '</option>';
       }).join('') + '</select>';
     };
-    var h = '<div class="so-kpis cinco">' + kpi('todos', 'Processos') + kpi('provavel', 'Risco provável', 'provavel') +
-      kpi('possivel', 'Risco possível', 'possivel') + kpi('remoto', 'Risco remoto') + kpi('prazo', 'Prazo em até 7 dias', 'prazo') + '</div>' +
-      '<div class="so-topo">' + (podeEnviar ? '<button class="so-btn" id="novoProcesso">+ Novo processo</button><button class="so-btn ghost" id="importarProc">Importar planilha</button>' : '') + sel_('pcArea', 'area', 'Todos os tipos') + sel_('pcEscritorio', 'escritorio', 'Todos os jurídicos') +
-      sel_('pcEmpresa', 'empresa', 'Todas as empresas') + sel_('pcSituacao', 'situacao', 'Ativos e inativos') +
-      '<input class="so-busca" id="pcBusca" style="max-width:300px" placeholder="Buscar processo, parte, advogado" value="' + esc(f.busca) + '"></div>';
+    var h = '<div class="so-kpis" style="grid-template-columns:repeat(' + kpis.length + ',minmax(0,1fr))">' + kpis.join('') + '</div>' +
+      '<div class="so-topo">' + (podeEnviar ? '<button class="so-btn" id="novoProcesso">+ Novo processo</button><button class="so-btn ghost" id="importarProc">Importar planilha</button>' : '') +
+      FILTROS.map(function (x) { return sel_(x[0], x[1], x[2]); }).join('') +
+      '<input class="so-busca" id="pcBusca" style="max-width:300px" placeholder="Buscar processo, estrutura, assunto" value="' + esc(f.busca) + '"></div>';
     h += '<div class="so-duas"><div class="so-lista">' + (vis.length ? vis.map(function (x) {
-      var sub = [x.p.empresa, x.p.escritorio, x.p.situacao].filter(Boolean).join(' · ');
+      var sub = [x.p.empresa, x.p.escritorio, x.p.tipo].filter(Boolean).join(' · ');
       return '<button class="so-item' + (x.p === sel ? ' on' : '') + '" data-i="' + x.i + '">' + esc(tituloProc(x.p)) +
         (sub ? '<span class="so-muted">' + esc(sub) + '</span>' : '') + '</button>';
     }).join('') : '<div class="so-muted" style="padding:8px">Nenhum processo com esses filtros.</div>') + '</div><div class="so-ficha">';
@@ -434,17 +446,18 @@
       (sel.situacao ? '<span class="so-st ' + (inativo ? 'sem' : 'vigente') + '" style="margin-left:10px">' + esc(sel.situacao) + '</span>' : '') +
       (sel.risco ? '<span class="so-st ' + riscoClasse(sel.risco) + '" style="margin-left:8px">Risco ' + esc(sel.risco) + '</span>' : '') + '</h2>' +
       (podeEnviar && sel.id ? '<div class="so-acoes"><button class="so-btn ghost" id="editProc">Editar</button></div>' : '') +
-      kv([['Empresa ou pessoa física', sel.empresa], ['CNPJ ou CPF', sel.documento], ['Tipo de processo', sel.area],
-          ['Número do processo', sel.numero], ['Pessoas envolvidas', sel.parte_contraria], ['Advogado responsável', sel.advogado]]);
+      kv([['Estrutura (empresa ou pessoa física)', sel.empresa], ['CNPJ ou CPF', sel.documento], ['Tipo', sel.tipo], ['Classe', sel.area],
+          ['Esfera', sel.esfera], ['Número do processo', sel.numero], ['Data inicial', sel.data_inicio ? dataBR(sel.data_inicio) : ''],
+          ['Valor', reais(sel.valor_causa)], ['Pessoas envolvidas', sel.parte_contraria], ['Advogado responsável', sel.advogado]]);
     if (sel.escritorio) {
       h += '<div class="so-kv"><div><div class="k">Jurídico responsável</div><div class="v"><button class="so-link" id="pcEscr">' +
         esc(sel.escritorio) + '</button></div></div></div>';
     }
-    h += kv([['Objeto', sel.objeto], ['Polo', sel.polo], ['Tribunal / vara', sel.tribunal], ['Valor da causa', reais(sel.valor_causa)],
-             ['Fase', sel.fase]]) + '</div>';
-    if (sel.ultima_movimentacao || sel.data_ultima_movimentacao || sel.proximo_prazo || sel.data_proximo_prazo) {
+    h += kv([['Polo', sel.polo], ['Tribunal / vara', sel.tribunal], ['Fase', sel.fase]]) + '</div>';
+    if (sel.data_ultima_movimentacao || sel.observacoes || sel.ultima_movimentacao || sel.proximo_prazo || sel.data_proximo_prazo) {
       h += '<div class="card" style="margin-top:14px"><div class="card-title"><h2>Andamento</h2></div>' +
-        kv([['Andamento', [sel.data_ultima_movimentacao ? dataBR(sel.data_ultima_movimentacao) : '', sel.ultima_movimentacao || ''].filter(Boolean).join(' — ')],
+        kv([['Data da última posição', sel.data_ultima_movimentacao ? dataBR(sel.data_ultima_movimentacao) : ''],
+            ['Observações', sel.observacoes], ['Andamento', sel.ultima_movimentacao],
             ['Próximo prazo / audiência', [sel.data_proximo_prazo ? dataBR(sel.data_proximo_prazo) : '', sel.proximo_prazo || ''].filter(Boolean).join(' — ')]]) +
         (dProx != null && dProx >= 0 && dProx <= 7 ? '<span class="so-st vence_7">' + (dProx === 0 ? 'hoje' : 'em ' + dProx + (dProx === 1 ? ' dia' : ' dias')) + '</span>' : '') +
         '</div>';
@@ -471,9 +484,13 @@
 
     v.querySelector('.so-kpis').onclick = function (e) {
       var k = e.target.closest('[data-k]'); if (!k) return;
-      f.kpi = f.kpi === k.dataset.k ? 'todos' : k.dataset.k; desenharProcessos();
+      var id = k.dataset.k;
+      if (id === 'todos') { f.tipo = ''; f.prazo = false; }
+      else if (id === 'prazo') f.prazo = !f.prazo;
+      else if (id.indexOf('tipo:') === 0) f.tipo = f.tipo === id.slice(5) ? '' : id.slice(5);
+      desenharProcessos();
     };
-    [['pcArea', 'area'], ['pcEscritorio', 'escritorio'], ['pcEmpresa', 'empresa'], ['pcSituacao', 'situacao']].forEach(function (x) {
+    FILTROS.forEach(function (x) {
       $('#' + x[0]).onchange = function () { f[x[1]] = this.value; desenharProcessos(); };
     });
     $('#pcBusca').oninput = function () {
@@ -484,10 +501,22 @@
       var bt = e.target.closest('button[data-i]'); if (bt) irPara('processos', bt.dataset.i);
     };
     if ($('#pcEscr')) $('#pcEscr').onclick = async function () {
-      try { if (!adv) adv = await (await bot('/hub/advogados')).json(); } catch (e) { return; }
-      var alvo = sem(sel.escritorio), i = (adv.escritorios || []).findIndex(function (x) { return sem(x.nome) === alvo; });
-      irPara('advogados', i >= 0 ? String(i) : null);
+      try { if (!adv) adv = await (await bot('/hub/advogados')).json(); } catch (e) { return aviso(e.message, true); }
+      var i = acharEscritorio(sel.escritorio, adv.escritorios || []);
+      if (i < 0) return aviso(sel.escritorio + ' não está na lista de advogados.', true);
+      irPara('advogados', String(i));
     };
+  }
+  /* O nome do jurídico na lista de processos é curto ("Siqueira Castro", "Bergqvist adv", "Priscila
+   * Moragas"): é o escritório cujo nome (ou o de um advogado dele) tem todas as palavras dele. */
+  function acharEscritorio(nome, firmas) {
+    var VAZIAS = ['adv', 'advs', 'advogados', 'advogado', 'advocacia', 'associados', 'escrit', 'escritorio', 'de', 'da', 'do', 'e', '&'];
+    var palavras = function (t) { return sem(t).split(/[^a-z0-9&]+/).filter(function (w) { return w && VAZIAS.indexOf(w) < 0; }); };
+    var alvo = palavras(nome);
+    if (!alvo.length) return -1;
+    var contem = function (texto) { var ws = palavras(texto); return alvo.every(function (w) { return ws.indexOf(w) >= 0; }); };
+    var i = firmas.findIndex(function (f) { return contem(f.nome); });
+    return i >= 0 ? i : firmas.findIndex(function (f) { return f.advogados.some(function (a) { return contem(a.nome); }); });
   }
   // O botão só aparece para quem tem hub_can('processos') — o bot confere de novo a cada pedido.
   (async function () {
@@ -643,29 +672,40 @@
       return 'Advogado incluído: ' + v.nome + '.' + DEMORA;
     });
   }
-  // os 8 campos pedidos pela equipe primeiro, com os nomes deles; depois os extras
+  // campos na ordem da lista da equipe; o formulário só oferece os que a planilha tem
   function camposProcesso(o) {
     o = o || {};
-    var areas = AREAS.indexOf(o.area) >= 0 || !o.area ? AREAS : AREAS.concat([o.area]);
-    return [
-      { id: 'empresa', rotulo: 'Empresa ou pessoa física', valor: o.empresa }, { id: 'documento', rotulo: 'CNPJ ou CPF', valor: o.documento },
-      { id: 'area', rotulo: 'Tipo de processo', tipo: 'select', opcoes: areas, valor: o.area },
+    var com = function (padrao, campo) {
+      var vs = padrao.slice();
+      ((processosData && processosData.processos) || []).forEach(function (p) { if (p[campo] && vs.indexOf(p[campo]) < 0) vs.push(p[campo]); });
+      if (o[campo] && vs.indexOf(o[campo]) < 0) vs.push(o[campo]);
+      return vs;
+    };
+    var todos = [
+      { id: 'empresa', rotulo: 'Estrutura (empresa ou pessoa física)', valor: o.empresa }, { id: 'documento', rotulo: 'CNPJ ou CPF', valor: o.documento },
+      { id: 'tipo', rotulo: 'Tipo', tipo: 'select', opcoes: com(['Processo Judicial', 'Processo Administrativo', 'PerdComp'], 'tipo'), valor: o.tipo },
       { id: 'numero', rotulo: 'Número do processo', valor: o.numero },
-      { id: 'parte_contraria', rotulo: 'Pessoas envolvidas (PJ ou PF)', tipo: 'textarea', valor: o.parte_contraria },
-      { id: 'situacao', rotulo: 'Ativo/Inativo', tipo: 'select', opcoes: ['Ativo', 'Inativo'], valor: o.situacao },
-      { id: 'ultima_movimentacao', rotulo: 'Andamento', tipo: 'textarea', valor: o.ultima_movimentacao },
-      { id: 'data_ultima_movimentacao', rotulo: 'Data do andamento', tipo: 'date', valor: o.data_ultima_movimentacao },
+      { id: 'area', rotulo: 'Classe', tipo: 'select', opcoes: com(AREAS, 'area'), valor: o.area },
+      { id: 'data_inicio', rotulo: 'Data inicial', tipo: 'date', valor: o.data_inicio },
+      { id: 'esfera', rotulo: 'Esfera', tipo: 'select', opcoes: com(['Federal', 'Estadual', 'Municipal'], 'esfera'), valor: o.esfera },
       { id: 'escritorio', rotulo: 'Jurídico responsável', valor: o.escritorio },
+      { id: 'objeto', rotulo: 'Assunto', tipo: 'textarea', valor: o.objeto },
+      { id: 'valor_causa', rotulo: 'Valor (R$)', tipo: 'number', valor: o.valor_causa },
+      { id: 'situacao', rotulo: 'Ativo/Inativo', tipo: 'select', opcoes: com(['Ativo', 'Inativo'], 'situacao'), valor: o.situacao },
+      { id: 'data_ultima_movimentacao', rotulo: 'Data da última posição', tipo: 'date', valor: o.data_ultima_movimentacao },
+      { id: 'observacoes', rotulo: 'Observações', tipo: 'textarea', valor: o.observacoes },
+      { id: 'parte_contraria', rotulo: 'Pessoas envolvidas (PJ ou PF)', tipo: 'textarea', valor: o.parte_contraria },
       { id: 'advogado', rotulo: 'Advogado responsável', valor: o.advogado },
-      { id: 'objeto', rotulo: 'Objeto (resumo)', tipo: 'textarea', valor: o.objeto },
-      { id: 'polo', rotulo: 'Polo', tipo: 'select', opcoes: ['Autor', 'Réu', 'Terceiro interessado'], valor: o.polo },
+      { id: 'ultima_movimentacao', rotulo: 'Andamento', tipo: 'textarea', valor: o.ultima_movimentacao },
+      { id: 'polo', rotulo: 'Polo', tipo: 'select', opcoes: com(['Autor', 'Réu', 'Terceiro interessado'], 'polo'), valor: o.polo },
       { id: 'tribunal', rotulo: 'Tribunal / vara', valor: o.tribunal },
-      { id: 'valor_causa', rotulo: 'Valor da causa (R$)', tipo: 'number', valor: o.valor_causa },
-      { id: 'risco', rotulo: 'Risco', tipo: 'select', opcoes: ['Provável', 'Possível', 'Remoto'], valor: o.risco },
+      { id: 'risco', rotulo: 'Risco', tipo: 'select', opcoes: com(['Provável', 'Possível', 'Remoto'], 'risco'), valor: o.risco },
       { id: 'fase', rotulo: 'Fase', valor: o.fase },
       { id: 'proximo_prazo', rotulo: 'Próximo prazo / audiência', valor: o.proximo_prazo },
       { id: 'data_proximo_prazo', rotulo: 'Data do próximo prazo', tipo: 'date', valor: o.data_proximo_prazo },
     ];
+    var tem = processosData && processosData.campos;
+    return tem ? todos.filter(function (c) { return tem.indexOf(c.id) >= 0; }) : todos;
   }
   function identifica(v) {
     if (!v.numero && !v.area && !v.objeto) throw new Error('Informe o número, o tipo ou o objeto do processo.');
