@@ -386,7 +386,7 @@ window.SH_CADASTRO = (function () {
           '<input type="text" id="pcFNome" value="' + esc(pre.nome || '') + '" placeholder="como aparece no painel">' +
           '<div class="form-erro" data-erro="nome"></div></div>' +
         '<div class="form-campo"><label for="pcFCod">Código</label>' +
-          '<input type="text" id="pcFCod" value="' + esc(pre.cod || '') + '" placeholder="ex.: 11.2.1.02.13">' +
+          '<input type="text" id="pcFCod" value="' + esc(pre.cod || '') + '" placeholder="ex.: 10.2.2.01.03">' +
           '<div class="form-dica">A classificação no plano de contas do Bimer.</div>' +
           '<div class="form-erro" data-erro="cod"></div></div>' +
         '<div class="form-campo"><label for="pcFGrupo">Grupo</label>' +
@@ -431,7 +431,9 @@ window.SH_CADASTRO = (function () {
       var bimer = D.lerBimer(v('pcFBimer').value), g = grupoEscolhido();
       if (!nome) falta.push('nome');
       if (!cod) falta.push('código');
-      else if (!/^03\.\d+(\.\d+)*$/.test(cod)) e.cod = 'Fora do formato 03.x.x.xx.xx.';
+      // a MESMA regra de `D.problemas` (ramo 10): a cópia do Passivo trazia /^03\./ aqui e
+      // recusava toda natureza da FPG (25/11/2026, 10.2.2.01.03)
+      else if (!D.COD.test(cod)) e.cod = 'Fora do formato 10.x.x.xx.xx.';
       else {
         var dono = nats.find(function (n) { return String(n.cod).trim() === cod; });
         if (dono) e.cod = 'Este código já é de «' + dono.nome + '».';

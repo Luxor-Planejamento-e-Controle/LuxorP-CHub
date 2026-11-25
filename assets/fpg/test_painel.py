@@ -393,6 +393,30 @@ class TestCadastroNaturezas(_ComNavegador):
         pg.wait_for_selector("#pcTabNats")
         self.assertIn("10.2.1.02.77", pg.text_content(".card.destaque"))
 
+    def test_6_nova_natureza_do_ramo_10_entra(self):
+        """O formulário herdou do Passivo a regra /^03\\./ e recusava toda natureza da FPG."""
+        pg = self.abrir(pendentes=[PENDENTE])
+        self.entrar(pg)
+        pg.click("[data-pa='0']")              # a pendente abre o formulário já preenchido
+        pg.wait_for_selector("#pcForm")
+        self.assertEqual(pg.input_value("#pcFCod"), "10.2.1.02.77")
+        pg.select_option("#pcFGrupo", index=1)
+        pg.dispatch_event("#pcFGrupo", "input")
+        self.assertEqual(pg.text_content("[data-erro='cod']"), "")
+        self.assertFalse(pg.is_disabled("#pcFAdd"))
+        for outro in ("03.2.1.02.77", "11.2.1.02.77", "10.2.1.02.77x"):
+            pg.fill("#pcFCod", outro)
+            self.assertIn("Fora do formato 10.", pg.text_content("[data-erro='cod']"), outro)
+            self.assertTrue(pg.is_disabled("#pcFAdd"), outro)
+        pg.fill("#pcFCod", "10.2.1.02.77")
+        pg.click("#pcFAdd")
+        pg.click("#pcSalvar")
+        pg.wait_for_timeout(500)
+        nats = {n["cod"]: n for n in self.est.gravacoes[0][1]["data"]["naturezas"]}
+        self.assertEqual(nats["10.2.1.02.77"]["bimer"], ["001999"])
+        self.assertEqual(nats["10.2.1.02.77"]["atualizado_por"], EMAIL)
+        self.assertEqual(self.erros, [])
+
 
 class TestMovimentacoesManuais(_ComNavegador):
     """"Movimentações" no hub: app_state 'fpg_manuais', com o carimbo posto pela ponte."""
