@@ -287,7 +287,7 @@ var FPG_DADOS = (function () {
   }
 
   return {
-    SEP: SEP, ABAS: ABAS, GRUPO_PENDENTES: GRUPO_PENDENTES,
+    SEP: SEP, ABAS: ABAS, GRUPO_PENDENTES: GRUPO_PENDENTES, COD: COD,
     normalizar: normalizar, lerBimer: lerBimer, porOrdem: porOrdem, caminho: caminho,
     lerCaminho: lerCaminho, caminhos: caminhos, raizes: raizes, abaDoCaminho: abaDoCaminho,
     foraDoBloco: foraDoBloco, gruposDaAba: gruposDaAba,
