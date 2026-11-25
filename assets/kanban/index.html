@@ -307,6 +307,15 @@ a{color:var(--teal-light)}
 .pop .fim{display:flex;gap:8px;margin-top:12px;align-items:center;flex-wrap:wrap}
 .pop .chk{display:flex;align-items:center;gap:8px;font-size:13px;margin:6px 0}
 .pop .chk input{accent-color:var(--orange);width:15px;height:15px}
+.zona-arq{border:1px dashed var(--line-strong);border-radius:9px;padding:10px;text-align:center}
+.zona-arq.sobre{border-color:var(--orange);background:var(--orange-soft)}
+.zona-arq .dica{color:var(--ink-3);font-size:11.5px;margin-top:6px}
+.fila-arq{display:flex;flex-direction:column;gap:2px;max-height:180px;overflow-y:auto;text-align:left}
+.fila-arq:not(:empty){margin-top:8px}
+.fila-arq .fa{display:flex;align-items:center;gap:8px;padding:2px 2px 2px 6px;border-radius:7px;background:var(--bg-2)}
+.fila-arq .nm{flex:1;min-width:0;font-size:12.5px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.fila-arq .sub{color:var(--ink-3);font-size:11px;white-space:nowrap}
+.fila-arq .ico-btn{width:24px;height:24px}
 .cores{display:grid;grid-template-columns:repeat(5,1fr);gap:6px}
 .cores button{height:30px;border-radius:6px;border:2px solid transparent;cursor:pointer}
 .cores button.on{border-color:#fff}
@@ -2070,33 +2079,75 @@ function popChecklist(anc) {
       const i = $('#inNovoCkl'); i.select();
     });
 }
+/* Fila de arquivos: o seletor do Windows só escolhe numa pasta por vez, então cada
+   "Escolher arquivos" (ou arquivo arrastado para o popover) SOMA à fila, e o "Anexar"
+   manda tudo junto — dá para juntar arquivos de pastas diferentes (Arthur, 25/11/2026). */
 function popAnexo(anc) {
-  abrirPop(anc, 'Anexar', () => `<label class="lbl" for="inArq">Arquivo do computador</label>
-      <input type="file" id="inArq" multiple style="width:100%">
+  const fila = [];
+  abrirPop(anc, 'Anexar', () => `<label class="lbl">Arquivos do computador</label>
+      <div class="zona-arq" id="zonaArq">
+        <input type="file" id="inArq" multiple hidden>
+        <button class="btn btn-mini" type="button" data-escolher>Escolher arquivos…</button>
+        <div class="dica">ou arraste aqui · cada escolha soma à lista</div>
+        <div class="fila-arq" id="filaArq"></div>
+      </div>
       <label class="lbl" for="inLink">Ou um link</label>
       <input type="url" id="inLink" placeholder="https://…">
       <input type="text" id="inLinkNome" placeholder="Nome do link (opcional)" style="margin-top:6px">
       <div class="fim"><button class="btn-acao btn-mini" data-n="ok" type="button">Anexar</button><span class="sync" id="anexando"></span></div>`,
-    el => el.addEventListener('click', async ev => {
-      if (!ev.target.closest('[data-n]')) return;
-      const arqs = Array.from($('#inArq').files || []);
-      const url = $('#inLink').value.trim();
-      if (!arqs.length && !url) return;
-      if (url && !/^https?:\/\//i.test(url)) { toast('O link precisa começar com http:// ou https://', true); return; }
-      const c = S.aberto.card;
-      let pos = (S.aberto.anexos.slice(-1)[0] || { pos: 0 }).pos;
-      const st = $('#anexando');
-      ev.target.closest('[data-n]').disabled = true;
-      for (let i = 0; i < arqs.length; i++) {
-        if (st) st.textContent = `enviando ${i + 1}/${arqs.length}…`;
-        pos += KB.PASSO;
-        const p = pos;
-        await tentar(() => KB_FONTE.anexar(c.id, arqs[i], p), false);
-      }
-      if (url) { pos += KB.PASSO; const p = pos; await tentar(() => KB_FONTE.anexarLink(c.id, url, $('#inLinkNome').value.trim(), p), false); }
-      fecharPop();
-      await recarregarTudo();
-    }));
+    el => {
+      const pop = el.closest('.pop'), inArq = $('#inArq', el), zona = $('#zonaArq', el);
+      const mostrar = () => {
+        $('#filaArq', el).innerHTML = fila.map((f, i) => `<div class="fa">
+            <span class="nm">${esc(f.name)}</span><span class="sub">${esc(KB.tamanho(f.size))}</span>
+            <button class="ico-btn" type="button" data-tirar="${i}" aria-label="Tirar ${esc(f.name)}">${svg('x', 12)}</button></div>`).join('');
+        $('[data-n]', el).textContent = fila.length > 1 ? `Anexar ${fila.length} arquivos` : 'Anexar';
+        // a fila cresce o popover: não deixa passar do pé da tela
+        const r = pop.getBoundingClientRect();
+        if (r.bottom > innerHeight - 8) pop.style.top = Math.max(8, innerHeight - 8 - r.height) + 'px';
+      };
+      const somar = arqs => {
+        for (const f of arqs) {
+          if (!fila.some(g => g.name === f.name && g.size === f.size && g.lastModified === f.lastModified)) fila.push(f);
+        }
+        mostrar();
+      };
+      // value='' depois de ler: escolher de novo na mesma pasta também dispara o change
+      inArq.addEventListener('change', () => { somar(Array.from(inArq.files || [])); inArq.value = ''; });
+      // o popover inteiro aceita o arraste (fora dele o navegador abriria o arquivo)
+      const temArquivos = ev => ev.dataTransfer && Array.from(ev.dataTransfer.types || []).includes('Files');
+      pop.addEventListener('dragover', ev => { if (temArquivos(ev)) { ev.preventDefault(); zona.classList.add('sobre'); } });
+      pop.addEventListener('dragleave', ev => { if (!pop.contains(ev.relatedTarget)) zona.classList.remove('sobre'); });
+      pop.addEventListener('drop', ev => {
+        if (!temArquivos(ev)) return;
+        ev.preventDefault();
+        zona.classList.remove('sobre');
+        somar(Array.from(ev.dataTransfer.files || []));
+      });
+      el.addEventListener('click', async ev => {
+        if (ev.target.closest('[data-escolher]')) { inArq.click(); return; }
+        const tirar = ev.target.closest('[data-tirar]');
+        if (tirar) { fila.splice(Number(tirar.dataset.tirar), 1); mostrar(); return; }
+        if (!ev.target.closest('[data-n]')) return;
+        const arqs = fila.slice();
+        const url = $('#inLink').value.trim();
+        if (!arqs.length && !url) return;
+        if (url && !/^https?:\/\//i.test(url)) { toast('O link precisa começar com http:// ou https://', true); return; }
+        const c = S.aberto.card;
+        let pos = (S.aberto.anexos.slice(-1)[0] || { pos: 0 }).pos;
+        const st = $('#anexando');
+        ev.target.closest('[data-n]').disabled = true;
+        for (let i = 0; i < arqs.length; i++) {
+          if (st) st.textContent = `enviando ${i + 1}/${arqs.length}…`;
+          pos += KB.PASSO;
+          const p = pos;
+          await tentar(() => KB_FONTE.anexar(c.id, arqs[i], p), false);
+        }
+        if (url) { pos += KB.PASSO; const p = pos; await tentar(() => KB_FONTE.anexarLink(c.id, url, $('#inLinkNome').value.trim(), p), false); }
+        fecharPop();
+        await recarregarTudo();
+      });
+    });
 }
 function opcoesListas(sel) {
   return listasAbertas().map(l => `<option value="${esc(l.id)}"${l.id === sel ? ' selected' : ''}>${esc(l.nome)}</option>`).join('');

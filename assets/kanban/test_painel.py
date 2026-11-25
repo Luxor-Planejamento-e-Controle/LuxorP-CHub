@@ -693,6 +693,32 @@ class TestKanban(unittest.TestCase):
         pg.keyboard.press("Escape")
         pg.click("#fLimpar")
 
+    def test_62_anexar_somando_arquivos_de_pastas_diferentes(self):
+        pg = self.pg
+        self._abrir()
+        pg.click('.dlg-side [data-a="anexo"]')
+        # duas escolhas seguidas no seletor (uma por pasta): a segunda soma, não substitui
+        pg.set_input_files("#inArq", [{"name": "extrato.pdf", "mimeType": "application/pdf", "buffer": b"%PDF-1"}])
+        pg.set_input_files("#inArq", [{"name": "planilha.xlsx", "mimeType": "application/octet-stream", "buffer": b"xx"}])
+        # arrastar para o popover também soma; o mesmo arquivo duas vezes entra uma vez só
+        pg.evaluate("""() => {
+          const dt = new DataTransfer();
+          dt.items.add(new File(['abc'], 'foto.png', {type: 'image/png', lastModified: 1}));
+          dt.items.add(new File(['abc'], 'foto.png', {type: 'image/png', lastModified: 1}));
+          document.querySelector('.pop').dispatchEvent(new DragEvent('drop', {bubbles: true, cancelable: true, dataTransfer: dt}));
+        }""")
+        nomes = pg.locator("#filaArq .nm").all_inner_texts()
+        self.assertEqual(nomes, ["extrato.pdf", "planilha.xlsx", "foto.png"])
+        self.assertEqual(pg.inner_text('#pop [data-n="ok"]'), "Anexar 3 arquivos")
+        pg.click('#filaArq [data-tirar="1"]')
+        self.assertEqual(pg.locator("#filaArq .nm").all_inner_texts(), ["extrato.pdf", "foto.png"])
+        n0 = sum(1 for e in self.fake.escritas if e[0] == "POST" and e[1] == "kanban_anexos")
+        pg.click('#pop [data-n="ok"]')
+        pg.wait_for_timeout(800)
+        novos = [c for m, t, f, c in self.fake.escritas if m == "POST" and t == "kanban_anexos"][n0:]
+        self.assertEqual([c["nome"] for c in novos], ["extrato.pdf", "foto.png"])
+        self.assertEqual(pg.locator("#pop .pop").count(), 0, "fecha depois de enviar")
+
     def test_90_arquivar_todos_os_cards_da_lista(self):
         # por último: arquiva a lista onde o card dos outros testes foi parar
         self._fechar()
