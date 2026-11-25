@@ -4,18 +4,16 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Fluxo de Caixa — Tarituba · Luxor P&amp;C</title>
-<!-- Mesma página do painel local do repo Automacoes (Fluxo de Caixa Tarituba/dashboard),
-     com três diferenças só desta cópia: fontes/tema/logo/ECharts vêm do próprio hub
-     (../), o dado vem do bucket (tt_fonte.js) em vez de dados/fluxo_tarituba.js, e há os
-     botões "Atualizar agora" e "Criar card no Trello". O app.js é o MESMO arquivo nos
-     dois lugares — mudou lá, copia aqui inteiro. -->
+<!-- Mesma página do painel local do repo Automacoes (Fluxo de Caixa Tarituba/dashboard), com
+     três diferenças só desta cópia: fontes/tema/logo/ECharts vêm do próprio hub (../), o
+     dado vem do bucket (tt_fonte.js) em vez de dados/fluxo_tarituba.js, e o "Atualizar agora",
+     o cadastro e as movimentações falam com o Azure e o Supabase (tt_fonte.js no lugar do
+     tt_local.js). O app.js, o tt_dados.js, o tt_cadastro.js e o tt_manuais.js são os
+     MESMOS arquivos nos dois lugares — mudou lá, copia aqui inteiro. Sem card do Trello
+     desde 11/2026 (como o Shiva, o Passivo e a FPG). -->
 <link rel="stylesheet" href="../fonts.css">
 <link rel="stylesheet" href="../theme.css">
 <style>
-/* status dos botões: o reprocessar.js liga `.erro` quando o pedido falha */
-#reproc-status,#card-status{font-size:11.5px;color:var(--ink-2)}
-#reproc-status.erro,#card-status.erro{color:var(--neg)}
-#card-status a{color:var(--orange)}
 /* ── específico deste painel; o resto vem do theme.css do Hub P&C ── */
 :root{ --largura-max:1720px; }
 /* sem sidebar: no hub ela é a casca e pode ficar recolhida (.app.collapsed no
@@ -84,6 +82,23 @@ table.data.wide th,table.data.wide td{white-space:nowrap}
 table.data td.l,table.data th.l{text-align:left}
 .tbl-wrap{overflow-x:auto}
 
+/* ── CABEÇALHO CONGELADO (pedido do Leonardo, 20/10/2026) ──
+   O theme.css já declara `th{position:sticky;top:0}`, mas aqui nunca funcionou:
+   sticky gruda no ancestral que ROLA, e o .tbl-wrap (overflow-x:auto) passa a ser
+   esse ancestral também na vertical — só que sem altura máxima ele nunca rola na
+   vertical, e o cabeçalho ia embora com a página. Com altura máxima a tabela grande
+   rola DENTRO da caixa e o cabeçalho fica; tabela que cabe não muda nada.
+   A 2ª linha do cabeçalho (orç/real) gruda logo abaixo da 1ª: `--h-cab1` é a altura
+   MEDIDA da 1ª linha (`congelarCabecalhos` no app.js), não chutada.
+   Camadas: células fixas do corpo (rótulo, Desvio) = 2; cabeçalho = 3; cantos do
+   cabeçalho presos nos dois eixos (rótulo, Desvio) = 4. */
+.tbl-wrap{max-height:calc(100vh - 140px);overflow:auto}
+table.data thead th{position:sticky;top:0;z-index:3}
+table.data thead tr:nth-child(2) th{top:var(--h-cab1,0px)}
+/* na exportação a tabela sai inteira: a medida da página (ajustarPaginaImpressao)
+   lê o scrollHeight, que com a caixa limitada mediria só o pedaço visível */
+#pg-imp-simples .tbl-wrap{max-height:none;overflow:visible}
+
 /* ── TABELA DO FLUXO (a estrutura da aba Resumo) ── */
 table.data.fluxo th,table.data.fluxo td{padding:7px 10px;font-size:12px}
 table.data.fluxo td.l{text-align:left;min-width:210px}
@@ -133,7 +148,9 @@ table.data.nat thead tr:nth-child(2) th.c-real{color:var(--ink);font-weight:600}
 table.data.fluxo.par tbody td:not(.l),table.data.fluxo.par thead th:not(.l){
   width:78px;min-width:78px}
 table.data.fluxo.par thead th{height:26px}
-table.data.fluxo.par thead tr:nth-child(2) th{top:26px;font-size:9.5px;
+/* sem `top` fixo aqui: vem de `--h-cab1`, a altura MEDIDA da 1ª linha (o 26px que
+   havia era menor que a linha real, 31px, e a 2ª linha invadia a 1ª ao rolar) */
+table.data.fluxo.par thead tr:nth-child(2) th{font-size:9.5px;
   letter-spacing:.03em;color:var(--ink-3);font-weight:500;background-color:#0b1f24;
   text-align:center}
 table.data.fluxo th.mescab{text-align:center}
@@ -181,7 +198,7 @@ table.data.fluxo td.na{color:var(--ink-3);opacity:.35}
 table.data.fluxo tbody tr:not(.detalhe)>td.l{
   position:sticky;left:0;z-index:2;background:var(--bg-fluxo,var(--surface));
   border-right:1px solid var(--line-strong)}
-table.data.fluxo thead th.l{position:sticky;left:0;z-index:3;background-color:#0b1f24;
+table.data.fluxo thead th.l{position:sticky;left:0;z-index:4;background-color:#0b1f24;
   border-right:1px solid var(--line-strong)}
 /* fundos opacos por tipo de linha, para a coluna fixa não deixar passar o que
    rola por baixo (rgba não compõe em célula sticky) */
@@ -242,6 +259,16 @@ tr.sub1>td{background-color:rgba(255,255,255,.022);color:var(--ink-2);font-size:
 tr.sub1>td.l{padding-left:26px}
 tr.sub1>td.l::before{content:"";display:inline-block;width:8px;height:1px;
   background:var(--line-strong);vertical-align:middle;margin-right:7px}
+/* a aba Resumo encadeia sublinhas de níveis diferentes (Shiva: as três
+   subdivisões dentro de "Despesas - Shiva"; Passivo: Pessoal > Salários). Recuo
+   por contenção (ver `linhasResumo`), num <span> dentro do rótulo — o padding
+   do td.l já é disputado pela regra sticky. */
+/* mês ainda sem o export do Bimer (realizado da API): marca no cabeçalho */
+th .previa{display:block;font-size:9px;font-weight:600;letter-spacing:.04em;
+  text-transform:uppercase;color:var(--orange);line-height:1.1;cursor:help}
+tr.sub1 .recuo-1{padding-left:14px}
+tr.sub1 .recuo-2{padding-left:28px}
+tr.sub1 .recuo-3{padding-left:42px}
 
 /* linhas estruturais do fluxo */
 tr.saldo>td{background-color:var(--surface-2);font-weight:600}
@@ -345,7 +372,10 @@ td.expandivel:focus-visible{outline:2px solid var(--orange);outline-offset:-2px}
 tr.nat.open .cont{background:rgba(255,164,0,.2);color:var(--orange)}
 
 tr.detalhe>td{padding:0!important;background:#0b1f24;
-  border-bottom:2px solid var(--line-strong)}
+  border-bottom:2px solid var(--line-strong);
+  /* `overflow:hidden` (herdado do td da tabela) faz desta célula o trilho do sticky do
+     `.lanc` — e ela não rola, então o detalhe não ficava fixo (medido em 29/10/2026) */
+  overflow:visible!important}
 /* GRID, não <table> (24/09) — table-layout:fixed dentro de uma célula colspan
    de tabela table-layout:auto tem um bug REAL do Chrome: medido em isolamento
    antes de decidir (arquivo à parte, fora do painel), mesmo com <colgroup> e
@@ -377,7 +407,11 @@ tr.detalhe>td{padding:0!important;background:#0b1f24;
    um número fixo voltaria a sobrar ou faltar — pedido do Leonardo, 24/09:
    "deixa essa parte do tamanho visível da tabela". */
 .lanc{display:grid;grid-template-columns:52px 120px 175px 1fr 90px;
-  width:100%;max-width:920px}
+  width:100%;max-width:920px;
+  /* FIXO na parte visível ao rolar a tabela para os lados (pedido do Leonardo, 29/10/2026):
+     o <td colspan> tem a largura da tabela inteira; sticky prende o detalhe à borda esquerda
+     da caixa que rola, e a largura (= a visível, ver acima) faz ele cobrir só o que se vê. */
+  position:sticky;left:0}
 /* Detalhe do ORÇADO (25/09, pedido da chefe: "fazer pro orçado a mesma
    coisa que fizemos pro realizado") — mesmo componente `.lanc`, 4 colunas em
    vez de 5: item de orçamento não tem data de baixa nem observação, tem
@@ -448,6 +482,9 @@ table.data.nat td.l:has(.flag){display:flex;align-items:center;gap:0}
 table.data.nat td.l:has(.flag) .nome{overflow:hidden;text-overflow:ellipsis;
   white-space:nowrap;min-width:0}
 table.data.nat td.l .flag{flex:0 0 auto}
+/* lançamento de outra natureza do Bimer somado na linha (de-para da planilha) */
+.via{display:inline-block;padding:0 5px;border-radius:4px;margin-right:4px;
+  background:rgba(255,255,255,.08);color:var(--ink-2);font-size:10px;cursor:help}
 
 /* ── COLUNA DESVIO FIXA À DIREITA ──
    Em Orçado (12 meses) e Ambos (24 colunas) a tabela rola, e a primeira coluna
@@ -474,7 +511,7 @@ table.data.nat tbody tr:not(.detalhe)>td:last-child{
   border-left:1px solid var(--line-strong)}
 table.data.nat thead tr:first-child th:last-child,
 table.data.nat thead tr:nth-child(2) th:last-child{
-  position:sticky;right:0;z-index:3;background:#0b1f24;
+  position:sticky;right:0;z-index:4;background:#0b1f24;
   border-left:1px solid var(--line-strong)}
 /* O NOME DA LINHA fixa à esquerda pelo mesmo motivo: rolando os meses, o rótulo
    saía de vista e sobrava número sem saber de que conta era. Ficam as duas
@@ -483,7 +520,7 @@ table.data.nat tbody tr:not(.detalhe)>td.l{
   position:sticky;left:0;z-index:2;background:var(--bg-linha);
   border-right:1px solid var(--line-strong)}
 table.data.nat thead th.l{
-  position:sticky;left:0;z-index:3;background:#0b1f24;
+  position:sticky;left:0;z-index:4;background:#0b1f24;
   border-right:1px solid var(--line-strong)}
 
 tr.secao>td{background-color:var(--surface-2);font-weight:700;text-transform:uppercase;
@@ -492,16 +529,23 @@ tr.secao>td{background-color:var(--surface-2);font-weight:700;text-transform:upp
    usada. Fica visível de propósito — foi some-da-tela que escondeu RESGATES E
    APLICAÇÕES e TRANSF. ENTRE BANCOS da planilha por um ano inteiro. */
 tr.morta>td{opacity:.42;font-style:italic}
+/* ...menos nas células FIXAS (rótulo à esquerda, Desvio à direita): translúcidas, os
+   números que rolam por baixo apareciam através delas (visto ao congelar o cabeçalho,
+   20/10/2026). Nelas o fundo fica opaco e só o CONTEÚDO esmaece. */
+table.data.nat tr.morta>td.l,table.data.nat tr.morta>td:last-child{opacity:1}
+table.data.nat tr.morta>td.l>*,table.data.nat tr.morta>td.l::after{opacity:.42}
+table.data.nat tr.morta>td:last-child{color:rgba(234,244,244,.42)}
 /* texto curto de propósito: o longo ("sem orçamento e sem movimento") era a
    primeira coisa a ser cortada pelo ellipsis da coluna, junto com as marcas de
    achado que vêm depois dele. O detalhe fica no `title` da linha. */
 tr.morta>td.l::after{content:" · sem uso";font-size:10px;
   color:var(--ink-3);font-style:normal}
 
-/* cabeçalho de dois níveis. A 2ª linha precisa de `top` próprio, senão empilha
-   sobre a 1ª — daí a altura fixa, para o deslocamento ser determinístico. */
+/* cabeçalho de dois níveis. O `top` da 2ª linha vem de `--h-cab1` (altura MEDIDA
+   da 1ª, ver "CABEÇALHO CONGELADO") — o 28px fixo que havia não batia com a linha
+   real e só não aparecia porque o cabeçalho nunca chegava a grudar. */
 table.data.nat thead th{height:28px}
-table.data.nat thead tr:nth-child(2) th{top:28px;font-size:10px;letter-spacing:.03em;
+table.data.nat thead tr:nth-child(2) th{font-size:10px;letter-spacing:.03em;
   color:var(--ink-3);font-weight:500;background-color:#0b1f24;text-align:center}
 /* o theme.css alinha todo `table.data th` à direita e tem um
    `th:first-child{text-align:left}` SEM escopo de linha, que pegaria o primeiro
@@ -563,6 +607,11 @@ table.data.nat th.sub{text-align:center}
 table.data.fluxo td.vlocal{font-style:italic;color:var(--orange)}
 table.data.fluxo td.vlocal::after{content:"•";margin-left:4px;font-size:9px;
   vertical-align:super;opacity:.8}
+/* saldo lido do extrato do banco (como no Shiva, no Passivo e na FPG): sublinhado
+   pontilhado discreto — a dica diz de qual arquivo veio e o valor da planilha quando é outro.
+   Sem cor: cor fica para o que pede atenção (o Confronto). */
+table.data.fluxo td.vextrato{text-decoration:underline dotted;text-decoration-color:var(--ink-3);
+  text-underline-offset:3px;cursor:help}
 tr.confere.forte>td{font-weight:600;color:var(--ink-2)}
 
 /* avisos do extrator */
@@ -585,7 +634,7 @@ tr.confere.forte>td{font-weight:600;color:var(--ink-2)}
   * { -webkit-print-color-adjust:exact !important; print-color-adjust:exact !important; }
   /* controles interativos não fazem sentido num PDF estático */
   #nav-slot, #btn-export-pdf, #btn-card-trello, #card-status, #btn-atualizar, #reproc-status,
-  #btn-cadastro, .seg, #sel-mes-simples,
+  #btn-cadastro, #btn-manuais, .seg, #sel-mes-simples,
   label[for="sel-mes-simples"], .aviso-saldo, .rodape-proc,
   #banner-slot, #b-avisos { display:none !important; }
   /* `--largura-max`/padding de `.content` existem pra tela; na impressão o
@@ -593,11 +642,18 @@ tr.confere.forte>td{font-weight:600;color:var(--ink-2)}
      exportada, então o conteúdo pode usar a página inteira. */
   .content{ max-width:none !important; padding:0 !important; }
   .card{ box-shadow:none !important }
+  /* papel não rola: a tabela sai inteira, sem a caixa do cabeçalho congelado */
+  .tbl-wrap{ max-height:none !important; overflow:visible !important; }
 }
 
+/* status do "Atualizar agora" (o reprocessar.js liga `.erro` quando falha) */
+#reproc-status{font-size:11.5px;color:var(--ink-2)}
+#reproc-status:empty{display:none}
+#reproc-status.erro{color:var(--neg)}
+
 /* ── CADASTRO DE NATUREZAS (tt_cadastro.js) ──
-   Mesmo desenho do cadastro de naturezas do Haras e do Controle de Pagamentos; as cores
-   são os tokens do theme.css do hub (laranja no lugar do âmbar do HPG). */
+   Copiado do painel do Tarituba no Hub (mesmo desenho do Haras e do Controle de
+   Pagamentos); cores são os tokens do theme.css. */
 [hidden]{display:none !important}
 .tt-cad-topo{display:flex;align-items:center;gap:14px;margin-bottom:16px}
 .tt-cad-topo h2{margin:0;font-size:17px}
@@ -612,8 +668,7 @@ table.data input.cpc,table.data select.cpc{background:var(--surface);border:1px 
 table.data input.cpc:focus,table.data select.cpc:focus{border-color:var(--orange);outline:none}
 table.data input.cpc::placeholder{color:var(--ink-3)}
 table.data.cadastro td{vertical-align:top;padding-top:9px;padding-bottom:9px}
-/* largura dos CAMPOS, não da tela: esticada a 100%, a tabela espremia o seletor de grupo
-   e o caminho do grupo aparecia cortado */
+/* largura dos CAMPOS, não da tela: esticada a 100%, a tabela espremia o seletor de grupo */
 table.data.cadastro{width:auto}
 table.data.cadastro th{text-align:left}
 table.data.cadastro th,table.data.cadastro td{min-width:0;width:auto}
@@ -622,6 +677,15 @@ table.data.cadastro tr.grupo td{background:#0b1f24;color:var(--ink-2);font-size:
   border-top:1px solid var(--line-strong)}
 table.data.cadastro tr.grupo .muted{color:var(--ink-3);font-weight:400;text-transform:none;letter-spacing:0}
 table.data.cadastro tr.nova td{background:var(--orange-soft);animation:tt-nova 6s ease-out forwards}
+/* "menos: …" de uma linha do Resumo que aponta para grupo (o `exceto` do Tarituba) */
+.res-exc{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:6px;
+  font-size:12px;color:var(--ink-2);max-width:420px}
+.res-exc .tirada{display:inline-flex;align-items:center;gap:4px;padding:2px 4px 2px 8px;
+  border:1px solid var(--line-strong);border-radius:var(--r-sm);color:var(--ink)}
+.res-exc .tirada button{background:none;border:0;color:var(--ink-3);cursor:pointer;
+  font:inherit;font-size:14px;line-height:1;padding:0 2px}
+.res-exc .tirada button:hover{color:var(--ink)}
+table.data .res-exc select.cpc{height:26px;font-size:12px;padding:0 6px;width:auto}
 @keyframes tt-nova{to{background:transparent}}
 .card.destaque{border-color:rgba(229,103,78,.45);
   background:linear-gradient(180deg,rgba(229,103,78,.14),var(--surface) 70%)}
@@ -656,6 +720,25 @@ table.data.cadastro tr.nova td{background:var(--orange-soft);animation:tt-nova 6
 .form-falta{font-size:12.5px;color:var(--ink-2);min-height:18px;margin:2px 0 4px}
 .form-acoes{display:flex;justify-content:flex-end;gap:10px;margin-top:10px;padding-top:16px;
   border-top:1px solid var(--line)}
+
+/* movimentações manuais (tt_manuais.js, 28/10/2026) */
+.mn-tipos{display:flex;gap:8px;margin:2px 0 8px}
+.mn-tipos .btn-ghost.on{background:var(--orange-soft);border-color:var(--orange);color:var(--ink)}
+.mn-explica{margin-bottom:14px}
+.mn-grade{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:0 14px}
+.mn-previa{font-size:12.5px;color:var(--ink-2);min-height:18px;margin:2px 0 4px}
+.form-acoes #mnStatus{margin-right:auto;align-self:center}
+table.mn-lista{width:100%}
+table.mn-lista th,table.mn-lista td{text-align:left;white-space:normal;font-size:12.5px}
+table.mn-lista th.num,table.mn-lista td.num{text-align:right}
+table.mn-lista .muted{font-size:11.5px}
+/* lançamento manual no detalhe de uma célula: cabe na coluna da data */
+.chip-manual{display:inline-block;font-size:9.5px;line-height:1.5;padding:0 4px;border-radius:999px;
+  border:1px solid var(--orange);color:var(--orange)}
+/* com quatro botões o topo aperta: os rótulos não quebram (e o título não vira três linhas) */
+.topbar .btn-ghost{white-space:nowrap}
+.topbar h1{white-space:nowrap}
+.topbar-inner{flex-wrap:wrap;row-gap:10px}
 </style>
 </head>
 <!-- hub-ready: o theme.css do hub esconde .app até o porteiro de login liberar
@@ -676,17 +759,23 @@ table.data.cadastro tr.nova td{background:var(--orange-soft);animation:tt-nova 6
         <!-- três páginas espelhando as três abas da planilha -->
         <div id="nav-slot" style="margin-left:18px"></div>
         <div class="spacer"></div>
-        <!-- Refaz o ETL no Azure (planilhas do Drive + realizado do Bimer). Leva uns 10
-             minutos: a API do Bimer não filtra o A Receber por empresa. -->
+        <!-- Refaz o ETL no Azure (planilhas e exports do Drive + prévia do Bimer). Leva uns
+             11 minutos: a API do Bimer não filtra o A Receber por empresa. -->
         <button type="button" class="btn-ghost" id="btn-atualizar"
-                title="Refaz o painel no Azure com as planilhas e o Bimer de agora (~10 min)">
+                title="Refaz o painel no Azure com as planilhas, os exports e o Bimer de agora (~11 min)">
           Atualizar agora</button>
         <button type="button" class="btn-ghost" id="btn-export-pdf">⬇ Exportar PDF</button>
-        <!-- O cadastro abre DENTRO do painel, como o do Controle de Pagamentos: quem
-             cuida do painel cuida do cadastro. O app.js o mostra só no hub. -->
+        <!-- O cadastro abre DENTRO do painel, como no Controle de Pagamentos:
+             quem cuida do painel cuida do cadastro. Só aparece quando há onde gravar
+             (servido pelo abrir_painel.py, ou no Hub). -->
         <button type="button" class="btn-ghost" id="btn-cadastro" hidden
-                title="Quais naturezas aparecem, em que grupo e em que ordem">
+                title="Quais naturezas aparecem, em que grupo, em que ordem e as linhas do Resumo">
           Editar cadastro de naturezas</button>
+        <!-- O papel da aba Base da planilha (28/10/2026): ajustes lançados à mão, que somam nas
+             naturezas junto com os relatórios. Abre dentro do painel, como o cadastro. -->
+        <button type="button" class="btn-ghost" id="btn-manuais" hidden
+                title="Movimentações manuais: lançar ajustes à mão (avulsa, reclassificação ou mudança de mês)">
+          Movimentações</button>
         <span class="chip" id="chip-fonte">
           <span class="dot" style="background:var(--teal-light)"></span>
           <span id="chip-fonte-txt">—</span>
@@ -709,8 +798,10 @@ table.data.cadastro tr.nova td{background:var(--orange-soft);animation:tt-nova 6
 <script src="../vendor/supabase.min.js"></script>
 <script src="config.js"></script>
 <script src="../reprocessar.js"></script>
+<!-- cadastro de naturezas e movimentações manuais: regras e telas -->
 <script src="tt_dados.js"></script>
 <script src="tt_cadastro.js"></script>
+<script src="tt_manuais.js"></script>
 <!-- baixa o dado do bucket e SÓ ENTÃO carrega o app.js (que lê o dado no topo) -->
 <script src="tt_fonte.js"></script>
 </body>
