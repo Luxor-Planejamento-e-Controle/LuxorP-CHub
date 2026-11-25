@@ -37,7 +37,7 @@ create table if not exists user_dashboard_access (
   email      text not null references allowed_users(email) on update cascade on delete cascade,
   dashboard  text not null check (dashboard in
                ('indicadores','dre','inadimplencia','vendas','projetos','fluxo','participacoes','plantel',
-                'saldo_bancario','controle_pagamentos','tarituba','shiva','passivo','kanban','societario','comite_fo','board_fo','carta','processos','societario_envio','senhas','manual_backoffice')),
+                'saldo_bancario','controle_pagamentos','tarituba','shiva','passivo','fpg','kanban','societario','comite_fo','board_fo','carta','processos','societario_envio','senhas','manual_backoffice')),
   granted_at timestamptz not null default now(),
   primary key (email, dashboard)
 );
@@ -54,7 +54,7 @@ alter table user_dashboard_access drop constraint if exists user_dashboard_acces
 alter table user_dashboard_access add constraint user_dashboard_access_dashboard_check
   check (dashboard in
           ('indicadores','dre','inadimplencia','vendas','projetos','fluxo','participacoes','plantel',
-           'saldo_bancario','controle_pagamentos','tarituba','shiva','passivo','kanban','societario','comite_fo','board_fo','carta','processos','societario_envio','senhas','manual_backoffice'));
+           'saldo_bancario','controle_pagamentos','tarituba','shiva','passivo','fpg','kanban','societario','comite_fo','board_fo','carta','processos','societario_envio','senhas','manual_backoffice'));
 
 -- ---------------------------------------------------------------------
 -- 3) Helpers. SECURITY DEFINER para as policies não recursarem na própria
@@ -145,10 +145,12 @@ create policy hub_data_read on storage.objects
 --      id = 'tarituba'             cadastro de naturezas do Fluxo de Caixa Tarituba
 --      id = 'shiva'                cadastro de naturezas do Fluxo de Caixa Shiva
 --      id = 'passivo'              cadastro de naturezas do Fluxo de Caixa Passivo Hoteleiro
+--      id = 'fpg'                  cadastro de naturezas do Fluxo de Caixa FPG
+--      id = 'fpg_manuais'          movimentações manuais do Fluxo de Caixa FPG
 --      id = 'carta'                textos da Carta Trimestral (PT e EN) por trimestre
 --      id = 'manual_backoffice'    Manual de Processos — Backoffice (seções em markdown)
 --
---    Mora AQUI, e não num arquivo por painel, porque a RLS é DA TABELA: as catorze
+--    Mora AQUI, e não num arquivo por painel, porque a RLS é DA TABELA: as dezoito
 --    policies abaixo só fazem sentido lidas juntas. Enquanto estiveram em três
 --    arquivos, cada um declarou uma policy válida para a tabela inteira sem saber
 --    das outras — e policies permissivas SOMAM (OR). O resultado era acesso
@@ -256,6 +258,33 @@ create policy hub_passivo_update on app_state
   using      ( id = 'passivo' and public.hub_can('passivo') )
   with check ( id = 'passivo' and public.hub_can('passivo') );
 
+-- FPG (Fazenda Pao Grande): mesma regra do Passivo, em DOIS documentos — o cadastro
+-- de naturezas e as movimentações manuais (o papel da aba Base da planilha). Os dois
+-- pela permissão da aba FPG: quem vê o painel mantém o cadastro e lança os ajustes.
+-- Documentos separados de propósito: cada tela tem a sua guarda de versão, e lançar
+-- um ajuste não recusa quem está editando o cadastro ao mesmo tempo.
+drop policy if exists hub_fpg_select on app_state;
+create policy hub_fpg_select on app_state
+  for select to authenticated
+  using ( id = 'fpg' and public.hub_can('fpg') );
+
+drop policy if exists hub_fpg_update on app_state;
+create policy hub_fpg_update on app_state
+  for update to authenticated
+  using      ( id = 'fpg' and public.hub_can('fpg') )
+  with check ( id = 'fpg' and public.hub_can('fpg') );
+
+drop policy if exists hub_fpg_manuais_select on app_state;
+create policy hub_fpg_manuais_select on app_state
+  for select to authenticated
+  using ( id = 'fpg_manuais' and public.hub_can('fpg') );
+
+drop policy if exists hub_fpg_manuais_update on app_state;
+create policy hub_fpg_manuais_update on app_state
+  for update to authenticated
+  using      ( id = 'fpg_manuais' and public.hub_can('fpg') )
+  with check ( id = 'fpg_manuais' and public.hub_can('fpg') );
+
 -- Carta Trimestral: os textos do CEO, a tradução e as leituras do trimestre, colados
 -- na aba pelo Arthur (decisão dele, 13/11/2026). Quem vê a aba LÊ (a carta montada
 -- precisa dos textos); só admin GRAVA.
@@ -282,6 +311,11 @@ create policy hub_carta_update on app_state
 --                         (`resumo` = as linhas da página Resumo, com o "exceto")
 --   passivo             : { versao, naturezas, resumo }  — ver assets/passivo/pc_dados.js
 --                         (`bimer` em lista: o 1º é o da linha, os demais somam nela)
+--   fpg                 : { versao, naturezas, resumo }  — ver assets/fpg/fpg_dados.js
+--   fpg_manuais         : { versao, movimentos: [{id, ano, tipo, mes|de_mes/para_mes, cod|de/para,
+--                           valor, motivo, criado_em, criado_por, ...}] }
+--                         — ver assets/fpg/fpg_fonte.js; o que cada tipo soma mora no
+--                         repo Automacoes (shared_fpg/manuais.py), que o job do Azure usa
 --   carta               : { versao, trimestres: {<AAAA-QN>: {pt, en, leituras}} }
 --                         — ver assets/apresentacoes/ap_deck.js (CONTEUDO)
 --   manual_backoffice   : { versao, titulo, secoes: [{id, titulo, periodicidade, md, ...}] }
@@ -289,10 +323,11 @@ create policy hub_carta_update on app_state
 --                         na seção 11, depois de manual_editores: dependem da função que
 --                         lê essa tabela, e a função precisa existir antes da policy.
 --
--- Em tarituba, shiva e passivo, o documento vazio mantém o painel na estrutura da
+-- Em tarituba, shiva, passivo e fpg, o documento vazio mantém o painel na estrutura da
 -- planilha: o job do Azure só passa a ler o cadastro quando ele tem naturezas. O seed
--- (gerado por `cadastro_tarituba.py` / `cadastro_shiva.py` / `cadastro_passivo.py` no repo
--- Automacoes) só grava se a linha ainda estiver vazia.
+-- (gerado por `cadastro_tarituba.py` / `cadastro_shiva.py` / `cadastro_passivo.py` /
+-- `cadastro_fpg.py` no repo Automacoes) só grava se a linha ainda estiver vazia. Em
+-- fpg_manuais, vazio = nenhuma movimentação.
 --
 -- Em saldo_bancario, a chave de `entradas` e `provisoes` é a QUARTA-FEIRA da
 -- semana: a projeção sempre foi de quarta a quarta, e guardar por semana preserva
@@ -309,6 +344,8 @@ insert into app_state (id, data) values
   ('tarituba',            '{}'::jsonb),
   ('shiva',               '{}'::jsonb),
   ('passivo',             '{}'::jsonb),
+  ('fpg',                 '{}'::jsonb),
+  ('fpg_manuais',         '{}'::jsonb),
   ('carta',               '{}'::jsonb),
   ('manual_backoffice',   '{}'::jsonb)
 on conflict (id) do nothing;
