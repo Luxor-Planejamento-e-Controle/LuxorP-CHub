@@ -34,6 +34,8 @@ const HUB_DATASETS = {
   passivo: null,
   // idem (sem card); o cadastro e as movimentações manuais são app_state, lidos no iframe
   fpg: null,
+  // idem: lote do mês, PDFs (notas_debito.*.pdf) e o carimbo do envio, baixados no iframe
+  notas_debito: null,
   // tabelas kanban_* (ver sql/hub_schema.sql, seção 8), lidas e gravadas pelo iframe
   kanban: null,
   // tabelas senhas_* (seção 10), cifradas; a senha mestra é pedida no iframe

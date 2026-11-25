@@ -67,6 +67,9 @@ window.HUB_REPROCESSAR = (function () {
    *                    lista fechada.
    *   rotulo        -> texto do botão enquanto roda ("atualizando…" por padrão).
    *   aguardando    -> texto do status enquanto espera o robô.
+   *   aoFalhar(e)   -> o pedido foi recusado ou o tempo estourou. Para o painel que mudou
+   *                    a tela no clique (Notas de Débito marca as linhas "enviando…") e
+   *                    precisa desfazer; a mensagem de erro já sai no status.
    */
   function ligar(opcoes) {
     var botao = opcoes.botao;
@@ -76,7 +79,18 @@ window.HUB_REPROCESSAR = (function () {
      * por clique. */
     if (botao.dataset.reprocLigado) return;
     botao.dataset.reprocLigado = '1';
+    botao.addEventListener('click', preparar(opcoes));
+  }
 
+  /* pedir(opcoes): o mesmo pedido, sem botão — mesmas opções de ligar() menos `botao`.
+   * Para o que o painel dispara sozinho: Notas de Débito confere a planilha no Drive ao
+   * abrir, porque a nota pode ter sido corrigida à mão depois de gerada. */
+  function pedir(opcoes) {
+    return preparar(opcoes)();
+  }
+
+  function preparar(opcoes) {
+    var botao = opcoes.botao || null;
     var rodando = false;
 
     /* O status é procurado pelo id a cada uso, e não guardado numa variável: `aoConcluir`
@@ -106,16 +120,18 @@ window.HUB_REPROCESSAR = (function () {
       el.appendChild(a);
     }
 
-    botao.addEventListener('click', async function () {
+    return async function () {
       /* Uma vez por vez NESTA aba. Não impede duas pessoas de pedirem ao mesmo tempo —
        * e não precisa: o segundo pedido republica o mesmo resultado. Bloquear de verdade
        * exigiria estado compartilhado para evitar um problema que não faz estrago. */
       if (rodando) return;
       rodando = true;
 
-      var rotulo = botao.textContent;
-      botao.disabled = true;
-      botao.textContent = opcoes.rotulo || 'atualizando…';
+      var rotulo = botao && botao.textContent;
+      if (botao) {
+        botao.disabled = true;
+        botao.textContent = opcoes.rotulo || 'atualizando…';
+      }
       dizer('');
 
       try {
@@ -159,17 +175,19 @@ window.HUB_REPROCESSAR = (function () {
          * cancelar depois de o ETL ter começado deixaria um arquivo pela metade. */
         dizer('está demorando mais que o previsto. O pedido continua na fila — '
               + 'recarregue daqui a pouco.', true);
+        if (opcoes.aoFalhar) opcoes.aoFalhar();
       } catch (e) {
         dizer('não foi possível atualizar: ' + e.message, true);
+        if (opcoes.aoFalhar) opcoes.aoFalhar(e);
       } finally {
         rodando = false;
-        if (botao.isConnected) {
+        if (botao && botao.isConnected) {
           botao.disabled = false;
           botao.textContent = rotulo;
         }
       }
-    });
+    };
   }
 
-  return { ligar: ligar };
+  return { ligar: ligar, pedir: pedir };
 })();

@@ -54,6 +54,9 @@ export const ROTAS = {
   shiva: AUTOMACOES,
   passivo: AUTOMACOES,
   fpg: AUTOMACOES,
+  // Notas de Débito (11/2026): sem botão "Atualizar agora" — a conferência é pedida ao abrir
+  // o painel, e a ação `enviar` (os e-mails marcados) vai pela mesma rota.
+  notas_debito: AUTOMACOES,
   inadimplencia: INADIMPLENCIA,
   vendas: VENDAS,
   comite_fo: APRESENTACOES,
