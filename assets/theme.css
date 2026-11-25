@@ -233,7 +233,17 @@ table.data tbody tr:hover td,table.data tr:hover td{background:rgba(255,255,255,
 
 .chart{width:100%;height:340px}
 .chart.tall{height:420px}
-.embed{width:100%;height:calc(100vh - 63px);height:calc(100dvh - 63px);border:0;background:var(--bg-2);display:block}
+.embed{width:100%;height:calc(100vh - 78px);height:calc(100dvh - 78px);border:0;background:var(--bg-2);display:block}
+/* Aba em iframe: a página não rola, o iframe ocupa o que sobra abaixo da barra de cima.
+   Antes era só o calc acima com 63px fixos, mas a barra tem ~78px (título + subtítulo,
+   chip com foto) e muda quando quebra linha — a página rolava uns 15px e aparecia uma
+   barra de rolagem à direita sem motivo (Arthur, 25/11/2026). O calc fica de reserva
+   e vale no celular, onde a barra quebra em várias linhas e a página pode rolar. */
+@media(min-width:761px){
+  .main:has(> .content.flush > .embed){height:100vh;height:100dvh;overflow:hidden}
+  .content.flush:has(> .embed){flex:1;min-height:0;display:flex;flex-direction:column}
+  .content.flush > .embed{flex:1;height:auto;min-height:0}
+}
 
 /* home hero */
 .hero{margin-bottom:26px}
