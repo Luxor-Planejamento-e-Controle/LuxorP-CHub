@@ -375,6 +375,29 @@ class TestCadastroNaturezas(_ComNavegador):
         self.assertIn("11.2.1.01.77", pg.text_content(".card.destaque"))
         self.assertEqual(pg.query_selector_all(".card.destaque b"), [], "nome da API não vira HTML")
 
+    def test_6b_nova_natureza_do_ramo_11_entra(self):
+        """O formulário herdou do Passivo a regra /^03\\./ e recusava toda natureza do Shiva."""
+        pg = self.abrir(pendentes=[PENDENTE])
+        self.entrar(pg)
+        pg.click("[data-pa='0']")              # a pendente abre o formulário já preenchido
+        pg.wait_for_selector("#pcForm")
+        self.assertEqual(pg.input_value("#pcFCod"), "11.2.1.01.77")
+        pg.select_option("#pcFGrupo", index=1)
+        pg.dispatch_event("#pcFGrupo", "input")
+        self.assertEqual(pg.text_content("[data-erro='cod']"), "")
+        self.assertFalse(pg.is_disabled("#pcFAdd"))
+        for outro in ("03.2.1.01.77", "10.2.1.01.77", "11.2.1.01.77x"):
+            pg.fill("#pcFCod", outro)
+            self.assertIn("Fora do formato 11.", pg.text_content("[data-erro='cod']"), outro)
+            self.assertTrue(pg.is_disabled("#pcFAdd"), outro)
+        pg.fill("#pcFCod", "11.2.1.01.77")
+        pg.click("#pcFAdd")
+        pg.click("#pcSalvar")
+        pg.wait_for_timeout(500)
+        nats = {n["cod"]: n for n in self.est.gravacoes[0]["data"]["naturezas"]}
+        self.assertEqual(nats["11.2.1.01.77"]["bimer"], ["001999"])
+        self.assertEqual(self.erros, [])
+
     def test_7_voltar_ao_painel(self):
         pg = self.abrir()
         self.entrar(pg)
