@@ -430,7 +430,9 @@ window.SH_CADASTRO = (function () {
       var bimer = D.lerBimer(v('pcFBimer').value), g = grupoEscolhido();
       if (!nome) falta.push('nome');
       if (!cod) falta.push('código');
-      else if (!/^03\.\d+(\.\d+)*$/.test(cod)) e.cod = 'Fora do formato 03.x.x.xx.xx.';
+      // a MESMA regra de `D.problemas` (ramo 11): a cópia do Passivo trazia /^03\./ aqui e
+      // recusava toda natureza do Shiva (achado na FPG em 25/11/2026)
+      else if (!D.COD.test(cod)) e.cod = 'Fora do formato 11.x.x.xx.xx.';
       else {
         var dono = nats.find(function (n) { return String(n.cod).trim() === cod; });
         if (dono) e.cod = 'Este código já é de «' + dono.nome + '».';
