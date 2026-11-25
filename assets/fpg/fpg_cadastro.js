@@ -1,4 +1,4 @@
-/* Tela do cadastro de naturezas do Fluxo de Caixa da Fazenda Pão Grande (FPG).
+/* Tela do cadastro de naturezas do Fluxo de Caixa da Fazenda Pao Grande (FPG).
  *
  * Cópia da tela do Shiva (`sh_cadastro.js`, que veio do Passivo e do `tt_cadastro.js` do
  * Tarituba) —

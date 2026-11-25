@@ -258,7 +258,7 @@ create policy hub_passivo_update on app_state
   using      ( id = 'passivo' and public.hub_can('passivo') )
   with check ( id = 'passivo' and public.hub_can('passivo') );
 
--- FPG (Fazenda Pão Grande): mesma regra do Passivo, em DOIS documentos — o cadastro
+-- FPG (Fazenda Pao Grande): mesma regra do Passivo, em DOIS documentos — o cadastro
 -- de naturezas e as movimentações manuais (o papel da aba Base da planilha). Os dois
 -- pela permissão da aba FPG: quem vê o painel mantém o cadastro e lança os ajustes.
 -- Documentos separados de propósito: cada tela tem a sua guarda de versão, e lançar

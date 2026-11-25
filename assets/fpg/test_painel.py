@@ -1,4 +1,4 @@
-"""Testa o painel da FPG (Fazenda Pão Grande) no hub com o supabase-js REAL e a rede interceptada.
+"""Testa o painel da FPG (Fazenda Pao Grande) no hub com o supabase-js REAL e a rede interceptada.
 
 Mesma abordagem do Passivo (assets/passivo/test_painel.py): nada de credencial, sessão ou
 Supabase de verdade — as requisições do supabase-js são atendidas aqui, o que também

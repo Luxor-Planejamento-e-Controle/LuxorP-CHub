@@ -1,4 +1,4 @@
-/* Painel de Fluxo de Caixa da Fazenda Pão Grande (FPG).
+/* Painel de Fluxo de Caixa da Fazenda Pao Grande (FPG).
 
    CÓPIA do painel do Shiva, que é cópia do do Tarituba
    (`Fluxo de Caixa Tarituba/dashboard/app.js`), que

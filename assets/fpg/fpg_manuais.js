@@ -1,4 +1,4 @@
-/* Tela das MOVIMENTAÇÕES MANUAIS do Fluxo de Caixa da Fazenda Pão Grande (FPG).
+/* Tela das MOVIMENTAÇÕES MANUAIS do Fluxo de Caixa da Fazenda Pao Grande (FPG).
  *
  * O papel da aba `Base` da planilha (pedido do Leonardo, 28/10/2026, para depois valer em
  * todos os fluxos): lançar à mão o que os relatórios do Bimer não trazem certo, e isso

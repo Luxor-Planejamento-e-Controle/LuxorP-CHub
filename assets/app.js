@@ -72,7 +72,7 @@ const ICON = {
   agro:'M12 21v-9M12 12c0-4.4 3.1-7.5 8-7.5 0 4.9-3.1 8-8 7.5zM12 14.5c0-3.6-2.6-6-6.5-6 0 3.9 2.6 6.4 6.5 6zM8 21h8',
   // Passivo Hoteleiro: cama de hotel, pela mesma regra (nem `imovel` nem `agro`)
   hotel:'M2 4v16M2 8h18a2 2 0 0 1 2 2v10M2 17h20M6 8v9',
-  // FPG (Fazenda Pão Grande): celeiro, pela mesma regra (nem `imovel`, nem `agro`, nem `hotel`)
+  // FPG (Fazenda Pao Grande): celeiro, pela mesma regra (nem `imovel`, nem `agro`, nem `hotel`)
   celeiro:'M3 21V10l9-6 9 6v11M2 21h20M9 21v-6h6v6M9 11h6',
   // três colunas de cards de alturas diferentes: o board, e não o checklist de `proj`
   kanban:'M4 4h4.5v16H4zM9.75 4h4.5v10h-4.5zM15.5 4H20v13h-4.5z',
@@ -102,7 +102,7 @@ const ROUTES = [
   {id:'tarituba', title:'Fluxo de Caixa — Tarituba', sub:'Orçado × realizado do imóvel, mês a mês', icon:'imovel', render:renderTarituba},
   {id:'shiva', title:'Fluxo de Caixa — Shiva', sub:'Orçado × realizado da operação agro, mês a mês', icon:'agro', render:renderShiva},
   {id:'passivo', title:'Fluxo de Caixa — Passivo Hoteleiro', sub:'Orçado × realizado do passivo hoteleiro, mês a mês', icon:'hotel', render:renderPassivo},
-  {id:'fpg', title:'Fluxo de Caixa — FPG', sub:'Orçado × realizado da Fazenda Pão Grande, mês a mês', icon:'celeiro', render:renderFpg},
+  {id:'fpg', title:'Fluxo de Caixa — FPG', sub:'Orçado × realizado da Fazenda Pao Grande, mês a mês', icon:'celeiro', render:renderFpg},
   {id:'kanban', title:'Kanban Planejamento, Controle e Concierge', sub:'Tarefas do time: a fazer, em andamento, bloqueadas e feitas', icon:'kanban', render:renderKanban},
   {id:'senhas', title:'Senhas P&C', sub:'Listagem de senhas do P&C, aberta com a senha mestra', icon:'senhas', render:renderSenhas},
   {id:'societario', title:'Estruturas Societárias', sub:'Chat, organogramas e quadro societário do Grupo Luxor', icon:'org', render:renderSocietario},

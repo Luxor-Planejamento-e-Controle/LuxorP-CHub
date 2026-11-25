@@ -1,4 +1,4 @@
-/* De onde o painel da FPG (Fazenda Pão Grande) lê, e o que só existe no hub: o botão
+/* De onde o painel da FPG (Fazenda Pao Grande) lê, e o que só existe no hub: o botão
  * "Atualizar agora", o cadastro de naturezas (app_state, id 'fpg') e as movimentações manuais
  * (app_state, id 'fpg_manuais'). Cópia do pc_fonte.js do Passivo Hoteleiro, com as mesmas
  * diferenças em relação ao tt_fonte.js do Tarituba, e uma a mais:
