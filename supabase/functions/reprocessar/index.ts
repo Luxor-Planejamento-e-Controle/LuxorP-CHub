@@ -85,15 +85,23 @@ Deno.serve(async (req: Request) => {
   // uma republicação. Passam adiante sem interpretação — quem decide o que vale é a lista
   // fechada do Azure (shared_reprocessar.jobs.ACOES), e o acesso continua sendo o
   // hub_can() do PAINEL: quem vê o painel pode disparar a ação dele, e nenhuma outra.
+  //
+  // `nomes` (Notas de Débito, 11/2026): os e-mails marcados no painel para a ação `enviar`.
+  // Aqui só se corta o tamanho (até 20 textos de até 60 caracteres); o Azure valida o formato
+  // de novo e confere cada nome contra o lote — só sai o que está pronto e ainda não foi.
   let painel = ''
   let acao: string | undefined
   let mes: number | string | undefined
+  let nomes: string[] | undefined
   try {
     const corpo = (await req.json()) ?? {}
     painel = String(corpo.painel ?? '').trim()
     if (corpo.acao != null) acao = String(corpo.acao).slice(0, 40)
     if (typeof corpo.mes === 'number' || typeof corpo.mes === 'string') {
       mes = String(corpo.mes).slice(0, 4)
+    }
+    if (Array.isArray(corpo.nomes)) {
+      nomes = corpo.nomes.slice(0, 20).map((n: unknown) => String(n).slice(0, 60))
     }
   } catch {
     return json(req, { erro: 'corpo inválido' }, 400)
@@ -140,7 +148,7 @@ Deno.serve(async (req: Request) => {
     resposta = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-functions-key': chave },
-      body: JSON.stringify({ painel, acao, mes, pedido_por: usuario.user.email }),
+      body: JSON.stringify({ painel, acao, mes, nomes, pedido_por: usuario.user.email }),
       signal: AbortSignal.timeout(20_000),
     })
   } catch (e) {

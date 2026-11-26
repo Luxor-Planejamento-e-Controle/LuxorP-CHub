@@ -1,0 +1,614 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Notas de Débito · Luxor P&amp;C</title>
+<link rel="stylesheet" href="../fonts.css">
+<style>
+/* Mesmos tokens do Saldo Bancário e do Controle de Pagamentos, declarados aqui para o
+   painel ser autocontido (abre por file:// no teste, sem servidor). */
+:root{
+  --bg:#0D2126; --bg-2:#113036;
+  --surface:#143840; --surface-2:#1B4650;
+  --ink:#EAF4F4; --ink-2:#A7C3C5; --ink-3:#6E8C90;
+  --orange:#FFA400; --orange-deep:#E08E00; --orange-soft:rgba(255,164,0,.14);
+  --teal:#1D6E79; --teal-light:#2E97A6;
+  --pos:#46B678; --neg:#E5674E; --warn:#F2C14E;
+  --pos-soft:rgba(70,182,120,.16); --neg-soft:rgba(229,103,78,.16); --warn-soft:rgba(242,193,78,.16);
+  --line:rgba(255,255,255,.13); --line-strong:rgba(255,255,255,.24);
+  --r:14px; --r-sm:9px; --ctl-h:36px;
+  --largura-max:1500px; --gutter:26px;
+  --shadow-card:0 1px 3px rgba(0,0,0,.35);
+  --font-sans:"Fakt Pro",system-ui,-apple-system,"Segoe UI",Arial,sans-serif;
+  --font-serif:"Fakt Slab Pro","Fakt Pro",Georgia,serif;
+}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{margin:0}
+body{
+  font-family:var(--font-sans);background:var(--bg);color:var(--ink);
+  font-size:14px;line-height:1.45;-webkit-font-smoothing:antialiased;
+}
+::-webkit-scrollbar{width:10px;height:10px}
+::-webkit-scrollbar-thumb{background:var(--surface-2);border-radius:8px}
+::-webkit-scrollbar-track{background:transparent}
+.num{font-variant-numeric:tabular-nums lining-nums;font-feature-settings:"tnum" 1,"lnum" 1}
+.ic{flex:0 0 auto;vertical-align:-2px}
+
+/* ---- topbar ---- */
+.topbar{border-bottom:1px solid var(--line);background:var(--bg-2);position:sticky;top:0;z-index:6}
+.topbar-inner{
+  display:flex;align-items:center;gap:14px;flex-wrap:wrap;
+  padding:9px var(--gutter);max-width:var(--largura-max);margin-inline:auto;
+}
+.topbar .ref{font-family:var(--font-serif);font-weight:600;font-size:14px}
+.topbar .sub{color:var(--ink-3);font-size:12px}
+.content{padding:22px var(--gutter) 120px;max-width:var(--largura-max);margin-inline:auto}
+
+.btn{
+  display:inline-flex;align-items:center;gap:7px;height:var(--ctl-h);padding:0 16px;
+  border-radius:var(--r-sm);font:inherit;font-size:13px;cursor:pointer;white-space:nowrap;
+  border:1px solid var(--line);background:transparent;color:var(--ink-2);text-decoration:none;
+}
+.btn:hover{border-color:var(--orange);color:var(--orange)}
+.btn:disabled{opacity:.45;cursor:not-allowed;border-color:var(--line);color:var(--ink-2)}
+.btn.primario{background:var(--orange);border-color:var(--orange);color:#201700;font-weight:600}
+.btn.primario:hover{background:var(--orange-deep);border-color:var(--orange-deep);color:#201700}
+.btn.primario:disabled{background:var(--surface-2);border-color:var(--surface-2);color:var(--ink-3)}
+.btn.mini{height:28px;padding:0 10px;font-size:12px;gap:5px}
+
+/* ---- avisos ---- */
+.banner{
+  border-radius:var(--r-sm);padding:11px 15px;font-size:12.5px;margin-bottom:18px;
+  display:flex;gap:10px;align-items:flex-start;
+  background:var(--orange-soft);border:1px solid rgba(255,164,0,.35);
+}
+.banner.neg{background:var(--neg-soft);border-color:rgba(229,103,78,.45)}
+
+/* ---- KPIs ---- */
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px;margin-bottom:18px}
+.kpi{
+  background:var(--surface);border:1px solid var(--line);border-radius:var(--r);
+  box-shadow:var(--shadow-card);padding:15px 18px;
+}
+.kpi .lbl{font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3)}
+.kpi .val{font-family:var(--font-serif);font-size:26px;font-weight:600;line-height:1.15;margin-top:4px}
+.kpi .det{color:var(--ink-2);font-size:12px;margin-top:2px}
+.kpi.destaque{border-color:rgba(255,164,0,.45)}
+.kpi.destaque .val{color:var(--orange)}
+
+/* ---- card + tabela ---- */
+.card{
+  background:var(--surface);border:1px solid var(--line);border-radius:var(--r);
+  box-shadow:var(--shadow-card);padding:18px;
+}
+.card-title{display:flex;align-items:baseline;gap:9px;margin-bottom:12px;flex-wrap:wrap}
+.card-title h2{font-family:var(--font-serif);font-size:15px;margin:0;font-weight:600}
+.card-title .muted{color:var(--ink-3);font-size:12px}
+.tabela-wrap{overflow-x:auto;margin:0 -18px;padding:0 18px}
+table.data{width:100%;border-collapse:collapse;min-width:1080px}
+table.data th{
+  text-align:center;font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3);
+  font-weight:500;padding:8px 10px;border-bottom:1px solid var(--line-strong);white-space:nowrap;
+}
+/* Tudo centrado na coluna, cabeçalho e conteúdo (pedido da Controladoria, 23/11) — os dois
+   com o MESMO alinhamento, senão o título deixa de ficar sobre o que ele nomeia. */
+table.data td{padding:12px 10px;border-bottom:1px solid var(--line);vertical-align:top;text-align:center}
+table.data tr.sel td{background:rgba(255,164,0,.06)}
+table.data tr.inativa td{color:var(--ink-3)}
+table.data tr:last-child td{border-bottom:0}
+.pessoa{font-weight:600;font-size:14px}
+.chk{width:34px}
+input[type=checkbox]{width:17px;height:17px;accent-color:var(--orange);cursor:pointer;margin:0}
+input[type=checkbox]:disabled{cursor:not-allowed;opacity:.35}
+
+/* ALTURA DE LINHA ÚNICA. Toda célula empilha "linhas" de 30px (a altura do botão de PDF),
+   centradas na vertical — assim nome, número, etiqueta e botão ficam na mesma reta, e as
+   duas notas de um mesmo e-mail (Pool + Investimentos) casam linha a linha entre as colunas Nota,
+   Valor da nota e PDF. */
+.ln{min-height:30px;display:flex;align-items:center;justify-content:center;gap:6px}
+.pilha{display:flex;flex-direction:column;gap:6px}
+.tipo{
+  font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-2);
+  border:1px solid var(--line);border-radius:999px;padding:2px 10px;white-space:nowrap;
+}
+.tipo.falta{border-style:dashed;color:var(--ink-3)}
+.vnota{white-space:nowrap}
+.mudo{color:var(--ink-3)}
+.total{font-family:var(--font-serif);font-weight:600;font-size:15px;white-space:nowrap}
+.venc{white-space:nowrap}
+.venc .dia{color:var(--ink-3);font-size:12px;margin-left:4px}
+.para{font-size:12.5px;color:var(--ink-2);overflow-wrap:break-word}
+.pend{color:var(--warn)}
+
+/* situação: rótulo + ícone, nunca cor sozinha */
+.st{display:inline-flex;align-items:center;gap:6px;font-size:12px;padding:3px 10px;border-radius:999px;
+  white-space:nowrap;border:1px solid transparent}
+.st-pronto{background:var(--orange-soft);border-color:rgba(255,164,0,.4);color:var(--ink)}
+.st-enviado{background:var(--pos-soft);border-color:rgba(70,182,120,.4);color:var(--ink)}
+.st-incompleto{background:var(--warn-soft);border-color:rgba(242,193,78,.4);color:var(--ink)}
+.st-sem_nota{background:transparent;border-color:var(--line);color:var(--ink-3)}
+.st-enviando{background:var(--surface-2);color:var(--ink)}
+.st-erro{background:var(--neg-soft);border-color:rgba(229,103,78,.45);color:var(--ink)}
+.st-pronto .ic{color:var(--orange)} .st-enviado .ic{color:var(--pos)}
+.st-incompleto .ic{color:var(--warn)} .st-erro .ic{color:var(--neg)}
+.st-det{display:block;color:var(--ink-3);font-size:11.5px;margin:2px auto 0;max-width:260px}
+/* Situação: etiqueta e legenda centradas (23/11 — a Controladoria testou justificado e preferiu
+   centrado; justificar abria espaços largos entre as palavras em coluna estreita). */
+.st-det.alt{color:var(--teal-light)}
+.st-det.alt .ic{margin-right:4px}
+.st-det s{color:var(--ink-3)}
+
+/* ---- barra de envio (fixa embaixo) ---- */
+.barra{
+  position:fixed;left:0;right:0;bottom:0;z-index:7;
+  background:var(--bg-2);border-top:1px solid var(--line-strong);
+  box-shadow:0 -6px 18px rgba(0,0,0,.3);
+}
+.barra-inner{
+  display:flex;align-items:center;gap:14px;flex-wrap:wrap;
+  padding:12px var(--gutter);max-width:var(--largura-max);margin-inline:auto;
+}
+.barra .resumo{font-size:13.5px}
+.barra .resumo b{font-family:var(--font-serif)}
+.barra .spacer{flex:1}
+.status{font-size:12.5px;color:var(--ink-2)}
+.topbar .status.sinc{font-size:12px;color:var(--ink-3);margin-left:auto}
+.topbar .status.sinc.erro{color:var(--warn)}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+.status.erro{color:var(--neg)}
+.status a{color:var(--orange)}
+
+/* ---- modais ---- */
+.modal{position:fixed;inset:0;z-index:20;background:rgba(5,16,19,.72);display:none;
+  align-items:center;justify-content:center;padding:24px}
+.modal.on{display:flex}
+.caixa{background:var(--surface);border:1px solid var(--line-strong);border-radius:var(--r);
+  box-shadow:0 18px 50px rgba(0,0,0,.5);width:100%;display:flex;flex-direction:column;max-height:100%}
+.caixa header{display:flex;align-items:center;gap:10px;padding:14px 18px;border-bottom:1px solid var(--line)}
+.caixa header h3{font-family:var(--font-serif);font-size:15px;margin:0;font-weight:600;flex:1;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.caixa .corpo{padding:16px 18px;overflow:auto}
+.caixa footer{display:flex;gap:10px;justify-content:flex-end;padding:12px 18px;border-top:1px solid var(--line)}
+.caixa.pdf{max-width:1000px;height:100%}
+.caixa.pdf .corpo{padding:0;flex:1;background:#525659}
+.caixa.pdf iframe{width:100%;height:100%;border:0;display:block}
+.caixa.conf{max-width:620px}
+.lista-conf{list-style:none;margin:10px 0 14px;padding:0;border:1px solid var(--line);border-radius:var(--r-sm)}
+.lista-conf li{display:flex;gap:12px;align-items:baseline;padding:10px 12px;border-bottom:1px solid var(--line)}
+.lista-conf li:last-child{border-bottom:0}
+.lista-conf .n{font-weight:600;min-width:84px}
+.lista-conf .e{flex:1;color:var(--ink-2);font-size:12.5px;overflow-wrap:anywhere}
+.lista-conf .v{font-family:var(--font-serif);font-weight:600;white-space:nowrap}
+.nota-rodape{color:var(--ink-3);font-size:12px}
+.vazio{text-align:center;color:var(--ink-2);padding:48px 12px}
+.vazio b{display:block;font-family:var(--font-serif);font-size:16px;color:var(--ink);margin-bottom:6px}
+
+/* No celular a tabela vira um cartão por e-mail: nove colunas não cabem em 390px, e
+   rolar de lado escondia justamente a situação e o checkbox. */
+@media (max-width:760px){
+  :root{--gutter:16px}
+  .kpis{grid-template-columns:1fr 1fr;gap:10px}
+  .kpi{padding:12px 14px}
+  .kpi .val{font-size:22px}
+  .tabela-wrap{overflow:visible;margin:0;padding:0}
+  table.data{min-width:0}
+  table.data thead{display:none}
+  table.data tbody, table.data td{display:block}
+  /* Cartão em grade: as três colunas da nota (Nota | Valor | PDF) lado a lado, para Pool e
+     Investimentos seguirem casando linha a linha; o resto ocupa a largura toda. */
+  table.data tr{display:grid;grid-template-columns:max-content max-content 1fr;column-gap:10px;
+    position:relative;padding:12px 0 12px 40px;border-bottom:1px solid var(--line)}
+  table.data tr > td{grid-column:1 / -1}
+  table.data tr > td.c-nota{grid-column:auto}
+  /* sem área de grade, o checkbox absoluto se mede pelo cartão (e não pela coluna 1) */
+  table.data tr > td.chk{grid-column:auto}
+  table.data tr.sel{background:rgba(255,164,0,.06)}
+  table.data tr.sel td{background:transparent}
+  table.data tr:last-child{border-bottom:0}
+  table.data td{border:0;padding:3px 0}
+  table.data td.chk{position:absolute;left:4px;top:14px;width:auto}
+  table.data td{text-align:left}
+  table.data td .ln{justify-content:flex-start}
+  .st-det{margin-inline:0}
+  td.sit .st-det{text-align:left;text-align-last:auto}
+  table.data td[data-lbl]::before{content:attr(data-lbl) " ";color:var(--ink-3);font-size:11px;
+    letter-spacing:.06em;text-transform:uppercase;margin-right:6px}
+  table.data td.vazio-m{display:none}
+  table.data td[data-lbl] .ln{display:inline-flex;min-height:24px}
+  .st-det{max-width:none}
+  .barra .spacer{display:none}
+}
+</style>
+</head>
+<body>
+<div class="topbar"><div class="topbar-inner">
+  <span class="ref" id="ref">Notas de Débito</span>
+  <span class="sub" id="pageSub">carregando…</span>
+  <span class="status sinc" id="sincStatus"></span>
+</div></div>
+
+<div class="content" id="content"></div>
+
+<div class="barra" id="barra" hidden><div class="barra-inner">
+  <span class="resumo" id="resumoSel"></span>
+  <button class="btn mini" id="btLimpar">limpar seleção</button>
+  <span class="status" id="envioStatus"></span>
+  <span class="spacer"></span>
+  <button class="btn primario" id="btEnviar" disabled>Enviar e-mails</button>
+</div></div>
+
+<div class="modal" id="mPdf" role="dialog" aria-modal="true" aria-labelledby="mPdfTitulo">
+  <div class="caixa pdf">
+    <header>
+      <h3 id="mPdfTitulo">PDF</h3>
+      <a class="btn mini" id="mPdfBaixar" download>baixar</a>
+      <a class="btn mini" id="mPdfAba" target="_blank" rel="noopener">abrir em nova aba</a>
+      <button class="btn mini" data-fechar>fechar</button>
+    </header>
+    <div class="corpo"><iframe id="mPdfFrame" title="Prévia da nota"></iframe></div>
+  </div>
+</div>
+
+<div class="modal" id="mConf" role="dialog" aria-modal="true" aria-labelledby="mConfTitulo">
+  <div class="caixa conf">
+    <header><h3 id="mConfTitulo">Confirmar envio</h3></header>
+    <div class="corpo">
+      <div id="mConfTexto"></div>
+      <ul class="lista-conf" id="mConfLista"></ul>
+      <div class="nota-rodape" id="mConfRodape"></div>
+    </div>
+    <footer>
+      <button class="btn" data-fechar>cancelar</button>
+      <button class="btn primario" id="btConfirmar">Confirmar envio</button>
+    </footer>
+  </div>
+</div>
+
+<script src="../vendor/supabase.min.js"></script>
+<script src="config.js"></script>
+<script src="../reprocessar.js"></script>
+<script src="nd_fonte.js"></script>
+<script>
+'use strict';
+window.onerror = (m, f, l) => { document.title = 'ERRO JS: ' + m + ' @' + l; };
+
+const esc = s => String(s==null?'':s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const svg = (d, sz=13) =>
+  `<svg class="ic" width="${sz}" height="${sz}" viewBox="0 0 24 24" fill="none" stroke="currentColor" `
+  + `stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="${d}"/></svg>`;
+const ICO = {
+  pdf:   'M14 3H7a2 2 0 00-2 2v14a2 2 0 002 2h10a2 2 0 002-2V8zM14 3v5h5M9 13h6M9 17h4',
+  ok:    'M20 6L9 17l-5-5',
+  envio: 'M22 2L11 13M22 2l-7 20-4-9-9-4z',
+  relog: 'M12 7v5l3 2M12 21a9 9 0 100-18 9 9 0 000 18z',
+  menos: 'M5 12h14',
+  erro:  'M12 8v4M12 16h.01M12 21a9 9 0 100-18 9 9 0 000 18z',
+  edit:  'M12 20h9M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4z',
+};
+const DIAS = ['dom','seg','ter','qua','qui','sex','sáb'];
+const fmt = {
+  rs: v => 'R$ ' + Number(v||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}),
+  iso: s => { if(!s) return '—'; const [y,m,d] = String(s).slice(0,10).split('-'); return `${d}/${m}/${y}`; },
+  dm:  s => { if(!s) return '—'; const [,m,d] = String(s).slice(0,10).split('-'); return `${d}/${m}`; },
+  dia: s => DIAS[new Date(String(s).slice(0,10) + 'T12:00:00').getDay()],
+  /* "25/11 às 09:14". O carimbo vem com fuso (-03:00) do Azure; mostrar a hora
+     escrita nele, e não a convertida pelo relógio de quem abre. */
+  quando: s => { if(!s) return '—'; const [d,h] = String(s).split('T');
+                 return fmt.dm(d) + (h ? ' às ' + h.slice(0,5) : ''); },
+  quem: e => e ? String(e).split('@')[0] : '—',
+};
+
+let D = null;                 // notas_debito.json
+const sel = new Set();        // chaves dos envios marcados
+let enviando = null;          // chaves no pedido em andamento (para o rótulo "enviando…")
+let ultimoResultado = null;   // notas_debito.envio.json do último envio desta tela
+
+const ST = {
+  pronto:     {lbl:'Pronta para enviar', ico:ICO.envio},
+  enviado:    {lbl:'Enviada',            ico:ICO.ok},
+  incompleto: {lbl:'Aguardando nota',    ico:ICO.relog},
+  sem_nota:   {lbl:'Sem nota no mês',    ico:ICO.menos},
+  enviando:   {lbl:'Enviando…',          ico:ICO.envio},
+  erro:       {lbl:'Falhou',             ico:ICO.erro},
+};
+
+function situacaoNaTela(e){
+  if(enviando && enviando.has(e.chave)) return 'enviando';
+  const r = ultimoResultado && (ultimoResultado.resultados||[]).find(x => x.chave === e.chave);
+  if(r && r.status === 'erro' && e.situacao === 'pronto') return 'erro';
+  return e.situacao;
+}
+
+function celulaSituacao(e){
+  const s = situacaoNaTela(e), m = ST[s];
+  let det = '';
+  if(s === 'enviado' && e.enviado) det = `${fmt.quando(e.enviado.em)} · por ${esc(fmt.quem(e.enviado.por))}`;
+  else if(s === 'erro'){
+    const r = ultimoResultado.resultados.find(x => x.chave === e.chave);
+    det = esc(r.detalhe || 'erro no envio') + ' — pode tentar de novo.';
+  }
+  else if(e.aviso) det = esc(e.aviso);
+  // por que falta nota: "Investimentos: ainda não gerada — …" (o nome só ajuda quando há duas)
+  const varias = e.notas.length > 1;
+  const faltas = s === 'enviado' ? [] : e.notas.filter(n => !n.pronto && n.motivo)
+    .map(n => `<span class="st-det">${varias ? esc(n.rotulo) + ': ' : ''}${esc(n.motivo)}</span>`);
+  // nota corrigida à mão na planilha depois de gerada
+  const alts = e.notas.filter(n => n.pronto && n.alterada).map(n => {
+    const a = n.alterada;
+    return `<span class="st-det alt">${svg(ICO.edit,12)}<span>${varias ? esc(n.rotulo) + ' ' : ''}`
+      + `corrigida na planilha em ${fmt.quando(a.em)}${a.por ? ' por ' + esc(a.por) : ''}`
+      + (a.valor_antes != null && a.valor_antes !== n.valor
+         ? ` · antes <s class="num">${fmt.rs(a.valor_antes)}</s>` : '') + '</span></span>';
+  });
+  return `<div class="ln"><span class="st st-${s}">${svg(m.ico)}${m.lbl}</span></div>`
+       + faltas.join('') + (det ? `<span class="st-det">${det}</span>` : '') + alts.join('');
+}
+
+/* Uma linha de 30px por nota nas três colunas da nota — é o que faz Pool e Investimentos
+   do mesmo e-mail casarem entre Nota, Valor da nota e PDF. Uma linha só nas outras colunas. */
+const pilha = itens => `<div class="pilha">${itens.map(h => `<div class="ln">${h}</div>`).join('')}</div>`;
+const uma = h => `<div class="ln">${h}</div>`;
+
+function linha(e){
+  const s = situacaoNaTela(e);
+  const marcavel = (s === 'pronto' || s === 'erro') && !enviando;
+  const ativa = e.situacao !== 'sem_nota';
+  // no celular cada célula leva o próprio rótulo (data-lbl); vazia some em vez de mostrar "—"
+  const m = v => v ? '' : ' vazio-m';
+  const tipos = e.notas.map(n => `<span class="tipo${n.pronto?'':' falta'}">${esc(n.rotulo)}</span>`);
+  const valores = e.notas.map(n => n.pronto
+    ? `<span class="vnota num">${fmt.rs(n.valor)}</span>` : '<span class="mudo">—</span>');
+  const pdfs = e.notas.map(n => n.pronto
+    ? `<button class="btn mini" data-pdf="${esc(n.pdf)}" data-titulo="${esc(n.pdf_nome)}" `
+      + `title="Ver o PDF que vai anexado">${svg(ICO.pdf)}ver PDF</button>` : '');
+  return `<tr class="${sel.has(e.chave)?'sel':''} ${ativa?'':'inativa'}" data-chave="${esc(e.chave)}">
+    <td class="chk">${uma(`<input type="checkbox" aria-label="Selecionar ${esc(e.nome)}"
+         ${sel.has(e.chave)?'checked':''} ${marcavel?'':'disabled'}>`)}</td>
+    <td>${uma(`<span class="pessoa">${esc(e.nome)}</span>`)}</td>
+    <td class="c-nota">${pilha(tipos)}</td>
+    <td class="r c-nota">${pilha(valores)}</td>
+    <td class="c-nota">${pilha(pdfs)}</td>
+    <td class="r num${m(e.n_itens)}" data-lbl="Itens">${uma(e.n_itens || '—')}</td>
+    <td class="r num ${e.pendencias?'pend':''}${m(e.pendencias)}" data-lbl="Pendências">${uma(e.pendencias || '—')}</td>
+    <td class="r${m(e.valor)}" data-lbl="Total">${uma(`<span class="total num">${e.valor ? fmt.rs(e.valor) : '—'}</span>`)}</td>
+    <td class="venc num${m(e.vencimento)}" data-lbl="Vence">${uma(e.vencimento ? fmt.iso(e.vencimento) + `<span class="dia">${fmt.dia(e.vencimento)}</span>` : '—')}</td>
+    <td data-lbl="Para">${uma(`<span class="para">${esc((e.para||[]).join(', ')) || '—'}</span>`)}</td>
+    <td class="sit">${celulaSituacao(e)}</td>
+  </tr>`;
+}
+
+/* Envio feito antes do painel existir (pelo Slack) não guardava data: diz isso em vez de "—". */
+function ultimoEnvio(enviados){
+  if(!enviados.length) return 'nenhuma ainda';
+  const ult = enviados.map(e => e.enviado && e.enviado.em).filter(Boolean).sort().pop();
+  return ult ? 'último em ' + fmt.quando(ult) : 'sem data registrada';
+}
+
+function kpis(){
+  const es = D.envios;
+  const prontos = es.filter(e => e.situacao === 'pronto');
+  const enviados = es.filter(e => e.situacao === 'enviado');
+  const aguard = es.filter(e => e.situacao === 'incompleto');
+  const comNota = es.filter(e => e.situacao !== 'sem_nota');
+  const venc = prontos.map(e => e.vencimento).filter(Boolean).sort()[0];
+  return `<div class="kpis">
+    <div class="kpi destaque"><div class="lbl">Prontas para enviar</div>
+      <div class="val num">${prontos.length}</div>
+      <div class="det num">${fmt.rs(prontos.reduce((a,e)=>a+(e.valor||0),0))}</div></div>
+    <div class="kpi"><div class="lbl">Enviadas</div>
+      <div class="val num">${enviados.length} <span style="font-size:15px;color:var(--ink-3)">de ${comNota.length}</span></div>
+      <div class="det">${ultimoEnvio(enviados)}</div></div>
+    <div class="kpi"><div class="lbl">Aguardando nota</div>
+      <div class="val num">${aguard.length}</div>
+      <div class="det">${aguard.length ? esc(aguard.map(e=>e.nome).join(', ')) : 'nenhuma'}</div></div>
+    <div class="kpi"><div class="lbl">Próximo vencimento</div>
+      <div class="val num">${venc ? fmt.dm(venc) : '—'}</div>
+      <div class="det">${venc ? fmt.dia(venc) + ' · entre as prontas' : 'sem nota pronta'}</div></div>
+  </div>`;
+}
+
+function banners(){
+  let h = '';
+  if(D.lote_vencido){
+    h += `<div class="banner neg">${svg(ICO.erro,15)}<div><b>Este lote tem mais de ${D.lote_max_dias||3} dias sem atualização.</b>
+      O envio fica bloqueado até a próxima geração automática (ou alguém gerar de novo) — é a mesma trava do bot do Slack, para não mandar nota velha.</div></div>`;
+  }
+  return h;
+}
+
+function render(){
+  const el = document.getElementById('content');
+  // sem lote ainda o Azure publica {referencia: null, envios: []} — só o carimbo da conferência
+  if(!D || !D.referencia){
+    document.getElementById('pageSub').textContent = '';
+    el.innerHTML = `<div class="card vazio"><b>Nenhum lote publicado ainda</b>
+      As notas aparecem aqui quando forem geradas — Pool no dia 25, Investimentos quando chegar o PDF da SulAmérica.</div>`;
+    document.getElementById('barra').hidden = true;
+    return;
+  }
+  document.getElementById('ref').textContent = 'Notas de Débito · ' + D.mes_extenso;
+  document.getElementById('pageSub').textContent = 'lote atualizado em ' + fmt.quando(D.lote_atualizado_em);
+  el.innerHTML = banners() + kpis() + `
+    <div class="card">
+      <div class="card-title"><h2>E-mails do mês</h2>
+        <span class="muted">em ordem de vencimento · um e-mail por linha, com as notas que vão anexadas</span></div>
+      <div class="tabela-wrap"><table class="data">
+        <thead><tr>
+          <th class="chk"><input type="checkbox" id="chkTodas" aria-label="Selecionar todas as prontas"></th>
+          <th>Pessoa</th><th>Nota</th><th class="r">Valor da nota</th><th><span class="sr">PDF</span></th>
+          <th class="r">Itens</th><th class="r">Pendências</th>
+          <th class="r">Total do e-mail</th><th>Vencimento</th><th>Destinatário</th><th>Situação</th>
+        </tr></thead>
+        <tbody>${D.envios.map(linha).join('')}</tbody>
+      </table></div>
+    </div>`;
+  atualizarBarra();
+}
+
+function marcaveis(){
+  return enviando || D.lote_vencido ? []
+       : D.envios.filter(e => ['pronto','erro'].includes(situacaoNaTela(e))).map(e => e.chave);
+}
+
+function atualizarBarra(){
+  const barra = document.getElementById('barra');
+  const pode = marcaveis();
+  barra.hidden = !pode.length && !enviando && !ultimoResultado;
+  for(const k of [...sel]) if(!pode.includes(k)) sel.delete(k);
+  const escolhidos = D.envios.filter(e => sel.has(e.chave));
+  const total = escolhidos.reduce((a,e)=>a+(e.valor||0),0);
+  document.getElementById('resumoSel').innerHTML = escolhidos.length
+    ? `<b>${escolhidos.length}</b> ${escolhidos.length===1?'e-mail selecionado':'e-mails selecionados'} · <b class="num">${fmt.rs(total)}</b>`
+    : (pode.length ? 'Marque quem deve receber a nota agora.' : '');
+  document.getElementById('btLimpar').hidden = !escolhidos.length;
+  const bt = document.getElementById('btEnviar');
+  bt.disabled = !escolhidos.length || !!enviando;
+  if(!enviando) bt.textContent = escolhidos.length
+    ? `Enviar ${escolhidos.length} ${escolhidos.length===1?'e-mail':'e-mails'}` : 'Enviar e-mails';
+  const todas = document.getElementById('chkTodas');
+  if(todas){
+    todas.disabled = !pode.length;
+    todas.checked = pode.length > 0 && pode.every(k => sel.has(k));
+    todas.indeterminate = sel.size > 0 && !todas.checked;
+  }
+}
+
+/* ---- PDF ---- */
+let urlAberta = null;
+async function abrirPdf(nome, titulo){
+  const m = document.getElementById('mPdf');
+  document.getElementById('mPdfTitulo').textContent = titulo || nome;
+  const fr = document.getElementById('mPdfFrame');
+  fr.removeAttribute('src');
+  m.classList.add('on');
+  try{
+    const url = await window.ND_FONTE.urlPdf(nome);
+    urlAberta = url;
+    fr.src = url;
+    const bx = document.getElementById('mPdfBaixar');
+    bx.href = url; bx.setAttribute('download', titulo || nome);
+    document.getElementById('mPdfAba').href = url;
+  }catch(e){
+    fecharModais();
+    alert('Não foi possível abrir o PDF: ' + e.message);
+  }
+}
+function fecharModais(){
+  document.querySelectorAll('.modal.on').forEach(m => m.classList.remove('on'));
+  if(urlAberta){ URL.revokeObjectURL(urlAberta); urlAberta = null; }
+}
+
+/* ---- envio ---- */
+function abrirConfirmacao(){
+  const escolhidos = D.envios.filter(e => sel.has(e.chave));
+  if(!escolhidos.length) return;
+  const total = escolhidos.reduce((a,e)=>a+(e.valor||0),0);
+  document.getElementById('mConfTitulo').textContent =
+    `Enviar ${escolhidos.length} ${escolhidos.length===1?'e-mail':'e-mails'} de ${D.mes_extenso}?`;
+  document.getElementById('mConfTexto').innerHTML =
+    `Cada pessoa recebe o e-mail com o modelo de sempre e as notas em PDF anexadas.`;
+  document.getElementById('mConfLista').innerHTML = escolhidos.map(e => `<li>
+      <span class="n">${esc(e.nome)}</span>
+      <span class="e">${esc((e.para||[]).join(', '))}</span>
+      <span class="v num">${fmt.rs(e.valor)}</span></li>`).join('')
+    + `<li><span class="n">Total</span><span class="e"></span><span class="v num">${fmt.rs(total)}</span></li>`;
+  const cc = [...new Set(escolhidos.flatMap(e => e.cc||[]))];
+  document.getElementById('mConfRodape').textContent =
+    (cc.length ? 'Com cópia para ' + cc.join(', ') + '. ' : '')
+    + 'Quem já recebeu não recebe de novo, mesmo que esteja marcado.';
+  document.getElementById('mConf').classList.add('on');
+}
+
+function aoConcluirEnvio(res){
+  enviando = null;
+  ultimoResultado = res;
+  sel.clear();
+  if(!res) return { texto: 'o envio terminou, mas o resultado não pôde ser lido — recarregue.', erro: true };
+  if(res.ok === false && !(res.resultados||[]).length) return { texto: 'nada enviado: ' + res.erro, erro: true };
+  const rs = res.resultados || [];
+  const ok = rs.filter(r => r.status === 'enviado').map(r => r.nome);
+  const ja = rs.filter(r => r.status === 'ja_enviado').map(r => r.nome);
+  const err = rs.filter(r => r.status === 'erro' || r.status === 'nao_pronto').map(r => r.nome);
+  const partes = [];
+  if(ok.length) partes.push(`enviado para ${ok.join(', ')}`);
+  if(ja.length) partes.push(`${ja.join(', ')} já tinha${ja.length>1?'m':''} recebido`);
+  if(err.length) partes.push(`falhou: ${err.join(', ')}`);
+  return { texto: (partes.join(' · ') || 'nada a enviar') + '.', erro: err.length > 0 };
+}
+
+async function recarregar(){
+  D = await window.ND_FONTE.carregar();
+  render();
+}
+
+function ligar(){
+  document.getElementById('content').addEventListener('click', ev => {
+    const b = ev.target.closest('[data-pdf]');
+    if(b){ abrirPdf(b.dataset.pdf, b.dataset.titulo); }
+  });
+  document.getElementById('content').addEventListener('change', ev => {
+    const t = ev.target;
+    if(t.id === 'chkTodas'){
+      const pode = marcaveis();
+      if(t.checked) pode.forEach(k => sel.add(k)); else sel.clear();
+      render(); return;
+    }
+    const tr = t.closest('tr[data-chave]');
+    if(tr && t.type === 'checkbox'){
+      if(t.checked) sel.add(tr.dataset.chave); else sel.delete(tr.dataset.chave);
+      tr.classList.toggle('sel', t.checked);
+      atualizarBarra();
+    }
+  });
+  document.getElementById('btLimpar').onclick = () => { sel.clear(); render(); };
+  document.getElementById('btEnviar').onclick = abrirConfirmacao;
+  document.querySelectorAll('[data-fechar]').forEach(b => b.onclick = fecharModais);
+  document.querySelectorAll('.modal').forEach(m => m.addEventListener('click', ev => {
+    if(ev.target === m) fecharModais();
+  }));
+  document.addEventListener('keydown', ev => { if(ev.key === 'Escape') fecharModais(); });
+
+  /* O botão de confirmar é quem dispara o pedido (HUB_REPROCESSAR liga nele). Antes do
+     pedido sair, este listener fecha a caixa e marca as linhas como "enviando…"; os
+     nomes vão lidos na hora do clique (corpo()), não guardados de antes. */
+  const btConf = document.getElementById('btConfirmar');
+  btConf.addEventListener('click', () => {
+    enviando = new Set(sel);
+    ultimoResultado = null;
+    fecharModais();
+    render();
+    document.getElementById('btEnviar').textContent = 'enviando…';
+  }, true);
+  window.ND_FONTE.ligarEnvio(
+    btConf, document.getElementById('envioStatus'),
+    () => [...(enviando || sel)],
+    () => Number(String(D.referencia).slice(5,7)),
+    async res => { const fim = aoConcluirEnvio(res); await recarregar(); return fim; },
+    () => { enviando = null; render(); }
+  );
+}
+
+async function boot(){
+  ligar();
+  try{
+    D = await window.ND_FONTE.carregar();
+  }catch(e){
+    document.getElementById('pageSub').textContent = 'não foi possível carregar: ' + e.message;
+    return;
+  }
+  render();
+  /* Depois de desenhar o que já está publicado, e não antes: a tela abre na hora com o
+     lote, e a conferência do Drive (que pode pegar instância fria, ~10 s) só ajusta o que
+     tiver mudado. O envio confere de novo antes de sair, então não é preciso esperar. */
+  const sinc = document.getElementById('sincStatus');
+  window.ND_FONTE.conferirDrive(sinc, async () => {
+    await recarregar();
+    return { texto: 'conferido com o Drive às ' + new Date().toTimeString().slice(0,5) };
+  });
+}
+boot();
+</script>
+</body>
+</html>

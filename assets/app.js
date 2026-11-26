@@ -87,7 +87,9 @@ const ICON = {
   // envelope: a carta aos cotistas
   carta:'M3 6h18v12H3zM3 6l9 7 9-7',
   // livro aberto: os manuais de processo
-  manual:'M12 6.5C10 5 7 4.5 3 4.5v14c4 0 7 .5 9 2 2-1.5 5-2 9-2v-14c-4 0-7 .5-9 2zM12 6.5v14'
+  manual:'M12 6.5C10 5 7 4.5 3 4.5v14c4 0 7 .5 9 2 2-1.5 5-2 9-2v-14c-4 0-7 .5-9 2zM12 6.5v14',
+  // recibo com a borda serrilhada: as notas de débito
+  recibo:'M6 2.5h12v19l-2-1.5-2 1.5-2-1.5-2 1.5-2-1.5-2 1.5zM9 7.5h6M9 11h6M9 14.5h4'
 };
 const ROUTES = [
   {id:'', title:'Início', sub:'Hub de Planejamento & Controle', icon:'home', render:renderHome},
@@ -99,6 +101,7 @@ const ROUTES = [
   {id:'projetos', title:'Projetos', sub:'Controle de projetos de automação/BI', icon:'proj', render:renderProjetos},
   {id:'saldo_bancario', title:'Saldo Bancário', sub:'Projeção de caixa da semana — Grupo Luxor', icon:'moeda', render:renderSaldoBancario},
   {id:'controle_pagamentos', title:'Controle de Pagamentos', sub:'Fornecedores fixos do mês e o que já foi pago', icon:'pagamentos', render:renderControlePagamentos},
+  {id:'notas_debito', title:'Notas de Débito', sub:'Notas do mês: conferir o PDF e enviar os e-mails', icon:'recibo', render:renderNotasDebito},
   {id:'tarituba', title:'Fluxo de Caixa — Tarituba', sub:'Orçado × realizado do imóvel, mês a mês', icon:'imovel', render:renderTarituba},
   {id:'shiva', title:'Fluxo de Caixa — Shiva', sub:'Orçado × realizado da operação agro, mês a mês', icon:'agro', render:renderShiva},
   {id:'passivo', title:'Fluxo de Caixa — Passivo Hoteleiro', sub:'Orçado × realizado do passivo hoteleiro, mês a mês', icon:'hotel', render:renderPassivo},
@@ -128,6 +131,7 @@ function temDado(id, hub){
   if(id==='shiva') return true;                   // idem
   if(id==='passivo') return true;                 // idem
   if(id==='fpg') return true;                     // idem
+  if(id==='notas_debito') return true;            // idem: lote e PDFs do bucket, no iframe
   if(id==='kanban') return true;                  // tabelas kanban_* direto do Postgres
   if(id==='senhas') return true;                  // tabelas senhas_* (cifradas) direto do Postgres
   if(id==='societario') return true;              // fala direto com o bot das estruturas societárias
@@ -155,7 +159,7 @@ const MENU = [
   '', 'indicadores',
   {pasta:'orcado', titulo:'Orçado × Realizado', itens:['fluxo','dre']},
   {pasta:'fluxos', titulo:'Fluxo de Caixa', itens:['tarituba','shiva','passivo','fpg']},
-  {pasta:'controles', titulo:'Controles Financeiros', itens:['inadimplencia','vendas','saldo_bancario','controle_pagamentos']},
+  {pasta:'controles', titulo:'Controles Financeiros', itens:['inadimplencia','vendas','saldo_bancario','controle_pagamentos','notas_debito']},
   {pasta:'apresentacoes', titulo:'Apresentações', itens:['comite_fo','board_fo','carta']},
   {pasta:'tarefas', titulo:'Kanban e Projetos', itens:['kanban','projetos','senhas']},
   {pasta:'manuais', titulo:'Manuais', itens:['manual_backoffice']},
@@ -1105,6 +1109,15 @@ function renderPassivo(el){
 function renderFpg(el){
   el.classList.add('flush');
   el.innerHTML=`<iframe class="embed" src="assets/fpg/index.html" title="Fluxo de Caixa — FPG"></iframe>`;
+}
+
+/* ---- Notas de Débito (11/2026) ----
+   Substitui o `/notas-debito enviar` do Slack: o iframe lê o lote do mês e os PDFs do bucket
+   (notas_debito.*), pede ao abrir a conferência das planilhas no Drive e manda os e-mails
+   marcados pela ação `enviar` do reprocessar. Acesso: hub_can('notas_debito'). */
+function renderNotasDebito(el){
+  el.classList.add('flush');
+  el.innerHTML=`<iframe class="embed" src="assets/notas_debito/index.html" title="Notas de Débito"></iframe>`;
 }
 
 /* ---- Kanban Planejamento, Controle e Concierge (mesmo padrão) ----
