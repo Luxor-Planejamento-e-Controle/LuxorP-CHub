@@ -307,18 +307,27 @@ class TestApresentacoes(unittest.TestCase):
         est = Estado(spec=_spec_carta())
         est.app_state["data"]["trimestres"]["2026-Q3"]["leituras"] = [
             {"img": pix, "link": "https://exemplo.com/leitura", "pt": "Com link.", "en": "With link."},
-            {"img": pix, "link": "javascript:alert(1)", "pt": "Link ruim.", "en": "Bad link."}]
+            {"img": pix, "link": "javascript:alert(1)", "en": "Bad link.",
+             "pt": "Texto com [link no meio](https://exemplo.com/meio) e [ruim](javascript:void0).\n"
+                   "[exemplo.com/embaixo](https://exemplo.com/embaixo)"}]
         pg, erros = _abrir(self, est, deck="carta", hash_="#2026-Q3/6")
         a = pg.locator("#slide a.plink")
         # só o http(s) vira link; o resto fica imagem sem link
         self.assertEqual(a.count(), 1)
         self.assertEqual(a.get_attribute("href"), "https://exemplo.com/leitura")
         self.assertEqual(a.get_attribute("target"), "_blank")
+        # link no texto: [texto](url); javascript: vira texto puro; linha só de link sem recuo
+        self.assertEqual(pg.locator('#slide .ppar a[href="https://exemplo.com/meio"]').inner_text(), "link no meio")
+        self.assertEqual(pg.locator('#slide .ppar a[href^="javascript"]').count(), 0)
+        self.assertIn("e ruim.", pg.text_content("#slide"))
+        baixo = pg.locator('#slide .ppar a[href="https://exemplo.com/embaixo"]')
+        self.assertEqual(baixo.evaluate("a => getComputedStyle(a.parentElement).textIndent"), "0px")
         with pg.expect_download(timeout=60000) as d:
             pg.click("#pptx")
         z = zipfile.ZipFile(io.BytesIO(pathlib.Path(d.value.path()).read_bytes()))
         rels = "".join(z.read(n).decode("utf-8") for n in z.namelist() if n.startswith("ppt/slides/_rels/"))
         self.assertIn("https://exemplo.com/leitura", rels)
+        self.assertIn("https://exemplo.com/meio", rels)
         self.assertNotIn("javascript:", rels)
         self.assertEqual(erros, [])
         pg.close()

@@ -255,7 +255,7 @@ window.AP_DECK = (function () {
     function monta() {
       ed.innerHTML = '<div class="ed-caixa" role="dialog" aria-label="Textos da carta">' +
         '<div class="ed-topo"><b>Textos da carta — ' + esc(SPEC.labels[periodo] || periodo) + '</b>' +
-        '<span class="ed-dica">uma linha = um parágrafo · **negrito** · *itálico*</span>' +
+        '<span class="ed-dica">uma linha = um parágrafo · **negrito** · *itálico* · [texto](https://…) = link</span>' +
         '<span class="esp"></span><span id="ed-msg"></span>' +
         '<button type="button" id="ed-fecha">Fechar</button><button type="button" id="ed-grava" class="pri">Gravar</button></div>' +
         '<div class="ed-corpo">' +

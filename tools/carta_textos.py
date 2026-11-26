@@ -56,7 +56,8 @@ TITULOS = {
 CAMPOS = ("destaques", "atualizacoes")
 CABECALHO = (
     "<!-- Carta Trimestral {periodo}: textos para `python tools/carta_textos.py gravar {periodo}`.\n"
-    "     Uma linha = um parágrafo; linha em branco é ignorada; **negrito** e *itálico* valem.\n"
+    "     Uma linha = um parágrafo; linha em branco é ignorada; **negrito**, *itálico* e\n"
+    "     [texto](https://…) (link clicável) valem.\n"
     "     leituraN.img = arquivo da imagem nesta pasta; leituraN.link = endereço aberto ao clicar\n"
     "     na imagem (opcional). Não mude os títulos `## ...`. -->\n"
 )
@@ -124,7 +125,13 @@ def _paragrafos(sh) -> str:
         for r in p:
             t = r.text.replace("\t", " ").replace("\u000b", " ")
             nucleo = t.strip()
-            if nucleo and r.font.bold and not tudo_b:
+            try:
+                href = (r.hyperlink.address or "").strip()
+            except Exception:
+                href = ""
+            if nucleo and href.startswith(("http://", "https://")):
+                t = t.replace(nucleo, f"[{nucleo}]({href})", 1)
+            elif nucleo and r.font.bold and not tudo_b:
                 t = t.replace(nucleo, f"**{nucleo}**", 1)
             elif nucleo and r.font.italic and not tudo_i:
                 t = t.replace(nucleo, f"*{nucleo}*", 1)

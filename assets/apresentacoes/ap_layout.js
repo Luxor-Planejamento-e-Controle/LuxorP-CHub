@@ -710,19 +710,28 @@
     }
   }
 
-  /* texto colado → parágrafos (uma linha = um parágrafo) com **negrito** e *itálico* */
+  /* texto colado → parágrafos (uma linha = um parágrafo) com **negrito**, *itálico* e
+     [texto](https://…) = link clicável (na tela, no PDF e no PPTX). Linha que é SÓ um link
+     (o endereço embaixo de uma leitura) sai sem recuo e um pouco menor, numa linha só. */
   function paragrafos(txt) {
     return String(txt || '').split(/\r?\n/).map(l => l.trim()).filter(Boolean).map(l => {
       const runs = [];
-      const re = /(\*\*[^*]+\*\*|\*[^*]+\*)/g;
+      const re = /(\[[^\]]+\]\([^)\s]+\)|\*\*[^*]+\*\*|\*[^*]+\*)/g;
       let i = 0, m;
       while ((m = re.exec(l))) {
         if (m.index > i) runs.push({t: l.slice(i, m.index)});
-        const b = m[0].startsWith('**');
-        runs.push({t: m[0].slice(b ? 2 : 1, b ? -2 : -1), b: b ? 1 : 0, i: b ? 0 : 1});
+        if (m[0].startsWith('[')) {
+          const lk = /^\[([^\]]+)\]\(([^)\s]+)\)$/.exec(m[0]);
+          const href = linkSeguro(lk[2]);
+          runs.push(href ? {t: lk[1], href} : {t: lk[1]});
+        } else {
+          const b = m[0].startsWith('**');
+          runs.push({t: m[0].slice(b ? 2 : 1, b ? -2 : -1), b: b ? 1 : 0, i: b ? 0 : 1});
+        }
         i = m.index + m[0].length;
       }
       if (i < l.length) runs.push({t: l.slice(i)});
+      runs.soLink = runs.length === 1 && !!runs[0].href;
       return runs;
     });
   }
@@ -732,14 +741,18 @@
      3,05 pt antes e 3,05 pt depois (ESP_PAR é a soma, em "em") e recuo de 1ª linha de 256825
      EMU (27 px). No PPTX o recuo vai como espaços (o pptxgenjs não tem recuo de 1ª linha). */
   const ENTRE = 1.85, ESP_PAR = 0.5, RECUO = 27, RECUO_PPTX = '\u2003\u2002\u2009';
-  const estiloPar = () => `margin:0;padding:${ESP_PAR / 2}em 0;text-indent:${RECUO}px;text-align:justify`;
+  // linha s\u00f3 de link: 92% do corpo \u2014 o endere\u00e7o do Substack (273 px a 12,2 pt) cabe nos 270 da leitura
+  const LINK_K = 0.92, COR_LINK = '1D6E79';
+  const estiloPar = soLink => soLink
+    ? `margin:0;padding:${ESP_PAR / 2 / LINK_K}em 0;text-indent:0;text-align:left;white-space:nowrap;font-size:${LINK_K}em`
+    : `margin:0;padding:${ESP_PAR / 2}em 0;text-indent:${RECUO}px;text-align:justify`;
   function corpoQueCabe(paras, w, h, max, min, fonte) {
     if (typeof document === 'undefined' || !paras.length) return max;
     const d = document.createElement('div');
     // mede com a MESMA fonte da tela (fonteCSS): 'Roboto Light' entre aspas não existe no
     // roboto.css (lá é 'Roboto' peso 300) e mediria com a fonte reserva
     d.style.cssText = `position:absolute;left:-99999px;top:0;width:${w}px;line-height:${ENTRE};${fonteCSS({fonte})}`;
-    d.innerHTML = paras.map(r => `<p style="${estiloPar()}">${r.map(runHTML).join('')}</p>`).join('');
+    d.innerHTML = paras.map(r => `<p style="${estiloPar(r.soLink)}">${r.map(runHTML).join('')}</p>`).join('');
     document.body.appendChild(d);
     let pt = max;
     for (; pt > min; pt -= 0.25) {
@@ -884,6 +897,8 @@
   }
   const runHTML = r => {
     const st = (r.b ? 'font-weight:700;' : '') + (r.i ? 'font-style:italic;' : '');
+    if (r.href) return `<a href="${escH(r.href)}" target="_blank" rel="noopener" ` +
+                       `style="color:#${COR_LINK};text-decoration:underline;${st}">${escH(r.t)}</a>`;
     return st ? `<span style="${st}">${escH(r.t)}</span>` : escH(r.t);
   };
   function html(ps, base) {
@@ -910,7 +925,7 @@
         // parágrafos justificados da carta, com o mesmo estilo que o corpoQueCabe mediu
         const st = `${box};font-size:${(p.pt * PT).toFixed(2)}px;color:#${p.c || CARTA.tinta};${fonteCSS(p)};line-height:${ENTRE}`;
         return `<div class="ppar" style="${st}">` + p.paras.map(r =>
-          `<p style="${estiloPar()}">${r.map(runHTML).join('')}</p>`).join('') + '</div>';
+          `<p style="${estiloPar(r.soLink)}">${r.map(runHTML).join('')}</p>`).join('') + '</div>';
       }
       /* texto girado (rótulo do eixo X do Leverage): a caixa fica de pé com o fim do
          texto em (rx, ry) — mesma conta do PPTX, que gira em torno do centro */
@@ -978,9 +993,11 @@
       if (p.k2 === 'par') {
         const runs = [];
         p.paras.forEach(r => r.forEach((x, j) => runs.push({
-          text: (j === 0 ? RECUO_PPTX : '') + x.t,
-          options: {bold: !!x.b, italic: !!x.i, breakLine: j === r.length - 1,
-                    paraSpaceBefore: +(p.pt * ESP_PAR / 2).toFixed(2), paraSpaceAfter: +(p.pt * ESP_PAR / 2).toFixed(2)}})));
+          text: (j === 0 && !r.soLink ? RECUO_PPTX : '') + x.t,
+          options: Object.assign({bold: !!x.b, italic: !!x.i, breakLine: j === r.length - 1,
+                    paraSpaceBefore: +(p.pt * ESP_PAR / 2).toFixed(2), paraSpaceAfter: +(p.pt * ESP_PAR / 2).toFixed(2)},
+                    r.soLink ? {fontSize: +(p.pt * LINK_K).toFixed(2), align: 'left'} : {},
+                    x.href ? {hyperlink: {url: x.href}, color: COR_LINK, underline: {style: 'sng'}} : {})})));
         sl.addText(runs, Object.assign({}, g, {fontFace: p.fonte, fontSize: +p.pt.toFixed(2), color: p.c || CARTA.tinta,
           // entrelinha EXATA em pontos, como no PPTX original: o "múltiplo" do PowerPoint é
           // sobre a altura natural da fonte (~1,17 em no Roboto) e não bateria com a tela
