@@ -114,6 +114,8 @@ class Bot:
         self.previa = {}             # resposta do /importar?confirmar=0, por tipo
         self.anexos = {("advogados", "ALFA ADVOGADOS"): [{"nome": "Contrato.pdf", "tamanho": 4, "enviado_em": "2026-11-16T10:00:00-03:00"}]}
         self.segurar = False     # True: guarda a rota do /hub/ask e só responde quando o teste mandar
+        self.procs = PROCS       # o que GET /hub/processos devolve (o teste troca depois de gravar)
+        self.espelhado = False   # o bot já gravou a planilha na pasta que ele lê
         self.pendente = None
 
 
@@ -158,7 +160,7 @@ def _abrir(cls, bot, secao=""):
             bruto = u.path == "/hub/anexos" or u.path.endswith("/importar")
             corpo = request.post_data_buffer if bruto else json.loads(request.post_data or "{}")
             bot.posts.append((u.path, q, corpo))
-            resp = {"ok": True, "commit": "c1"}
+            resp = {"ok": True, "commit": "c1", "espelhado": bot.espelhado}
             if u.path == "/hub/empresas":
                 resp["pasta"] = corpo["nome"]
             if u.path == "/hub/processos":
@@ -184,7 +186,7 @@ def _abrir(cls, bot, secao=""):
                                  body=json.dumps({"ok": True, "pasta": "Alfa", "arquivo": nome, "caminho": "c",
                                                   "commit": "abc", "commit_url": "u"}))
         if u.path == "/hub/processos":
-            return route.fulfill(status=200, headers=cors, content_type="application/json", body=json.dumps(PROCS))
+            return route.fulfill(status=200, headers=cors, content_type="application/json", body=json.dumps(bot.procs))
         if u.path == "/hub/advogados":
             return route.fulfill(status=200, headers=cors, content_type="application/json", body=json.dumps(ADV))
         if u.path == "/hub/organogramas":
@@ -739,6 +741,38 @@ class TestAbaSocietario(unittest.TestCase):
         pg.select_option("#f_situacao", "Ativo")
         self._salvar(pg)
         self.assertEqual((bot.posts[-1][2]["numero"], bot.posts[-1][2]["situacao"]), ("PA 123/2024", "Ativo"))
+        self.assertEqual(erros, [])
+
+    def test_28_ficha_mostra_todo_campo_e_edicao_aparece_na_hora(self):
+        """Mauricio salvou Observações e a data, voltou e viu o valor antigo; e a ficha
+        escondia os campos vazios, só o Editar mostrava."""
+        bot = Bot()
+        bot.procs = json.loads(json.dumps(PROCS))
+        bot.procs["campos"] = ["empresa", "documento", "tipo", "area", "numero", "data_ultima_movimentacao",
+                               "observacoes", "escritorio", "fase", "situacao"]
+        bot.espelhado = True
+        pg, erros = _abrir(self, bot, "processos")
+        pg.wait_for_selector("#v-processos .so-lista button")
+        pg.locator("#v-processos .so-lista button").nth(1).click()
+        pg.wait_for_function("document.querySelector('#v-processos .so-ficha h2').textContent.toUpperCase().includes('INATIVO')")
+        ficha = pg.inner_text("#v-processos .so-ficha")
+        for rotulo in ("CNPJ OU CPF", "FASE", "DATA DA ÚLTIMA POSIÇÃO", "OBSERVAÇÕES"):    # vazios, mas a planilha tem
+            self.assertIn(rotulo, ficha.upper())
+        self.assertGreaterEqual(ficha.count("—"), 4)
+        self.assertNotIn("TRIBUNAL", ficha.upper())                                      # a planilha não tem a coluna
+        pg.click("#editProc")
+        pg.fill("#f_observacoes", "Contestação protocolada")
+        pg.fill("#f_data_ultima_movimentacao", "2026-11-25")
+        p2 = bot.procs["processos"][1]
+        p2["observacoes"], p2["data_ultima_movimentacao"] = "Contestação protocolada", "2026-11-25"
+        self._salvar(pg)
+        self.assertEqual(bot.posts[-1][2], {"observacoes": "Contestação protocolada", "data_ultima_movimentacao": "2026-11-25"})
+        pg.wait_for_function("document.querySelector('#v-processos .so-ficha').textContent.includes('Contestação protocolada')")
+        self.assertIn("25/11/2026", pg.inner_text("#v-processos .so-ficha"))
+        self.assertNotIn("alguns minutos", pg.inner_text(".so-aviso"))
+        self.assertEqual(sum(1 for m, c, _, _ in bot.pedidos if m == "GET" and c == "/hub/processos"), 2)
+        pg.click("#editProc")                                                             # o Editar já vem com o salvo
+        self.assertEqual(pg.input_value("#f_observacoes"), "Contestação protocolada")
         self.assertEqual(erros, [])
 
     def test_27_busca_por_especialidade(self):

@@ -441,24 +441,34 @@
         (sub ? '<span class="so-muted">' + esc(sub) + '</span>' : '') + '</button>';
     }).join('') : '<div class="so-muted" style="padding:8px">Nenhum processo com esses filtros.</div>') + '</div><div class="so-ficha">';
     var dProx = diasAte(sel.data_proximo_prazo);
+    // todo campo que a planilha tem aparece na ficha, vazio como "—" (antes só se via no Editar)
+    var tem = function (ks) { var c = processosData.campos || []; return [].concat(ks).some(function (k) { return c.indexOf(k) >= 0; }); };
+    var kvP = function (pares) {   // [rótulo, valor, campo(s) da planilha]
+      return kv(pares.filter(function (x) { return x[1] || tem(x[2]); }).map(function (x) { return [x[0], x[1] || '—']; }));
+    };
+    var ANDAMENTO = ['data_ultima_movimentacao', 'observacoes', 'ultima_movimentacao', 'proximo_prazo', 'data_proximo_prazo'];
     var inativo = sem(sel.situacao).indexOf('inativ') === 0;
     h += '<div class="card"><h2>' + esc(tituloProc(sel)) +
       (sel.situacao ? '<span class="so-st ' + (inativo ? 'sem' : 'vigente') + '" style="margin-left:10px">' + esc(sel.situacao) + '</span>' : '') +
       (sel.risco ? '<span class="so-st ' + riscoClasse(sel.risco) + '" style="margin-left:8px">Risco ' + esc(sel.risco) + '</span>' : '') + '</h2>' +
       (podeEnviar && sel.id ? '<div class="so-acoes"><button class="so-btn ghost" id="editProc">Editar</button></div>' : '') +
-      kv([['Estrutura (empresa ou pessoa física)', sel.empresa], ['CNPJ ou CPF', sel.documento], ['Tipo', sel.tipo], ['Classe', sel.area],
-          ['Esfera', sel.esfera], ['Número do processo', sel.numero], ['Data inicial', sel.data_inicio ? dataBR(sel.data_inicio) : ''],
-          ['Valor', reais(sel.valor_causa)], ['Pessoas envolvidas', sel.parte_contraria], ['Advogado responsável', sel.advogado]]);
+      kvP([['Estrutura (empresa ou pessoa física)', sel.empresa, 'empresa'], ['CNPJ ou CPF', sel.documento, 'documento'],
+          ['Tipo', sel.tipo, 'tipo'], ['Classe', sel.area, 'area'], ['Esfera', sel.esfera, 'esfera'], ['Número do processo', sel.numero, 'numero'],
+          ['Objeto', '', sel.objeto ? [] : 'objeto'],          // preenchido, o objeto já é o título
+          ['Data inicial', sel.data_inicio ? dataBR(sel.data_inicio) : '', 'data_inicio'], ['Valor', reais(sel.valor_causa), 'valor_causa'],
+          ['Pessoas envolvidas', sel.parte_contraria, 'parte_contraria'], ['Advogado responsável', sel.advogado, 'advogado']]
+        .concat(sel.situacao ? [] : [['Situação', '', 'situacao']]).concat(sel.risco ? [] : [['Risco', '', 'risco']]));
     if (sel.escritorio) {
       h += '<div class="so-kv"><div><div class="k">Jurídico responsável</div><div class="v"><button class="so-link" id="pcEscr">' +
         esc(sel.escritorio) + '</button></div></div></div>';
-    }
-    h += kv([['Polo', sel.polo], ['Tribunal / vara', sel.tribunal], ['Fase', sel.fase]]) + '</div>';
-    if (sel.data_ultima_movimentacao || sel.observacoes || sel.ultima_movimentacao || sel.proximo_prazo || sel.data_proximo_prazo) {
+    } else h += kvP([['Jurídico responsável', '', 'escritorio']]);
+    h += kvP([['Polo', sel.polo, 'polo'], ['Tribunal / vara', sel.tribunal, 'tribunal'], ['Fase', sel.fase, 'fase']]) + '</div>';
+    if (tem(ANDAMENTO) || ANDAMENTO.some(function (k) { return sel[k]; })) {
       h += '<div class="card" style="margin-top:14px"><div class="card-title"><h2>Andamento</h2></div>' +
-        kv([['Data da última posição', sel.data_ultima_movimentacao ? dataBR(sel.data_ultima_movimentacao) : ''],
-            ['Observações', sel.observacoes], ['Andamento', sel.ultima_movimentacao],
-            ['Próximo prazo / audiência', [sel.data_proximo_prazo ? dataBR(sel.data_proximo_prazo) : '', sel.proximo_prazo || ''].filter(Boolean).join(' — ')]]) +
+        kvP([['Data da última posição', sel.data_ultima_movimentacao ? dataBR(sel.data_ultima_movimentacao) : '', 'data_ultima_movimentacao'],
+            ['Observações', sel.observacoes, 'observacoes'], ['Andamento', sel.ultima_movimentacao, 'ultima_movimentacao'],
+            ['Próximo prazo / audiência', [sel.data_proximo_prazo ? dataBR(sel.data_proximo_prazo) : '', sel.proximo_prazo || ''].filter(Boolean).join(' — '),
+             ['data_proximo_prazo', 'proximo_prazo']]]) +
         (dProx != null && dProx >= 0 && dProx <= 7 ? '<span class="so-st vence_7">' + (dProx === 0 ? 'hoje' : 'em ' + dProx + (dProx === 1 ? ' dia' : ' dias')) + '</span>' : '') +
         '</div>';
     }
@@ -530,6 +540,15 @@
    * Tudo que se cria aqui vira commit no repo (o bot grava pela API do GitHub) e chega
    * nas listas depois que o publish-documents sobe pro Azure — alguns minutos. */
   var DEMORA = ' Aparece aqui em alguns minutos.';
+  /* Planilhas de advogados e processos: o bot grava também na pasta que ele lê
+   * (r.espelhado) — relê na hora e a pessoa vê o que salvou. Sem isso, a tela ficava
+   * com a versão de antes até recarregar a página depois do publish-documents. */
+  function depois(r, qual) {
+    if (!r || !r.espelhado) return DEMORA;
+    if (qual === 'processos') { processosData = null; if (secaoAtual() === 'processos') abrirProcessos(); }
+    else { adv = null; if (secaoAtual() === 'advogados') abrirAdvogados(); }
+    return '';
+  }
   function aviso(msg, erro) {
     var t = document.createElement('div');
     t.className = 'so-aviso' + (erro ? ' erro' : ''); t.textContent = msg;
@@ -658,9 +677,9 @@
       { id: 'processo', rotulo: 'Processo em curso' }, { id: 'adv_nome', rotulo: 'Advogado responsável' },
       { id: 'adv_telefone', rotulo: 'Telefone' }, { id: 'adv_email', rotulo: 'E-mail', tipo: 'email' },
     ], async function (v) {
-      await postJson('/hub/advogados', { nome: v.nome, documento: v.documento, area: v.area, indicacao: v.indicacao,
+      var r = await postJson('/hub/advogados', { nome: v.nome, documento: v.documento, area: v.area, indicacao: v.indicacao,
         processo: v.processo, advogados: [{ nome: v.adv_nome, telefone: v.adv_telefone, email: v.adv_email }] });
-      return 'Escritório incluído: ' + v.nome + '.' + DEMORA;
+      return 'Escritório incluído: ' + v.nome + '.' + depois(r, 'advogados');
     });
   }
   function formNovoAdvogado(indice, escritorio) {
@@ -668,8 +687,8 @@
       { id: 'nome', rotulo: 'Nome', obrigatorio: true }, { id: 'telefone', rotulo: 'Telefone' },
       { id: 'email', rotulo: 'E-mail', tipo: 'email' }, { id: 'processo', rotulo: 'Processo em curso' },
     ], async function (v) {
-      await postJson('/hub/advogados/' + indice + '/advogados', v);
-      return 'Advogado incluído: ' + v.nome + '.' + DEMORA;
+      var r = await postJson('/hub/advogados/' + indice + '/advogados', v);
+      return 'Advogado incluído: ' + v.nome + '.' + depois(r, 'advogados');
     });
   }
   // campos na ordem da lista da equipe; o formulário só oferece os que a planilha tem
@@ -715,7 +734,7 @@
       identifica(v);
       v.valor_causa = v.valor_causa ? parseFloat(v.valor_causa) : null;
       var r = await postJson('/hub/processos', v);
-      return 'Processo ' + r.id + ' incluído.' + DEMORA;
+      return 'Processo ' + r.id + ' incluído.' + depois(r, 'processos');
     });
   }
 
@@ -769,8 +788,8 @@
             (n ? '<ul class="so-docs" style="columns:1">' + linhas.join('') + '</ul>' : ''),
           n ? 'Importar ' + n : null,
           async function () {
-            await postArquivo(url + '?confirmar=1', arq);
-            return n + (n === 1 ? ' item importado.' : ' itens importados.') + DEMORA;
+            var r = await postArquivo(url + '?confirmar=1', arq);
+            return n + (n === 1 ? ' item importado.' : ' itens importados.') + depois(r, tipo);
           });
       } catch (e) { aviso(e.message, true); }
     };
@@ -839,15 +858,14 @@
       var m = mudou(orig, v);
       if (!Object.keys(m).length) return 'Nada mudou.';
       m.nome_atual = f.nome;
-      await postJson('/hub/advogados/' + i + '/editar', m);
-      return 'Escritório salvo.' + DEMORA;
+      return 'Escritório salvo.' + depois(await postJson('/hub/advogados/' + i + '/editar', m), 'advogados');
     });
   }
   async function excluirEscritorio(i, f) {
     if (!window.confirm('Excluir o escritório ' + f.nome + ' e os ' + f.advogados.length + ' advogado(s) dele?')) return;
     try {
-      await postJson('/hub/advogados/' + i + '/excluir', { nome_atual: f.nome });
-      aviso('Escritório excluído: ' + f.nome + '.' + DEMORA);
+      var r = await postJson('/hub/advogados/' + i + '/excluir', { nome_atual: f.nome });
+      aviso('Escritório excluído: ' + f.nome + '.' + depois(r, 'advogados'));
     } catch (e) { aviso(e.message, true); }
   }
   function formEditarAdvogado(i, f, j, a) {
@@ -859,15 +877,14 @@
       var m = mudou(orig, v);
       if (!Object.keys(m).length) return 'Nada mudou.';
       m.nome_atual = a.nome || ''; m.escritorio = f.nome;
-      await postJson('/hub/advogados/' + i + '/advogados/' + j + '/editar', m);
-      return 'Advogado salvo.' + DEMORA;
+      return 'Advogado salvo.' + depois(await postJson('/hub/advogados/' + i + '/advogados/' + j + '/editar', m), 'advogados');
     });
   }
   async function excluirAdvogado(i, f, j, a) {
     if (!window.confirm('Excluir ' + (a.nome || 'este advogado') + ' do escritório ' + f.nome + '?')) return;
     try {
-      await postJson('/hub/advogados/' + i + '/advogados/' + j + '/excluir', { nome_atual: a.nome || '', escritorio: f.nome });
-      aviso('Advogado excluído: ' + (a.nome || '') + '.' + DEMORA);
+      var r = await postJson('/hub/advogados/' + i + '/advogados/' + j + '/excluir', { nome_atual: a.nome || '', escritorio: f.nome });
+      aviso('Advogado excluído: ' + (a.nome || '') + '.' + depois(r, 'advogados'));
     } catch (e) { aviso(e.message, true); }
   }
   function formEditarProcesso(p) {
@@ -878,8 +895,7 @@
       var m = mudou(orig, v);
       if (!Object.keys(m).length) return 'Nada mudou.';
       if ('valor_causa' in m) m.valor_causa = m.valor_causa ? parseFloat(m.valor_causa) : null;
-      await postJson('/hub/processos/' + encodeURIComponent(p.id) + '/editar', m);
-      return 'Processo ' + p.id + ' salvo.' + DEMORA;
+      return 'Processo ' + p.id + ' salvo.' + depois(await postJson('/hub/processos/' + encodeURIComponent(p.id) + '/editar', m), 'processos');
     });
   }
 
