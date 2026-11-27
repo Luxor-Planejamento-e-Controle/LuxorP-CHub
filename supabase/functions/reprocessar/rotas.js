@@ -57,6 +57,9 @@ export const ROTAS = {
   // Notas de Débito (11/2026): sem botão "Atualizar agora" — a conferência é pedida ao abrir
   // o painel, e a ação `enviar` (os e-mails marcados) vai pela mesma rota.
   notas_debito: AUTOMACOES,
+  // Descontos SulAmérica (11/2026): igual às Notas — a releitura da planilha é pedida ao abrir,
+  // e as ações `enviar`/`reenviar` (o e-mail do mês) vão pela mesma rota.
+  descontos_sulamerica: AUTOMACOES,
   inadimplencia: INADIMPLENCIA,
   vendas: VENDAS,
   comite_fo: APRESENTACOES,

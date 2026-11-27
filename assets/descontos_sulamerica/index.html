@@ -1,0 +1,722 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Descontos SulAmérica · Luxor P&amp;C</title>
+<link rel="stylesheet" href="../fonts.css">
+<style>
+/* Mesmos tokens do painel de Notas de Débito, declarados aqui para o painel ser
+   autocontido (abre por file:// no teste, sem servidor). */
+:root{
+  --bg:#0D2126; --bg-2:#113036;
+  --surface:#143840; --surface-2:#1B4650;
+  --ink:#EAF4F4; --ink-2:#A7C3C5; --ink-3:#6E8C90;
+  --orange:#FFA400; --orange-deep:#E08E00; --orange-soft:rgba(255,164,0,.14);
+  --teal:#1D6E79; --teal-light:#2E97A6; --teal-soft:rgba(46,151,166,.16);
+  --pos:#46B678; --neg:#E5674E; --warn:#F2C14E;
+  --pos-soft:rgba(70,182,120,.16); --neg-soft:rgba(229,103,78,.16); --warn-soft:rgba(242,193,78,.16);
+  --line:rgba(255,255,255,.13); --line-strong:rgba(255,255,255,.24);
+  --r:14px; --r-sm:9px; --ctl-h:36px;
+  --largura-max:1500px; --gutter:26px;
+  --shadow-card:0 1px 3px rgba(0,0,0,.35);
+  --font-sans:"Fakt Pro",system-ui,-apple-system,"Segoe UI",Arial,sans-serif;
+  --font-serif:"Fakt Slab Pro","Fakt Pro",Georgia,serif;
+}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{margin:0}
+body{font-family:var(--font-sans);background:var(--bg);color:var(--ink);
+  font-size:14px;line-height:1.45;-webkit-font-smoothing:antialiased}
+::-webkit-scrollbar{width:10px;height:10px}
+::-webkit-scrollbar-thumb{background:var(--surface-2);border-radius:8px}
+::-webkit-scrollbar-track{background:transparent}
+.num{font-variant-numeric:tabular-nums lining-nums;font-feature-settings:"tnum" 1,"lnum" 1}
+.ic{flex:0 0 auto;vertical-align:-2px}
+
+/* ---- topbar ---- */
+.topbar{border-bottom:1px solid var(--line);background:var(--bg-2);position:sticky;top:0;z-index:6}
+.topbar-inner{display:flex;align-items:center;gap:14px;flex-wrap:wrap;
+  padding:9px var(--gutter);max-width:var(--largura-max);margin-inline:auto}
+.topbar .ref{font-family:var(--font-serif);font-weight:600;font-size:14px}
+.topbar .sub{color:var(--ink-3);font-size:12px}
+.topbar .sinc{font-size:12px;color:var(--ink-3);margin-left:auto}
+.topbar .sinc.erro{color:var(--warn)}
+.content{padding:22px var(--gutter) 130px;max-width:var(--largura-max);margin-inline:auto}
+
+.btn{display:inline-flex;align-items:center;gap:7px;height:var(--ctl-h);padding:0 16px;
+  border-radius:var(--r-sm);font:inherit;font-size:13px;cursor:pointer;white-space:nowrap;
+  border:1px solid var(--line);background:transparent;color:var(--ink-2);text-decoration:none}
+.btn:hover{border-color:var(--orange);color:var(--orange)}
+.btn:disabled{opacity:.45;cursor:not-allowed;border-color:var(--line);color:var(--ink-2)}
+.btn.primario{background:var(--orange);border-color:var(--orange);color:#201700;font-weight:600}
+.btn.primario:hover{background:var(--orange-deep);border-color:var(--orange-deep);color:#201700}
+.btn.primario:disabled{background:var(--surface-2);border-color:var(--surface-2);color:var(--ink-3)}
+.btn.mini{height:28px;padding:0 10px;font-size:12px;gap:5px}
+.link{background:none;border:0;padding:0;font:inherit;color:var(--orange);cursor:pointer;text-decoration:underline}
+
+/* ---- avisos ---- */
+.banner{border-radius:var(--r-sm);padding:11px 15px;font-size:12.5px;margin-bottom:14px;
+  display:flex;gap:10px;align-items:flex-start;background:var(--orange-soft);border:1px solid rgba(255,164,0,.35)}
+.banner.warn{background:var(--warn-soft);border-color:rgba(242,193,78,.45)}
+.banner.warn > .ic{color:var(--warn)}
+.banner.info{background:var(--teal-soft);border-color:rgba(46,151,166,.45)}
+.banner.info > .ic{color:var(--teal-light)}
+.banner b{font-weight:600}
+.banner ul{margin:5px 0 0;padding-left:18px}
+
+/* ---- KPIs ---- */
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:14px;margin-bottom:18px}
+.kpi{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);
+  box-shadow:var(--shadow-card);padding:15px 18px}
+.kpi .lbl{font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3)}
+.kpi .val{font-family:var(--font-serif);font-size:26px;font-weight:600;line-height:1.15;margin-top:4px}
+.kpi .val small{font-size:15px;color:var(--ink-3);font-weight:500}
+.kpi .val.txt{font-size:20px;margin-top:8px}
+.kpi .det{color:var(--ink-2);font-size:12px;margin-top:3px}
+.kpi .det .ok{color:var(--pos)} .kpi .det .bad{color:var(--neg)}
+.kpi.destaque{border-color:rgba(255,164,0,.45)}
+.kpi.destaque .val{color:var(--orange)}
+
+/* ---- movimentação do mês ---- */
+.mov{display:grid;grid-template-columns:repeat(3,1fr);margin-bottom:18px;
+  background:var(--surface);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow-card)}
+.mov > div{padding:13px 18px;border-left:1px solid var(--line)}
+.mov > div:first-child{border-left:0}
+.mov .lbl{font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3);
+  display:flex;align-items:center;gap:6px;margin-bottom:5px}
+.mov ul{list-style:none;margin:0;padding:0;font-size:12.5px}
+.mov li{padding:2px 0}
+.mov li .d{color:var(--ink-3)}
+.mov .nada{color:var(--ink-3);font-size:12.5px}
+
+/* ---- card + tabela ---- */
+.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);
+  box-shadow:var(--shadow-card);padding:18px}
+.card-title{display:flex;align-items:center;gap:12px;margin-bottom:12px;flex-wrap:wrap}
+.card-title h2{font-family:var(--font-serif);font-size:15px;margin:0;font-weight:600}
+.card-title .muted{color:var(--ink-3);font-size:12px}
+.card-title .spacer{flex:1}
+.busca{height:32px;border-radius:var(--r-sm);border:1px solid var(--line);background:var(--bg-2);
+  color:var(--ink);font:inherit;font-size:13px;padding:0 11px;width:210px}
+.busca:focus{outline:none;border-color:var(--orange)}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:var(--r-sm);overflow:hidden}
+.seg button{height:32px;padding:0 12px;font:inherit;font-size:12.5px;background:transparent;border:0;
+  color:var(--ink-2);cursor:pointer;border-left:1px solid var(--line)}
+.seg button:first-child{border-left:0}
+.seg button.on{background:var(--surface-2);color:var(--ink)}
+.seg button .n{color:var(--ink-3);margin-left:4px}
+
+.tabela-wrap{overflow-x:auto;margin:0 -18px;padding:0 18px}
+table.data{width:100%;border-collapse:collapse;min-width:1180px}
+table.data th{text-align:center;font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3);
+  font-weight:500;padding:8px 10px;border-bottom:1px solid var(--line-strong);white-space:nowrap}
+table.data th.nome{text-align:left}
+table.data td{padding:9px 10px;border-bottom:1px solid var(--line);text-align:center;white-space:nowrap}
+/* Nome à esquerda: é a única coluna em que o recuo do dependente (coluna C da planilha)
+   conta a hierarquia. O resto centrado, como nas Notas. */
+table.data td.nome{text-align:left;white-space:normal;min-width:240px}
+tr.tit td.nome{font-weight:600}
+tr.dep td.nome{padding-left:30px}
+tr.dep td.nome::before{content:"";display:inline-block;width:9px;height:9px;margin-right:8px;
+  border-left:1px solid var(--ink-3);border-bottom:1px solid var(--ink-3);vertical-align:3px}
+tr.tot td{background:rgba(255,255,255,.035);font-weight:600;border-bottom:1px solid var(--line-strong)}
+tr.tot td.rot{color:var(--ink-3);font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;font-weight:500}
+tr.geral td{background:var(--orange-soft);font-family:var(--font-serif);font-weight:600;font-size:14.5px;
+  border-top:1px solid rgba(255,164,0,.45);border-bottom:0}
+tr.geral td.rot{font-family:var(--font-sans);font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--orange);text-align:left}
+tr.espaco td{padding:0;height:10px;border-bottom:0}
+tr.nova td{background:rgba(46,151,166,.07)}
+tr.revisar td.nota{color:var(--warn)}
+.mudo{color:var(--ink-3)}
+.idade{color:var(--ink-3);font-size:12px;margin-left:5px}
+.pct{color:var(--ink-2)}
+table.data td.nota{font-size:12.5px;color:var(--ink-2);white-space:normal;max-width:220px;min-width:170px}
+.tag{display:inline-flex;align-items:center;gap:4px;font-size:10px;letter-spacing:.08em;text-transform:uppercase;
+  border-radius:999px;padding:1px 8px;margin-left:8px;vertical-align:1px;font-weight:500;white-space:nowrap}
+.tag.novo{background:var(--teal-soft);color:#8FD3DC;border:1px solid rgba(46,151,166,.5)}
+.tag.rev{background:var(--warn-soft);color:var(--warn);border:1px solid rgba(242,193,78,.5);margin:0 6px 0 0}
+.antes{display:block;font-weight:400;font-size:11.5px;color:var(--teal-light);margin-top:1px}
+.antes s{color:var(--ink-3)}
+
+/* ---- barra de envio (fixa embaixo) ---- */
+.barra{position:fixed;left:0;right:0;bottom:0;z-index:7;background:var(--bg-2);
+  border-top:1px solid var(--line-strong);box-shadow:0 -6px 18px rgba(0,0,0,.3)}
+.barra-inner{display:flex;align-items:center;gap:14px;flex-wrap:wrap;
+  padding:12px var(--gutter);max-width:var(--largura-max);margin-inline:auto}
+.barra .resumo{font-size:13px;color:var(--ink-2)}
+.barra .resumo b{color:var(--ink);font-weight:600}
+.barra .spacer{flex:1}
+.status{font-size:12.5px;color:var(--ink-2)}
+.status.erro{color:var(--neg)}
+.st{display:inline-flex;align-items:center;gap:6px;font-size:12px;padding:3px 10px;border-radius:999px;
+  white-space:nowrap;border:1px solid transparent}
+.st-pronto{background:var(--orange-soft);border-color:rgba(255,164,0,.4)} .st-pronto .ic{color:var(--orange)}
+.st-enviado{background:var(--pos-soft);border-color:rgba(70,182,120,.4)} .st-enviado .ic{color:var(--pos)}
+.st-enviando,.st-sem_pdf{background:var(--surface-2)}
+.st-erro{background:var(--neg-soft);border-color:rgba(229,103,78,.45)} .st-erro .ic{color:var(--neg)}
+
+/* ---- modais ---- */
+.modal{position:fixed;inset:0;z-index:20;background:rgba(5,16,19,.72);display:none;
+  align-items:center;justify-content:center;padding:24px}
+.modal.on{display:flex}
+#mPdf{z-index:25} #mXls{z-index:24}  /* PDF e planilha abrem por cima da confirmação */
+.caixa{background:var(--surface);border:1px solid var(--line-strong);border-radius:var(--r);
+  box-shadow:0 18px 50px rgba(0,0,0,.5);width:100%;display:flex;flex-direction:column;max-height:100%}
+.caixa header{display:flex;align-items:center;gap:10px;padding:14px 18px;border-bottom:1px solid var(--line)}
+.caixa header h3{font-family:var(--font-serif);font-size:15px;margin:0;font-weight:600;flex:1;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.caixa .corpo{padding:16px 18px;overflow:auto}
+.caixa footer{display:flex;gap:10px;justify-content:flex-end;align-items:center;padding:12px 18px;border-top:1px solid var(--line)}
+.caixa footer .rodape{margin-right:auto;color:var(--ink-3);font-size:12px}
+.caixa.pdf{max-width:1000px;height:100%}
+.caixa.pdf .corpo{padding:0;flex:1;background:#525659}
+.caixa.pdf iframe{width:100%;height:100%;border:0;display:block}
+.caixa.conf{max-width:640px}
+dl.email{display:grid;grid-template-columns:86px 1fr;gap:7px 12px;margin:0;font-size:13px}
+dl.email dt{color:var(--ink-3);font-size:11px;letter-spacing:.08em;text-transform:uppercase;padding-top:2px}
+dl.email dd{margin:0;overflow-wrap:anywhere}
+.anexo{display:flex;align-items:center;gap:10px;padding:9px 12px;border:1px solid var(--line-strong);
+  border-radius:var(--r-sm);background:var(--surface-2);color:var(--ink);font:inherit;font-size:12.5px;
+  cursor:pointer;text-align:left;max-width:100%;margin-bottom:6px}
+.anexo:hover{border-color:var(--orange)}
+.anexo .tp{font-size:10px;font-weight:700;letter-spacing:.06em;border-radius:5px;padding:5px 6px;color:#fff}
+.anexo .tp.pdf{background:#C5432F} .anexo .tp.xls{background:#1F7A45}
+.anexo .nm{overflow-wrap:anywhere} .anexo .sz{display:block;color:var(--ink-3);font-size:11.5px}
+.aviso-conf{display:flex;gap:8px;align-items:flex-start;font-size:12.5px;border-radius:var(--r-sm);
+  padding:9px 12px;margin-bottom:12px;background:var(--warn-soft);border:1px solid rgba(242,193,78,.4)}
+.aviso-conf .ic{color:var(--warn);margin-top:2px}
+.vazio{text-align:center;color:var(--ink-2);padding:48px 12px}
+.vazio b{display:block;font-family:var(--font-serif);font-size:16px;color:var(--ink);margin-bottom:6px}
+
+/* ---- "ver planilha": as abas como no Excel ---- */
+.caixa.xls{max-width:1500px;height:100%}
+.caixa.xls .corpo{padding:0;flex:1;background:#fff;overflow:auto;position:relative}
+.caixa.xls .corpo .carregando{padding:24px;color:#555;font:13px "Segoe UI",Calibri,Arial,sans-serif}
+.caixa.xls footer{justify-content:flex-start;padding:0;gap:0;background:#f3f3f3;border-top:1px solid #d4d4d4;
+  overflow-x:auto;border-radius:0 0 var(--r) var(--r)}
+.abas-xl{display:flex;align-items:stretch;min-height:34px}
+.abas-xl button{font:12.5px "Segoe UI",Calibri,Arial,sans-serif;color:#444;background:transparent;border:0;
+  border-right:1px solid #d4d4d4;padding:0 14px;cursor:pointer;white-space:nowrap}
+.abas-xl button:hover{background:#e9e9e9}
+.abas-xl button.on{background:#fff;color:#1F7A45;font-weight:600;box-shadow:inset 0 -3px 0 #1F7A45}
+.abas-xl button .abre{font-size:10px;font-weight:500;color:#777;margin-left:6px}
+.xl-zoom{display:inline-flex;border:1px solid var(--line);border-radius:var(--r-sm);overflow:hidden}
+.xl-zoom button{height:28px;padding:0 9px;font:inherit;font-size:12px;background:transparent;border:0;
+  color:var(--ink-2);cursor:pointer;border-left:1px solid var(--line)}
+.xl-zoom button:first-child{border-left:0}
+.xl-zoom button.on{background:var(--surface-2);color:var(--ink)}
+table.xl{border-collapse:collapse;table-layout:fixed;font:11pt Calibri,Arial,sans-serif;color:#000;background:#fff}
+table.xl td{padding:0 3px;overflow:hidden;white-space:nowrap;line-height:1.15;color:#000}
+table.xl:not(.semgrade) td{border:1px solid #e1e1e1}
+table.xl td.w{white-space:normal}
+table.xl td.sp{overflow:visible}
+table.xl td.sp > div{width:0;overflow:visible;white-space:nowrap}
+table.xl th{font:11px "Segoe UI",Calibri,Arial,sans-serif;color:#555;background:#f3f3f3;
+  border:1px solid #d4d4d4;font-weight:400;padding:0 2px;position:sticky;z-index:2}
+table.xl tr.hdr th{top:0;height:20px;text-align:center}
+table.xl th.rn{left:0;text-align:center;z-index:1}
+table.xl th.canto{left:0;top:0;z-index:3}
+
+/* ---- celular: um cartão por família ---- */
+.familias-m{display:none}
+@media (max-width:760px){
+  :root{--gutter:16px}
+  .kpis{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+  .kpi{padding:12px 14px;min-width:0} .kpi .val{font-size:19px!important}
+  .kpi .val small{display:block;font-size:12.5px}
+  .topbar .sinc{margin-left:0;width:100%}
+  .mov{grid-template-columns:1fr} .mov > div{border-left:0;border-top:1px solid var(--line)}
+  .mov > div:first-child{border-top:0}
+  .card-title .muted{display:none}
+  .tabela-wrap{display:none}
+  .familias-m{display:block}
+  .busca{width:100%}
+  .seg{width:100%} .seg button{flex:1;padding:0 6px}
+  .fam{border-top:1px solid var(--line);padding:12px 0}
+  .fam:first-child{border-top:0}
+  .fam .p{display:flex;justify-content:space-between;gap:10px;padding:4px 0}
+  .fam .p .n{font-weight:600;min-width:0}
+  .fam .p.d .n{font-weight:400;padding-left:14px}
+  .fam .p .s{color:var(--ink-3);font-size:12px;display:block;font-weight:400}
+  .fam .p .v{text-align:right;white-space:nowrap}
+  .fam .p .v small{display:block;color:var(--ink-3);font-size:11.5px}
+  .fam .t{display:flex;justify-content:space-between;margin-top:6px;padding-top:6px;
+    border-top:1px dashed var(--line);font-size:12.5px;color:var(--ink-2)}
+  .fam .t b{color:var(--ink)}
+  .fam .nt{font-size:12px;color:var(--ink-3);margin-top:4px}
+  .fam.revisar .nt{color:var(--warn)}
+  .barra .spacer{display:none}
+}
+</style>
+</head>
+<body>
+<div class="topbar"><div class="topbar-inner">
+  <span class="ref" id="ref">Descontos SulAmérica</span>
+  <span class="sub" id="pageSub">carregando…</span>
+  <span class="sinc status" id="sincStatus"></span>
+</div></div>
+
+<div class="content" id="content"></div>
+
+<div class="barra" id="barra" hidden><div class="barra-inner">
+  <span id="barraSt"></span>
+  <span class="resumo" id="barraResumo"></span>
+  <span class="status" id="envioStatus"></span>
+  <span class="spacer"></span>
+  <button class="btn" id="btVerPlanilha"></button>
+  <button class="btn primario" id="btEnviar">Enviar e-mail</button>
+</div></div>
+
+<div class="modal" id="mPdf" role="dialog" aria-modal="true" aria-labelledby="mPdfTitulo">
+  <div class="caixa pdf">
+    <header>
+      <h3 id="mPdfTitulo">PDF</h3>
+      <button class="btn mini" id="mPdfBaixar">baixar</button>
+      <button class="btn mini" data-fechar>fechar</button>
+    </header>
+    <div class="corpo"><iframe id="mPdfFrame" title="PDF da SulAmérica"></iframe></div>
+  </div>
+</div>
+
+<div class="modal" id="mXls" role="dialog" aria-modal="true" aria-labelledby="mXlsTitulo">
+  <div class="caixa xls">
+    <header>
+      <h3 id="mXlsTitulo">Planilha</h3>
+      <div class="xl-zoom" id="xlZoom"><button data-z="0.75">75%</button><button data-z="1" class="on">100%</button><button data-z="1.25">125%</button></div>
+      <button class="btn mini" id="mXlsBaixar">baixar</button>
+      <button class="btn mini" data-fechar>fechar</button>
+    </header>
+    <div class="corpo" id="mXlsCorpo"></div>
+    <footer><div class="abas-xl" id="mXlsAbas"></div></footer>
+  </div>
+</div>
+
+<div class="modal" id="mConf" role="dialog" aria-modal="true" aria-labelledby="mConfTitulo">
+  <div class="caixa conf">
+    <header><h3 id="mConfTitulo">Enviar e-mail</h3></header>
+    <div class="corpo" id="mConfCorpo"></div>
+    <footer>
+      <span class="rodape" id="mConfRodape"></span>
+      <button class="btn" data-fechar>cancelar</button>
+      <button class="btn primario" id="btConfirmar">Confirmar envio</button>
+    </footer>
+  </div>
+</div>
+
+<script src="../vendor/supabase.min.js"></script>
+<script src="config.js"></script>
+<script src="../reprocessar.js"></script>
+<script src="ds_fonte.js"></script>
+<script>
+'use strict';
+
+const esc = s => String(s==null?'':s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const svg = (d, sz=13) =>
+  `<svg class="ic" width="${sz}" height="${sz}" viewBox="0 0 24 24" fill="none" stroke="currentColor" `
+  + `stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="${d}"/></svg>`;
+const ICO = {
+  pdf:'M14 3H7a2 2 0 00-2 2v14a2 2 0 002 2h10a2 2 0 002-2V8zM14 3v5h5M9 13h6M9 17h4',
+  xls:'M14 3H7a2 2 0 00-2 2v14a2 2 0 002 2h10a2 2 0 002-2V8zM14 3v5h5M9 12l6 6M15 12l-6 6',
+  ok:'M20 6L9 17l-5-5', envio:'M22 2L11 13M22 2l-7 20-4-9-9-4z',
+  erro:'M12 8v4M12 16h.01M12 21a9 9 0 100-18 9 9 0 000 18z',
+  alerta:'M12 9v4M12 17h.01M10.3 3.9L1.8 18a2 2 0 001.7 3h17a2 2 0 001.7-3L13.7 3.9a2 2 0 00-3.4 0z',
+  edit:'M12 20h9M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4z',
+  mais:'M12 5v14M5 12h14', menos:'M5 12h14', relog:'M12 7v5l3 2M12 21a9 9 0 100-18 9 9 0 000 18z',
+};
+const MESES = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+const fmt = {
+  rs: v => v==null ? '—' : 'R$ ' + Number(v).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}),
+  n2: v => v==null ? '—' : Number(v).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}),
+  pct: v => v==null ? '—' : Math.round(v*100) + '%',
+  iso: s => { if(!s) return '—'; const [y,m,d] = String(s).slice(0,10).split('-'); return `${d}/${m}/${y}`; },
+  /* "25/11 às 09:14". O carimbo vem com fuso (-03:00) do Azure; mostrar a hora escrita
+     nele, e não a convertida pelo relógio de quem abre. */
+  quando: s => { if(!s) return '—'; const [d,h] = String(s).split('T'); const [,m,dd] = d.split('-');
+                 return `${dd}/${m}` + (h ? ' às ' + h.slice(0,5) : ''); },
+  quem: e => e ? String(e).split('@')[0] : '—',
+  tam: b => !b ? '' : b >= 1048576 ? (b/1048576).toLocaleString('pt-BR',{maximumFractionDigits:1}) + ' MB'
+                                   : Math.round(b/1024) + ' KB',
+};
+
+let D = null;                  // descontos_sulamerica.json
+let PL = null;                 // descontos_sulamerica.planilha.json (baixado ao abrir "ver planilha")
+let enviando = false;          // pedido desta tela em andamento
+let ultimoResultado = null;    // descontos_sulamerica.envio.json do último pedido desta tela
+let filtro = 'todas', busca = '';
+const urls = [];               // blob: abertos, revogados ao fechar as caixas
+
+function situacao(){
+  if(enviando) return 'enviando';
+  if(ultimoResultado && ultimoResultado.ok === false) return 'erro';
+  if(D.envio) return 'enviado';
+  if(!D.pdf) return 'sem_pdf';
+  return 'pronto';
+}
+
+/* ---------- blocos ---------- */
+function banners(){
+  let h = '';
+  const a = D.alterada_no_drive;
+  if(a){
+    h += `<div class="banner info">${svg(ICO.edit,15)}<div><b>Planilha alterada no Drive em ${fmt.quando(a.em)}${a.por ? ' por ' + esc(a.por) : ''}</b>
+      — a tabela abaixo já mostra a versão nova, que é a que vai anexada.
+      ${(a.mudancas||[]).length ? '<ul>' + a.mudancas.map(m => `<li>${esc(m)}</li>`).join('') + '</ul>' : ''}</div></div>`;
+  }
+  const rev = D.familias.filter(f => f.revisar);
+  if(rev.length && !D.envio){
+    h += `<div class="banner warn">${svg(ICO.alerta,15)}<div><b>${rev.length} ${rev.length>1?'famílias':'família'} com desconto sugerido pela automação</b>
+      — ${rev.map(f => esc(f.titular)).join(', ')}. O % e a nota não vêm do PDF da SulAmérica: confira na planilha
+      do Drive antes de enviar. Ao corrigir lá, a tabela se atualiza na próxima vez que o painel for aberto.</div></div>`;
+  }
+  if(!D.pdf){
+    h += `<div class="banner warn">${svg(ICO.alerta,15)}<div><b>O PDF da SulAmérica de ${esc(D.mes_extenso)} não está na pasta do mês no Drive.</b>
+      Ele é um dos anexos — o envio fica bloqueado até ele chegar.</div></div>`;
+  }
+  return h;
+}
+
+function kpis(){
+  const t = D.total_a_pagar, s = situacao();
+  let confere = '';
+  if(D.pdf){
+    const ok = Math.abs((t.premio||0) - (D.pdf.total||0)) < 0.005;
+    confere = ok ? `<span class="ok">${svg(ICO.ok,12)} confere com o</span> <button class="link" data-ver-pdf>PDF da SulAmérica</button>`
+                 : `<span class="bad">${svg(ICO.erro,12)} o</span> <button class="link" data-ver-pdf>PDF</button> <span class="bad">diz ${fmt.rs(D.pdf.total)}</span>`;
+  }
+  const dif = D.anterior && D.anterior.premio != null && t.premio != null ? t.premio - D.anterior.premio : null;
+  const m = D.movimentacao;
+  const stTxt = {pronto:'Pronto para enviar', enviando:'Enviando…', enviado:'Enviado', erro:'Não enviado', sem_pdf:'Aguardando o PDF'}[s];
+  const stDet = s === 'enviado' ? `em ${fmt.quando(D.envio.em)} · por ${esc(fmt.quem(D.envio.por))}`
+                                  + (D.envio.vezes > 1 ? ` · ${D.envio.vezes} envios` : '')
+              : s === 'erro' ? 'veja o motivo na barra abaixo'
+              : `para ${D.email.para.length} destinatários`;
+  return `<div class="kpis">
+    <div class="kpi destaque"><div class="lbl">Total a pagar</div>
+      <div class="val num">${fmt.rs(t.premio)}</div>
+      <div class="det">${confere}</div>
+      ${dif != null ? `<div class="det num">${dif >= 0 ? '+' : '−'}${fmt.rs(Math.abs(dif))} vs ${esc(D.anterior.aba)}</div>` : ''}</div>
+    <div class="kpi"><div class="lbl">Vidas no plano</div>
+      <div class="val num">${D.vidas} <small>em ${D.familias.length} famílias</small></div>
+      <div class="det num">${m.entraram.length ? '+' + m.entraram.length + ' entraram' : 'ninguém entrou'} · ${m.sairam.length ? '−' + m.sairam.length + ' saíram' : 'ninguém saiu'}</div></div>
+    <div class="kpi"><div class="lbl">Desconto dos funcionários</div>
+      <div class="val num">${fmt.rs(t.desconto)}</div>
+      <div class="det num">custo da empresa ${fmt.rs(t.empresa)}</div></div>
+    <div class="kpi"><div class="lbl">E-mail do mês</div>
+      <div class="val txt">${stTxt}</div>
+      <div class="det">${stDet}</div></div>
+  </div>`;
+}
+
+function movimentacao(){
+  const m = D.movimentacao;
+  const lista = xs => xs.length
+    ? `<ul>${xs.map(x => `<li>${esc(x.nome)} <span class="d">· ${esc(x.det)}</span></li>`).join('')}</ul>`
+    : '<div class="nada">ninguém</div>';
+  return `<div class="mov">
+    <div><div class="lbl">${svg(ICO.mais,12)} Entraram no plano</div>${lista(m.entraram)}</div>
+    <div><div class="lbl">${svg(ICO.menos,12)} Saíram do plano</div>${lista(m.sairam)}</div>
+    <div><div class="lbl">${svg(ICO.edit,12)} Nome atualizado pelo PDF</div>${lista(m.nomes)}</div>
+  </div>`;
+}
+
+const semAcento = s => String(s).normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase();
+const mudou = f => f.nova || f.pessoas.some(p => p.novo || p.nome_antes);
+function passaFiltro(f){
+  if(filtro === 'mudou' && !mudou(f)) return false;
+  if(filtro === 'revisar' && !f.revisar) return false;
+  if(busca){ const q = semAcento(busca); return f.pessoas.some(p => semAcento(p.nome).includes(q)); }
+  return true;
+}
+
+function linhasFamilia(f){
+  const pessoa = (p, i) => {
+    const tit = i === 0;
+    const antes = p.nome_antes ? `<span class="antes">nome atualizado · antes <s>${esc(p.nome_antes)}</s></span>` : '';
+    const nota = !tit ? '' : f.revisar ? `<span class="tag rev">${svg(ICO.alerta,10)}revisar</span>${esc(f.nota||'')}` : esc(f.nota||'');
+    return `<tr class="${tit?'tit':'dep'}${p.novo?' nova':''}${f.revisar&&tit?' revisar':''}">
+      <td class="nome">${esc(p.nome)}${p.novo ? '<span class="tag novo">novo</span>' : ''}${antes}</td>
+      <td>${esc(p.parentesco)}</td>
+      <td class="num">${fmt.iso(p.nascimento)}${p.idade!=null ? `<span class="idade">${p.idade} a</span>` : ''}</td>
+      <td>${esc(p.plano)}</td>
+      <td class="num">${fmt.n2(p.premio)}</td>
+      <td class="num mudo">${fmt.n2(p.iof)}</td>
+      <td class="num">${fmt.n2(p.total)}</td>
+      <td class="num pct">${fmt.pct(p.pct)}</td>
+      <td class="num">${fmt.n2(p.desconto)}</td>
+      <td class="num">${fmt.n2(p.empresa)}</td>
+      <td class="nota">${nota}</td>
+    </tr>`;
+  };
+  const t = f.total;
+  return f.pessoas.map(pessoa).join('') + `<tr class="tot">
+      <td></td><td></td><td></td><td class="rot">Total</td>
+      <td class="num">${fmt.n2(t.premio)}</td><td class="num">${fmt.n2(t.iof)}</td>
+      <td class="num">${fmt.n2(t.total)}</td><td></td>
+      <td class="num">${fmt.n2(t.desconto)}</td><td class="num">${fmt.n2(t.empresa)}</td><td></td>
+    </tr><tr class="espaco"><td colspan="11"></td></tr>`;
+}
+
+function cartaoFamilia(f){
+  const p = (x, i) => `<div class="p${i?' d':''}"><span class="n">${esc(x.nome)}${x.novo?'<span class="tag novo">novo</span>':''}
+      <span class="s">${esc(x.parentesco)} · ${esc(x.plano)}${x.idade!=null ? ' · ' + x.idade + ' a' : ''}</span></span>
+      <span class="v num">${fmt.rs(x.total)}<small>desconto ${fmt.rs(x.desconto)} (${fmt.pct(x.pct)})</small></span></div>`;
+  return `<div class="fam${f.revisar?' revisar':''}">${f.pessoas.map(p).join('')}
+    <div class="t"><span>Total da família</span><span class="num"><b>${fmt.rs(f.total.total)}</b> · desconto ${fmt.rs(f.total.desconto)}</span></div>
+    ${f.nota ? `<div class="nt">${f.revisar ? '⚠ revisar: ' : ''}${esc(f.nota)}</div>` : ''}</div>`;
+}
+
+function tabela(){
+  const fs = D.familias.filter(passaFiltro);
+  const nMudou = D.familias.filter(mudou).length;
+  const nRev = D.familias.filter(f => f.revisar).length;
+  const t = D.total_a_pagar;
+  const geral = filtro === 'todas' && !busca ? `<tr class="geral">
+      <td class="rot" colspan="4">Total a pagar</td>
+      <td class="num">${fmt.n2(t.premio)}</td><td class="num">${fmt.n2(t.iof)}</td><td class="num">${fmt.n2(t.total)}</td><td></td>
+      <td class="num">${fmt.n2(t.desconto)}</td><td class="num">${fmt.n2(t.empresa)}</td><td></td></tr>` : '';
+  return `<div class="card">
+    <div class="card-title">
+      <h2>Aba ${esc(D.aba)}</h2><span class="muted">uma linha por pessoa, na ordem da planilha</span>
+      <button class="btn mini" data-ver-planilha>${svg(ICO.xls)}ver como no Excel</button>
+      <span class="spacer"></span>
+      <input class="busca" id="busca" type="search" placeholder="buscar pessoa" value="${esc(busca)}">
+      <div class="seg" id="seg">
+        <button data-f="todas" class="${filtro==='todas'?'on':''}">Todas</button>
+        <button data-f="mudou" class="${filtro==='mudou'?'on':''}">Mudou no mês<span class="n">${nMudou}</span></button>
+        <button data-f="revisar" class="${filtro==='revisar'?'on':''}">Revisar<span class="n">${nRev}</span></button>
+      </div>
+    </div>
+    <div class="tabela-wrap"><table class="data">
+      <thead><tr>
+        <th class="nome">Nome</th><th>Parentesco</th><th>Nascimento</th><th>Plano</th>
+        <th>Prêmio</th><th>IOF</th><th>Total</th><th>% func.</th><th>Desconto func.</th><th>Custo empresa</th><th>Nota</th>
+      </tr></thead>
+      <tbody>${fs.length ? fs.map(linhasFamilia).join('') + geral
+                         : '<tr><td colspan="11" class="mudo" style="padding:28px">nenhuma família com esse filtro</td></tr>'}</tbody>
+    </table></div>
+    <div class="familias-m">${fs.map(cartaoFamilia).join('') || '<div class="mudo">nenhuma família com esse filtro</div>'}</div>
+  </div>`;
+}
+
+function render(){
+  const el = document.getElementById('content');
+  if(!D || D.vazio){
+    document.getElementById('ref').textContent = 'Descontos SulAmérica';
+    document.getElementById('pageSub').textContent = '';
+    el.innerHTML = `<div class="card vazio"><b>Nenhuma aba publicada ainda</b>
+      ${D && D.motivo ? esc(D.motivo) : 'A tabela aparece aqui quando o PDF da SulAmérica chegar na pasta do mês no Drive e a aba nova for gravada na planilha.'}</div>`;
+    document.getElementById('barra').hidden = true;
+    return;
+  }
+  document.getElementById('ref').textContent = 'Descontos SulAmérica · ' + D.mes_extenso;
+  const P = D.planilha || {};
+  document.getElementById('pageSub').textContent = `aba ${D.aba}` + (D.periodo ? ` · período ${D.periodo}` : '')
+    + (P.alterada_em ? ` · planilha salva em ${fmt.quando(P.alterada_em)}${P.alterada_por ? ' por ' + P.alterada_por : ''}` : '');
+  el.innerHTML = banners() + kpis() + movimentacao() + tabela();
+  barra();
+}
+
+function proximoMes(){ return MESES[Number(String(D.referencia).slice(5,7)) % 12]; }
+
+function barra(){
+  document.getElementById('barra').hidden = false;
+  const s = situacao();
+  const ST = {
+    pronto:  `<span class="st st-pronto">${svg(ICO.envio)}Pronto para enviar</span>`,
+    sem_pdf: `<span class="st st-sem_pdf">${svg(ICO.relog)}Aguardando o PDF</span>`,
+    enviando:`<span class="st st-enviando">${svg(ICO.relog)}Enviando…</span>`,
+    enviado: `<span class="st st-enviado">${svg(ICO.ok)}Enviado em ${fmt.quando(D.envio && D.envio.em)} por ${esc(fmt.quem(D.envio && D.envio.por))}</span>`,
+    erro:    `<span class="st st-erro">${svg(ICO.erro)}Não enviado</span>`,
+  };
+  document.getElementById('barraSt').innerHTML = ST[s];
+  document.getElementById('barraResumo').innerHTML =
+      s === 'enviado' ? `a próxima aba é gravada quando o PDF de ${proximoMes()} chegar ao Drive`
+    : s === 'sem_pdf' ? 'o PDF da SulAmérica do mês é um dos anexos'
+    : s === 'erro' ? ''
+    : `para <b>${D.email.para.length} destinatários</b> · cópia Controladoria · anexos: planilha + PDF da SulAmérica`;
+  document.getElementById('btVerPlanilha').innerHTML = svg(ICO.xls) + 'ver planilha';
+  const bt = document.getElementById('btEnviar');
+  bt.disabled = s === 'enviando' || s === 'sem_pdf';
+  bt.className = 'btn' + (s === 'enviado' ? '' : ' primario');
+  bt.innerHTML = s === 'enviando' ? 'enviando…'
+               : s === 'enviado' ? 'Reenviar…'
+               : s === 'erro' ? 'Tentar de novo'
+               : svg(ICO.envio) + 'Enviar e-mail';
+}
+
+/* ---------- anexos ---------- */
+async function blobDe(nome){
+  const url = await window.DS_FONTE.urlArquivo(nome);
+  urls.push(url);
+  return url;
+}
+async function baixar(nome, titulo){
+  try{
+    const a = document.createElement('a');
+    a.href = await blobDe(nome);
+    a.download = titulo || nome;
+    document.body.appendChild(a); a.click(); a.remove();
+  }catch(e){ alert('Não foi possível baixar: ' + e.message); }
+}
+async function abrirPdf(){
+  if(!D.pdf) return;
+  document.getElementById('mPdfTitulo').textContent = D.pdf.nome;
+  const fr = document.getElementById('mPdfFrame');
+  fr.removeAttribute('src');
+  document.getElementById('mPdf').classList.add('on');
+  try{ fr.src = await blobDe(D.pdf.arquivo); }
+  catch(e){ fechar(document.getElementById('mPdf')); alert('Não foi possível abrir o PDF: ' + e.message); }
+}
+
+/* ---------- "ver planilha": as abas como no Excel ---------- */
+let abaXl = null, zoomXl = 1;
+async function abrirPlanilha(aba){
+  const corpo = document.getElementById('mXlsCorpo');
+  document.getElementById('mXlsTitulo').textContent = D.planilha.nome;
+  document.getElementById('mXls').classList.add('on');
+  if(!PL || PL.versao !== D.planilha.versao){
+    corpo.innerHTML = '<div class="carregando">carregando a planilha…</div>';
+    document.getElementById('mXlsAbas').innerHTML = '';
+    PL = await window.DS_FONTE.carregarPlanilha();
+    if(!PL){ corpo.innerHTML = '<div class="carregando">O desenho da planilha ainda não foi publicado — tente de novo em alguns segundos.</div>'; return; }
+    let st = document.getElementById('xlCss');
+    if(!st){ st = document.createElement('style'); st.id = 'xlCss'; document.head.appendChild(st); }
+    st.textContent = PL.css;
+  }
+  abaXl = aba || (PL.html[D.aba] ? D.aba : PL.ativa);
+  // abas na ORDEM DO ARQUIVO, como o Excel mostra; marca a que abre ao abrir o arquivo
+  document.getElementById('mXlsAbas').innerHTML = PL.abas.map(n =>
+    `<button data-aba="${esc(n)}" class="${n === abaXl ? 'on' : ''}">${esc(n)}${n === PL.ativa ? '<span class="abre">· abre aqui</span>' : ''}</button>`).join('');
+  corpo.innerHTML = PL.html[abaXl] || '<div class="carregando">aba não encontrada</div>';
+  const t = corpo.querySelector('table'); if(t) t.style.zoom = zoomXl;
+  corpo.scrollTop = 0; corpo.scrollLeft = 0;
+  const on = document.querySelector('#mXlsAbas button.on'); if(on) on.scrollIntoView({inline:'nearest', block:'nearest'});
+}
+
+/* ---------- confirmação do envio ---------- */
+function abrirConfirmacao(){
+  const reenvio = !!D.envio;
+  const rev = D.familias.filter(f => f.revisar);
+  const E = D.email, P = D.planilha;
+  document.getElementById('mConfTitulo').textContent =
+    (reenvio ? 'Reenviar' : 'Enviar') + ` a Tabela de Descontos de ${D.mes_extenso}?`;
+  let avisos = '';
+  if(reenvio) avisos += `<div class="aviso-conf">${svg(ICO.alerta)}<div>Este mês <b>já foi enviado</b> em ${fmt.quando(D.envio.em)} por ${esc(fmt.quem(D.envio.por))}. Os destinatários vão receber o e-mail de novo.</div></div>`;
+  if(rev.length) avisos += `<div class="aviso-conf">${svg(ICO.alerta)}<div>${rev.length} ${rev.length>1?'famílias ainda marcadas':'família ainda marcada'} <b>revisar</b> na planilha (${rev.map(f=>esc(f.titular)).join(', ')}).</div></div>`;
+  document.getElementById('mConfCorpo').innerHTML = avisos + `
+    <dl class="email">
+      <dt>Para</dt><dd>${E.para.map(esc).join(', ')}</dd>
+      <dt>Cópia</dt><dd>${E.cc.map(esc).join(', ') || '—'}</dd>
+      <dt>Cco</dt><dd>${E.cco.map(esc).join(', ') || '—'}</dd>
+      <dt>Assunto</dt><dd>${esc(E.assunto)}</dd>
+      <dt>Anexos</dt><dd>
+        <button class="anexo" data-ver-planilha><span class="tp xls">XLSX</span><span class="nm">${esc(P.nome)}
+          <span class="sz">${fmt.tam(P.tamanho)}${P.aba_ativa ? ' · abre em ' + esc(P.aba_ativa) : ''} · clique para ver</span></span></button>
+        <button class="anexo" data-ver-pdf><span class="tp pdf">PDF</span><span class="nm">${esc(D.pdf.nome)}
+          <span class="sz">${fmt.tam(D.pdf.tamanho)} · clique para ver</span></span></button></dd>
+    </dl>`;
+  document.getElementById('mConfRodape').textContent =
+    `Na hora do envio a planilha é lida de novo no Drive; se a aba mais recente não for ${D.aba}, nada sai.`;
+  document.getElementById('btConfirmar').textContent = reenvio ? 'Reenviar' : 'Confirmar envio';
+  document.getElementById('mConf').classList.add('on');
+}
+
+function aoConcluirEnvio(res){
+  enviando = false;
+  ultimoResultado = res;
+  if(!res) return { texto: 'o envio terminou, mas o resultado não pôde ser lido — recarregue.', erro: true };
+  if(res.ok === false) return { texto: 'não enviado: ' + res.erro, erro: true };
+  return { texto: `e-mail ${res.acao === 'reenviar' ? 'reenviado' : 'enviado'} para ${(res.para||[]).join(', ')}.` };
+}
+
+/* ---------- caixas ---------- */
+function fechar(m){
+  m.classList.remove('on');
+  if(m.id === 'mPdf') document.getElementById('mPdfFrame').removeAttribute('src');
+  if(!document.querySelector('.modal.on')){ while(urls.length) URL.revokeObjectURL(urls.pop()); }
+}
+
+async function recarregar(){
+  D = await window.DS_FONTE.carregar();
+  render();
+}
+
+function ligar(){
+  document.addEventListener('click', ev => {
+    if(ev.target.closest('[data-ver-pdf]')) abrirPdf();
+    else if(ev.target.closest('[data-ver-planilha]')) abrirPlanilha();
+  });
+  document.getElementById('content').addEventListener('click', ev => {
+    const b = ev.target.closest('#seg button');
+    if(b){ filtro = b.dataset.f; render(); }
+  });
+  document.getElementById('content').addEventListener('input', ev => {
+    if(ev.target.id === 'busca'){
+      busca = ev.target.value; const pos = ev.target.selectionStart; render();
+      const i = document.getElementById('busca'); i.focus(); i.setSelectionRange(pos,pos);
+    }
+  });
+  document.getElementById('btVerPlanilha').onclick = () => abrirPlanilha();
+  document.getElementById('btEnviar').onclick = abrirConfirmacao;
+  document.getElementById('mPdfBaixar').onclick = () => baixar(D.pdf.arquivo, D.pdf.nome);
+  document.getElementById('mXlsBaixar').onclick = () => baixar(D.planilha.arquivo, D.planilha.nome);
+  document.getElementById('mXlsAbas').addEventListener('click', ev => {
+    const b = ev.target.closest('button[data-aba]'); if(b) abrirPlanilha(b.dataset.aba);
+  });
+  document.getElementById('xlZoom').addEventListener('click', ev => {
+    const b = ev.target.closest('button[data-z]'); if(!b) return;
+    zoomXl = Number(b.dataset.z);
+    document.querySelectorAll('#xlZoom button').forEach(x => x.classList.toggle('on', x === b));
+    const t = document.querySelector('#mXlsCorpo table'); if(t) t.style.zoom = zoomXl;
+  });
+  document.querySelectorAll('[data-fechar]').forEach(b => b.onclick = () => fechar(b.closest('.modal')));
+  document.querySelectorAll('.modal').forEach(m => m.addEventListener('click', ev => { if(ev.target === m) fechar(m); }));
+  document.addEventListener('keydown', ev => {
+    if(ev.key !== 'Escape') return;
+    const topo = document.querySelector('#mPdf.on') || document.querySelector('#mXls.on') || document.querySelector('.modal.on');
+    if(topo) fechar(topo);
+  });
+
+  /* O botão de confirmar é quem dispara o pedido (HUB_REPROCESSAR liga nele). Antes do
+     pedido sair, este listener fecha as caixas e marca "enviando…"; a ação (enviar ou
+     reenviar) é lida na hora do clique, do estado que a tela mostrava. */
+  const btConf = document.getElementById('btConfirmar');
+  let acaoDoClique = 'enviar';
+  btConf.addEventListener('click', () => {
+    acaoDoClique = D.envio ? 'reenviar' : 'enviar';
+    enviando = true;
+    ultimoResultado = null;
+    document.querySelectorAll('.modal.on').forEach(fechar);
+    render();
+  }, true);
+  window.DS_FONTE.ligarEnvio(
+    btConf, document.getElementById('envioStatus'),
+    () => acaoDoClique,
+    () => Number(String(D.referencia).slice(5,7)),
+    async res => { const fim = aoConcluirEnvio(res); await recarregar(); return fim; },
+    () => { enviando = false; render(); }
+  );
+}
+
+async function boot(){
+  ligar();
+  try{
+    D = await window.DS_FONTE.carregar();
+  }catch(e){
+    document.getElementById('pageSub').textContent = 'não foi possível carregar: ' + e.message;
+    return;
+  }
+  render();
+  /* Depois de desenhar o que já está publicado, e não antes: a tela abre na hora, e a
+     releitura do Drive (que pode pegar instância fria, ~10 s) só ajusta o que mudou. O
+     envio baixa a planilha de novo antes de sair, então não é preciso esperar. */
+  window.DS_FONTE.conferirDrive(document.getElementById('sincStatus'), async () => {
+    await recarregar();
+    return { texto: 'conferido com o Drive às ' + new Date().toTimeString().slice(0,5) };
+  });
+}
+boot();
+</script>
+</body>
+</html>

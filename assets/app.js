@@ -89,7 +89,9 @@ const ICON = {
   // livro aberto: os manuais de processo
   manual:'M12 6.5C10 5 7 4.5 3 4.5v14c4 0 7 .5 9 2 2-1.5 5-2 9-2v-14c-4 0-7 .5-9 2zM12 6.5v14',
   // recibo com a borda serrilhada: as notas de débito
-  recibo:'M6 2.5h12v19l-2-1.5-2 1.5-2-1.5-2 1.5-2-1.5-2 1.5zM9 7.5h6M9 11h6M9 14.5h4'
+  recibo:'M6 2.5h12v19l-2-1.5-2 1.5-2-1.5-2 1.5-2-1.5-2 1.5zM9 7.5h6M9 11h6M9 14.5h4',
+  // cruz de saúde dentro do escudo: os descontos do plano de saúde
+  saude:'M12 3l8 3v6c0 4.5-3.4 8-8 9-4.6-1-8-4.5-8-9V6zM12 9v6M9 12h6'
 };
 const ROUTES = [
   {id:'', title:'Início', sub:'Hub de Planejamento & Controle', icon:'home', render:renderHome},
@@ -102,6 +104,7 @@ const ROUTES = [
   {id:'saldo_bancario', title:'Saldo Bancário', sub:'Projeção de caixa da semana — Grupo Luxor', icon:'moeda', render:renderSaldoBancario},
   {id:'controle_pagamentos', title:'Controle de Pagamentos', sub:'Fornecedores fixos do mês e o que já foi pago', icon:'pagamentos', render:renderControlePagamentos},
   {id:'notas_debito', title:'Notas de Débito', sub:'Notas do mês: conferir o PDF e enviar os e-mails', icon:'recibo', render:renderNotasDebito},
+  {id:'descontos_sulamerica', title:'Descontos SulAmérica', sub:'Tabela de descontos do plano de saúde: conferir e enviar o e-mail', icon:'saude', render:renderDescontosSulamerica},
   {id:'tarituba', title:'Fluxo de Caixa — Tarituba', sub:'Orçado × realizado do imóvel, mês a mês', icon:'imovel', render:renderTarituba},
   {id:'shiva', title:'Fluxo de Caixa — Shiva', sub:'Orçado × realizado da operação agro, mês a mês', icon:'agro', render:renderShiva},
   {id:'passivo', title:'Fluxo de Caixa — Passivo Hoteleiro', sub:'Orçado × realizado do passivo hoteleiro, mês a mês', icon:'hotel', render:renderPassivo},
@@ -132,6 +135,7 @@ function temDado(id, hub){
   if(id==='passivo') return true;                 // idem
   if(id==='fpg') return true;                     // idem
   if(id==='notas_debito') return true;            // idem: lote e PDFs do bucket, no iframe
+  if(id==='descontos_sulamerica') return true;    // idem: tabela, desenho e anexos do bucket, no iframe
   if(id==='kanban') return true;                  // tabelas kanban_* direto do Postgres
   if(id==='senhas') return true;                  // tabelas senhas_* (cifradas) direto do Postgres
   if(id==='societario') return true;              // fala direto com o bot das estruturas societárias
@@ -159,7 +163,7 @@ const MENU = [
   '', 'indicadores',
   {pasta:'orcado', titulo:'Orçado × Realizado', itens:['fluxo','dre']},
   {pasta:'fluxos', titulo:'Fluxo de Caixa', itens:['tarituba','shiva','passivo','fpg']},
-  {pasta:'controles', titulo:'Controles Financeiros', itens:['inadimplencia','vendas','saldo_bancario','controle_pagamentos','notas_debito']},
+  {pasta:'controles', titulo:'Controles Financeiros', itens:['inadimplencia','vendas','saldo_bancario','controle_pagamentos','notas_debito','descontos_sulamerica']},
   {pasta:'apresentacoes', titulo:'Apresentações', itens:['comite_fo','board_fo','carta']},
   {pasta:'tarefas', titulo:'Kanban e Projetos', itens:['kanban','projetos','senhas']},
   {pasta:'manuais', titulo:'Manuais', itens:['manual_backoffice']},
@@ -1118,6 +1122,16 @@ function renderFpg(el){
 function renderNotasDebito(el){
   el.classList.add('flush');
   el.innerHTML=`<iframe class="embed" src="assets/notas_debito/index.html" title="Notas de Débito"></iframe>`;
+}
+
+/* ---- Descontos SulAmérica (11/2026) ----
+   Substitui o `/descontos-sulamerica enviar` do Slack: o iframe lê do bucket a aba do mês
+   da Tabela de Descontos (descontos_sulamerica.*), o desenho das abas como no Excel e os
+   anexos; pede ao abrir a releitura da planilha no Drive e manda o e-mail pelas ações
+   `enviar`/`reenviar` do reprocessar. Acesso: hub_can('descontos_sulamerica'). */
+function renderDescontosSulamerica(el){
+  el.classList.add('flush');
+  el.innerHTML=`<iframe class="embed" src="assets/descontos_sulamerica/index.html" title="Descontos SulAmérica"></iframe>`;
 }
 
 /* ---- Kanban Planejamento, Controle e Concierge (mesmo padrão) ----

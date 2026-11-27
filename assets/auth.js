@@ -36,6 +36,8 @@ const HUB_DATASETS = {
   fpg: null,
   // idem: lote do mês, PDFs (notas_debito.*.pdf) e o carimbo do envio, baixados no iframe
   notas_debito: null,
+  // idem: tabela do mês, desenho das abas, anexos e o carimbo do envio, baixados no iframe
+  descontos_sulamerica: null,
   // tabelas kanban_* (ver sql/hub_schema.sql, seção 8), lidas e gravadas pelo iframe
   kanban: null,
   // tabelas senhas_* (seção 10), cifradas; a senha mestra é pedida no iframe
